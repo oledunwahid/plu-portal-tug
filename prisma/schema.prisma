@@ -1,0 +1,58 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// role values: CASHIER | ADMIN
+// requestType values: NEW_ITEM | UPDATE_PRICE | UPDATE_NAME | UPDATE_PRINTER | UPDATE_FULL
+// status values: PENDING | DONE
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  password  String
+  name      String
+  role      String   @default("CASHIER")
+  outlet    String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  requests  PLURequest[]
+}
+
+model PLURequest {
+  id            String   @id @default(cuid())
+  requestType   String
+  status        String   @default("PENDING")
+
+  code          String?
+  name          String
+  category      String
+  department    String
+  price         Float?
+  folder        String?
+  serviceCharge Boolean  @default(true)
+  tax1          Boolean  @default(true)
+  tax2          Boolean  @default(true)
+  noDiscount    Boolean  @default(true)
+  hideReceipt   Boolean  @default(false)
+  printers      String
+  outlets       String
+  salesDef      String   @default("SALES")
+  remarks       String?
+
+  submittedBy   User     @relation(fields: [userId], references: [id])
+  userId        String
+  outletGroup   String
+  cashierOutlet String
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  doneAt        DateTime?
+  adminNote     String?
+  exportedAt    DateTime?
+  exportBatchId String?
+}

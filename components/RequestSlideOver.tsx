@@ -1,0 +1,440 @@
+'use client';
+
+import { useState, useEffect } from 'react';
+import { toast } from 'sonner';
+import { X, Loader2, CheckCircle, Trash2 } from 'lucide-react';
+import { PRINTERS_BY_GROUP, OUTLETS_BY_GROUP, OutletGroup } from '@/lib/outlets';
+import { getCategoriesForOutlet } from '@/lib/categories';
+import StatusBadge, { TypeBadge } from '@/components/StatusBadge';
+import { formatDate } from '@/lib/utils';
+
+interface FullRequest {
+  id: string;
+  requestType: string;
+  status: string;
+  code: string | null;
+  name: string;
+  category: string;
+  department: string;
+  price: number | null;
+  folder: string | null;
+  serviceCharge: boolean;
+  tax1: boolean;
+  tax2: boolean;
+  noDiscount: boolean;
+  hideReceipt: boolean;
+  printers: string;
+  outlets: string;
+  remarks: string | null;
+  cashierOutlet: string;
+  outletGroup: string;
+  adminNote: string | null;
+  createdAt: string;
+  submittedBy: { name: string; outlet: string };
+}
+
+interface EditForm {
+  code: string;
+  name: string;
+  category: string;
+  department: string;
+  price: string;
+  folder: string;
+  serviceCharge: boolean;
+  tax1: boolean;
+  tax2: boolean;
+  noDiscount: boolean;
+  hideReceipt: boolean;
+  adminNote: string;
+}
+
+const FLAG_FIELDS: { key: keyof EditForm; label: string }[] = [
+  { key: 'serviceCharge', label: 'Service Charge' },
+  { key: 'tax1', label: 'Tax 1' },
+  { key: 'tax2', label: 'Tax 2' },
+  { key: 'noDiscount', label: 'No Discount' },
+  { key: 'hideReceipt', label: 'Hide Receipt' },
+];
+
+export default function RequestSlideOver({
+  requestId,
+  onClose,
+  onUpdate,
+}: {
+  requestId: string | null;
+  onClose: () => void;
+  onUpdate: () => void;
+}) {
+  const [request, setRequest] = useState<FullRequest | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [marking, setMarking] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [form, setForm] = useState<EditForm>({
+    code: '', name: '', category: '', department: '', price: '', folder: '',
+    serviceCharge: true, tax1: true, tax2: true, noDiscount: true, hideReceipt: false, adminNote: '',
+  });
+  const [selectedPrinters, setSelectedPrinters] = useState<string[]>([]);
+  const [selectedOutlets, setSelectedOutlets] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (!requestId) { setRequest(null); return; }
+    setLoading(true);
+    setConfirmDelete(false);
+    fetch(`/api/admin/requests/${requestId}`)
+      .then((r) => r.json())
+      .then((data: FullRequest) => {
+        setRequest(data);
+        setForm({
+          code: data.code ?? '',
+          name: data.name,
+          category: data.category,
+          department: data.department,
+          price: data.price != null ? String(data.price) : '',
+          folder: data.folder ?? '',
+          serviceCharge: data.serviceCharge,
+          tax1: data.tax1,
+          tax2: data.tax2,
+          noDiscount: data.noDiscount,
+          hideReceipt: data.hideReceipt,
+          adminNote: data.adminNote ?? '',
+        });
+        setSelectedPrinters(data.printers ? data.printers.split(';') : []);
+        setSelectedOutlets(data.outlets ? data.outlets.split(';') : []);
+      })
+      .catch(() => toast.error('Failed to load request'))
+      .finally(() => setLoading(false));
+  }, [requestId]);
+
+  if (!requestId) return null;
+
+  const printerOptions = request ? (PRINTERS_BY_GROUP[request.outletGroup as OutletGroup] ?? []) : [];
+  const outletOptions = request ? (OUTLETS_BY_GROUP[request.outletGroup as OutletGroup] ?? []) : [];
+  const categoryOptions = request ? getCategoriesForOutlet(request.cashierOutlet) : [];
+
+  async function handleSave() {
+    if (!request) return;
+    setSaving(true);
+    try {
+      const body = {
+        code: form.code || null,
+        name: form.name,
+        category: form.category,
+        department: form.department,
+        price: form.price ? Number(form.price) : null,
+        folder: form.folder || null,
+        serviceCharge: form.serviceCharge,
+        tax1: form.tax1,
+        tax2: form.tax2,
+        noDiscount: form.noDiscount,
+        hideReceipt: form.hideReceipt,
+        printers: selectedPrinters.join(';'),
+        outlets: selectedOutlets.join(';'),
+        adminNote: form.adminNote || null,
+      };
+      const res = await fetch(`/api/admin/requests/${request.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error();
+      toast.success('Request updated');
+      onUpdate();
+    } catch {
+      toast.error('Failed to save changes');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleMarkDone() {
+    if (!request) return;
+    setMarking(true);
+    try {
+      const res = await fetch(`/api/admin/requests/${request.id}/done`, { method: 'POST' });
+      if (!res.ok) throw new Error();
+      toast.success('Marked as done');
+      onUpdate();
+      onClose();
+    } catch {
+      toast.error('Failed to mark done');
+    } finally {
+      setMarking(false);
+    }
+  }
+
+  async function handleDelete() {
+    if (!request) return;
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/admin/requests/${request.id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error();
+      toast.success('Request deleted');
+      onUpdate();
+      onClose();
+    } catch {
+      toast.error('Failed to delete');
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  function setFlag(key: keyof EditForm, value: boolean) {
+    setForm((f) => ({ ...f, [key]: value }));
+  }
+
+  return (
+    <>
+      <div
+        onClick={onClose}
+        style={{ position: 'fixed', inset: 0, zIndex: 40, background: 'rgba(0,0,0,0.25)' }}
+      />
+      <div
+        style={{
+          position: 'fixed', top: 0, right: 0, bottom: 0, zIndex: 50,
+          width: '500px', maxWidth: '100vw',
+          background: 'var(--bg-card)',
+          borderLeft: '1px solid var(--border)',
+          display: 'flex', flexDirection: 'column',
+          animation: 'slide-in-right 250ms ease',
+        }}
+      >
+        {/* Header */}
+        <div style={{ padding: '1.125rem 1.5rem', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            {request && <TypeBadge type={request.requestType} />}
+            {request && <StatusBadge status={request.status} />}
+          </div>
+          <button
+            onClick={onClose}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: '0.25rem', display: 'flex' }}
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '1.25rem 1.5rem' }}>
+          {loading ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
+              {Array.from({ length: 6 }).map((_, i) => (
+                <div key={i} className="skeleton" style={{ height: '40px', borderRadius: '4px' }} />
+              ))}
+            </div>
+          ) : !request ? null : (
+            <>
+              {/* Meta info */}
+              <div style={{ padding: '0.875rem', background: 'var(--bg-cream)', borderRadius: '0.375rem', fontSize: '0.8rem', marginBottom: '1.25rem' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.4rem 1rem' }}>
+                  <div><span style={{ color: 'var(--text-secondary)' }}>By: </span><span style={{ fontWeight: 500 }}>{request.submittedBy.name}</span></div>
+                  <div><span style={{ color: 'var(--text-secondary)' }}>Outlet: </span><span style={{ fontWeight: 500 }}>{request.cashierOutlet}</span></div>
+                  <div><span style={{ color: 'var(--text-secondary)' }}>Group: </span>{request.outletGroup}</div>
+                  <div><span style={{ color: 'var(--text-secondary)' }}>Date: </span>{formatDate(request.createdAt)}</div>
+                </div>
+                {request.remarks && (
+                  <div style={{ marginTop: '0.5rem', paddingTop: '0.5rem', borderTop: '1px solid var(--border)', color: 'var(--text-secondary)' }}>
+                    <span style={{ fontWeight: 500, color: 'var(--text-primary)' }}>Remarks: </span>{request.remarks}
+                  </div>
+                )}
+              </div>
+
+              {/* Editable fields */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
+                <div>
+                  <label className="label-caps" style={{ display: 'block', marginBottom: '0.3rem' }}>PLU Code</label>
+                  <input
+                    type="text"
+                    value={form.code}
+                    onChange={(e) => setForm((f) => ({ ...f, code: e.target.value }))}
+                    className="field-input"
+                    placeholder="Leave blank if not yet assigned"
+                  />
+                </div>
+
+                <div>
+                  <label className="label-caps" style={{ display: 'block', marginBottom: '0.3rem' }}>Item Name</label>
+                  <input
+                    type="text"
+                    value={form.name}
+                    onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                    className="field-input"
+                  />
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                  <div>
+                    <label className="label-caps" style={{ display: 'block', marginBottom: '0.3rem' }}>Category</label>
+                    <select
+                      value={form.category}
+                      onChange={(e) => {
+                        const cat = e.target.value;
+                        const dept = categoryOptions.find((c) => c.category === cat)?.department ?? form.department;
+                        setForm((f) => ({ ...f, category: cat, department: dept }));
+                      }}
+                      style={{ width: '100%', height: '40px', border: '1px solid var(--input-border)', borderRadius: '4px', background: 'var(--bg-card)', fontSize: '0.8rem', padding: '0 0.5rem', outline: 'none', color: 'var(--text-primary)' }}
+                    >
+                      {categoryOptions.map((c) => (
+                        <option key={c.category} value={c.category}>{c.category}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="label-caps" style={{ display: 'block', marginBottom: '0.3rem' }}>Department</label>
+                    <input
+                      type="text"
+                      value={form.department}
+                      onChange={(e) => setForm((f) => ({ ...f, department: e.target.value }))}
+                      className="field-input"
+                    />
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                  <div>
+                    <label className="label-caps" style={{ display: 'block', marginBottom: '0.3rem' }}>Price (IDR)</label>
+                    <input
+                      type="number"
+                      value={form.price}
+                      onChange={(e) => setForm((f) => ({ ...f, price: e.target.value }))}
+                      className="field-input"
+                      placeholder="0"
+                      min="0"
+                    />
+                  </div>
+                  <div>
+                    <label className="label-caps" style={{ display: 'block', marginBottom: '0.3rem' }}>Folder</label>
+                    <input
+                      type="text"
+                      value={form.folder}
+                      onChange={(e) => setForm((f) => ({ ...f, folder: e.target.value }))}
+                      className="field-input"
+                    />
+                  </div>
+                </div>
+
+                {printerOptions.length > 0 && (
+                  <div>
+                    <label className="label-caps" style={{ display: 'block', marginBottom: '0.5rem' }}>Printers</label>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                      {printerOptions.map((p) => (
+                        <label key={p} style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.8rem', cursor: 'pointer' }}>
+                          <input
+                            type="checkbox"
+                            checked={selectedPrinters.includes(p)}
+                            onChange={() => setSelectedPrinters((prev) => prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p])}
+                            style={{ accentColor: 'var(--bg-dark)' }}
+                          />
+                          {p}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {outletOptions.length > 0 && (
+                  <div>
+                    <label className="label-caps" style={{ display: 'block', marginBottom: '0.5rem' }}>Outlets</label>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                      {outletOptions.map((o) => (
+                        <label key={o} style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.8rem', cursor: 'pointer' }}>
+                          <input
+                            type="checkbox"
+                            checked={selectedOutlets.includes(o)}
+                            onChange={() => setSelectedOutlets((prev) => prev.includes(o) ? prev.filter((x) => x !== o) : [...prev, o])}
+                            style={{ accentColor: 'var(--bg-dark)' }}
+                          />
+                          {o}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div>
+                  <label className="label-caps" style={{ display: 'block', marginBottom: '0.5rem' }}>POS Settings</label>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.4rem' }}>
+                    {FLAG_FIELDS.map(({ key, label }) => (
+                      <label key={key} style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', fontSize: '0.8rem', cursor: 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={form[key] as boolean}
+                          onChange={(e) => setFlag(key, e.target.checked)}
+                          style={{ accentColor: 'var(--bg-dark)' }}
+                        />
+                        {label}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="label-caps" style={{ display: 'block', marginBottom: '0.3rem' }}>Admin Note</label>
+                  <textarea
+                    value={form.adminNote}
+                    onChange={(e) => setForm((f) => ({ ...f, adminNote: e.target.value }))}
+                    rows={3}
+                    placeholder="Internal note visible to cashier..."
+                    style={{ width: '100%', border: '1px solid var(--input-border)', borderRadius: '4px', padding: '0.5rem 0.75rem', fontSize: '0.875rem', fontFamily: 'var(--font-body)', resize: 'vertical', outline: 'none', color: 'var(--text-primary)', background: 'var(--bg-card)', boxSizing: 'border-box' }}
+                  />
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Footer */}
+        {request && !loading && (
+          <div style={{ padding: '1rem 1.5rem', borderTop: '1px solid var(--border)', display: 'flex', gap: '0.5rem', flexShrink: 0, alignItems: 'center' }}>
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="btn-primary"
+              style={{ flex: 1 }}
+            >
+              {saving && <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} />}
+              {saving ? 'Saving…' : 'Save Changes'}
+            </button>
+
+            {request.status === 'PENDING' && (
+              <button
+                onClick={handleMarkDone}
+                disabled={marking}
+                style={{ flex: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem', padding: '0.5rem', background: 'rgba(61,90,62,0.1)', color: '#2D4A2E', border: '1px solid rgba(61,90,62,0.3)', borderRadius: '4px', fontSize: '0.875rem', fontWeight: 500, cursor: marking ? 'not-allowed' : 'pointer' }}
+              >
+                {marking ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={13} />}
+                {marking ? 'Saving…' : 'Mark Done'}
+              </button>
+            )}
+
+            {!confirmDelete ? (
+              <button
+                onClick={() => setConfirmDelete(true)}
+                style={{ padding: '0.5rem 0.75rem', background: 'transparent', color: '#7A2E1F', border: '1px solid rgba(139,58,42,0.3)', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
+              >
+                <Trash2 size={14} />
+              </button>
+            ) : (
+              <>
+                <button
+                  onClick={handleDelete}
+                  disabled={deleting}
+                  style={{ padding: '0.5rem 0.75rem', background: '#7A2E1F', color: 'white', border: 'none', borderRadius: '4px', fontSize: '0.8rem', cursor: deleting ? 'not-allowed' : 'pointer' }}
+                >
+                  {deleting ? '…' : 'Delete'}
+                </button>
+                <button
+                  onClick={() => setConfirmDelete(false)}
+                  style={{ padding: '0.5rem 0.625rem', background: 'transparent', border: '1px solid var(--border)', borderRadius: '4px', fontSize: '0.8rem', cursor: 'pointer' }}
+                >
+                  Cancel
+                </button>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+    </>
+  );
+}
