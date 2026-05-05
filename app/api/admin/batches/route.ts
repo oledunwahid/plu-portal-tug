@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-
 import { getSession } from '@/lib/session';
 import prisma from '@/lib/prisma';
-import { Prisma } from '@prisma/client';
 
 export async function GET(request: NextRequest) {
   try {
@@ -17,40 +15,40 @@ export async function GET(request: NextRequest) {
     const requestType = searchParams.get('requestType');
     const from = searchParams.get('from');
     const to = searchParams.get('to');
-    const userId = searchParams.get('userId');
-    const countOnly = searchParams.get('countOnly') === '1';
 
-    const where: Prisma.PLURequestWhereInput = {};
-
-    if (status && status !== 'ALL') where.status = status as any;
+    const where: any = {};
+    if (status && status !== 'ALL') where.status = status;
     if (outletGroup && outletGroup !== 'ALL') where.outletGroup = outletGroup;
-    if (requestType && requestType !== 'ALL') where.requestType = requestType as any;
-    if (userId) where.userId = userId;
+    if (requestType && requestType !== 'ALL') where.requestType = requestType;
     if (from || to) {
       where.createdAt = {};
-      if (from) (where.createdAt as any).gte = new Date(from);
+      if (from) where.createdAt.gte = new Date(from);
       if (to) {
         const toDate = new Date(to);
         toDate.setHours(23, 59, 59, 999);
-        (where.createdAt as any).lte = toDate;
+        where.createdAt.lte = toDate;
       }
     }
 
-    if (countOnly) {
-      const count = await prisma.pLURequest.count({ where });
-      return NextResponse.json({ count });
-    }
-
-    const requests = await prisma.pLURequest.findMany({
+    const batches = await prisma.requestBatch.findMany({
       where,
-      include: { submittedBy: { select: { id: true, name: true, email: true, outlet: true } } },
+      include: {
+        submittedBy: { select: { id: true, name: true, email: true, outlet: true } },
+        items: { orderBy: { sortOrder: 'asc' } },
+      },
       orderBy: { createdAt: 'desc' },
       take: 500,
     });
 
-    return NextResponse.json(requests);
+    return NextResponse.json(batches.map((b) => ({
+      ...b,
+      createdAt: b.createdAt.toISOString(),
+      updatedAt: b.updatedAt.toISOString(),
+      doneAt: b.doneAt?.toISOString() ?? null,
+      exportedAt: b.exportedAt?.toISOString() ?? null,
+    })));
   } catch (error) {
-    console.error('[GET /api/admin/requests]', error);
+    console.error('[GET /api/admin/batches]', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

@@ -2,29 +2,18 @@
 
 import { useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useParams } from 'next/navigation';
 import { getCategoriesForOutlet, getDepartmentForCategory } from '@/lib/categories';
 import { PRINTERS_BY_GROUP, OUTLETS_BY_GROUP, OutletGroup, PRINTER_GROUPS } from '@/lib/outlets';
 import { Combobox } from '@/components/ui/combobox';
 import { Switch } from '@/components/ui/switch';
 import { Checkbox } from '@/components/ui/checkbox';
 import { toast } from 'sonner';
-import { Loader2 } from 'lucide-react';
+import { Loader2, ChevronLeft, AlertTriangle } from 'lucide-react';
 import { SuccessModal } from '@/components/SuccessModal';
-
-const REQUEST_TYPES = [
-  { value: 'NEW_ITEM', label: 'New Item' },
-  { value: 'UPDATE_PRICE', label: 'Update Price' },
-  { value: 'UPDATE_NAME', label: 'Update Name' },
-  { value: 'UPDATE_PRINTER', label: 'Change Printer' },
-  { value: 'UPDATE_FULL', label: 'Other Update' },
-] as const;
-
-type RequestTypeValue = (typeof REQUEST_TYPES)[number]['value'];
+import Link from 'next/link';
 
 interface FormState {
-  requestType: RequestTypeValue;
-  code: string;
   name: string;
   category: string;
   department: string;
@@ -40,24 +29,6 @@ interface FormState {
   remarks: string;
 }
 
-const DEFAULT_FORM: FormState = {
-  requestType: 'NEW_ITEM',
-  code: '',
-  name: '',
-  category: '',
-  department: '',
-  price: '',
-  folder: '',
-  serviceCharge: true,
-  tax1: true,
-  tax2: true,
-  noDiscount: true,
-  hideReceipt: false,
-  printers: [],
-  outlets: [],
-  remarks: '',
-};
-
 function FieldGroup({ label, children, hint }: { label: string; children: React.ReactNode; hint?: string }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
@@ -68,12 +39,17 @@ function FieldGroup({ label, children, hint }: { label: string; children: React.
   );
 }
 
-export default function NewRequestPage() {
+export default function EditRequestPage() {
   const { data: session } = useSession();
   const router = useRouter();
-  const [form, setForm] = useState<FormState>(DEFAULT_FORM);
+  const params = useParams();
+  const id = params.id as string;
+
+  const [form, setForm] = useState<FormState | null>(null);
+  const [requestType, setRequestType] = useState('');
   const [errors, setErrors] = useState<Partial<Record<keyof FormState, string>>>({});
   const [loading, setLoading] = useState(false);
+  const [fetching, setFetching] = useState(true);
   const [successModal, setSuccessModal] = useState({ open: false, itemName: '' });
 
   const sessionUser = session?.user as any;
@@ -90,23 +66,59 @@ export default function NewRequestPage() {
     group: c.department,
   }));
 
-  const isUpdate = form.requestType !== 'NEW_ITEM';
-  const needsPrice = form.requestType === 'NEW_ITEM' || form.requestType === 'UPDATE_PRICE';
+  const needsPrice = requestType === 'NEW_ITEM' || requestType === 'UPDATE_PRICE';
 
   useEffect(() => {
-    if (form.category) {
-      const dept = getDepartmentForCategory(form.category);
-      setForm((f) => ({ ...f, department: dept }));
+    async function load() {
+      try {
+        const res = await fetch(`/api/requests/${id}`);
+        if (!res.ok) {
+          if (res.status === 409) { router.replace('/cashier/dashboard'); return; }
+          throw new Error('Failed to load');
+        }
+        const data = await res.json();
+        if (data.status === 'DONE') { router.replace('/cashier/dashboard'); return; }
+        setRequestType(data.requestType);
+        setForm({
+          name: data.name,
+          category: data.category,
+          department: data.department,
+          price: data.price != null ? String(data.price) : '',
+          folder: data.folder ?? '',
+          serviceCharge: data.serviceCharge,
+          tax1: data.tax1,
+          tax2: data.tax2,
+          noDiscount: data.noDiscount,
+          hideReceipt: data.hideReceipt,
+          printers: data.printers ? data.printers.split(';') : [],
+          outlets: data.outlets ? data.outlets.split(';') : [],
+          remarks: data.remarks ?? '',
+        });
+      } catch {
+        toast.error('Failed to load request');
+        router.replace('/cashier/dashboard');
+      } finally {
+        setFetching(false);
+      }
     }
-  }, [form.category]);
+    if (id) load();
+  }, [id, router]);
+
+  useEffect(() => {
+    if (form?.category) {
+      const dept = getDepartmentForCategory(form.category);
+      setForm((f) => f ? { ...f, department: dept } : f);
+    }
+  }, [form?.category]);
 
   function set<K extends keyof FormState>(key: K, value: FormState[K]) {
-    setForm((f) => ({ ...f, [key]: value }));
+    setForm((f) => f ? { ...f, [key]: value } : f);
     setErrors((e) => ({ ...e, [key]: undefined }));
   }
 
   function toggleList(key: 'printers' | 'outlets', value: string) {
     setForm((f) => {
+      if (!f) return f;
       const list = f[key];
       const next = list.includes(value) ? list.filter((v) => v !== value) : [...list, value];
       return { ...f, [key]: next };
@@ -115,10 +127,10 @@ export default function NewRequestPage() {
   }
 
   function validate(): boolean {
+    if (!form) return false;
     const errs: Partial<Record<keyof FormState, string>> = {};
     if (!form.name.trim()) errs.name = 'Item name is required';
     if (!form.category) errs.category = 'Category is required';
-    if (isUpdate && !form.code.trim()) errs.code = 'PLU code is required for update requests';
     if (needsPrice && !form.price) errs.price = 'Price is required';
     if (form.price && (isNaN(Number(form.price)) || Number(form.price) <= 0))
       errs.price = 'Price must be a positive number';
@@ -130,17 +142,15 @@ export default function NewRequestPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!validate()) return;
+    if (!validate() || !form) return;
     setLoading(true);
     try {
       const body = {
-        requestType: form.requestType,
-        code: form.code || undefined,
         name: form.name.trim(),
         category: form.category,
         department: form.department,
-        price: form.price ? Number(form.price) : undefined,
-        folder: form.folder || undefined,
+        price: form.price ? Number(form.price) : null,
+        folder: form.folder || null,
         serviceCharge: form.serviceCharge,
         tax1: form.tax1,
         tax2: form.tax2,
@@ -148,20 +158,19 @@ export default function NewRequestPage() {
         hideReceipt: form.hideReceipt,
         printers: form.printers.join(';'),
         outlets: form.outlets.join(';'),
-        remarks: form.remarks || undefined,
+        remarks: form.remarks || null,
       };
-      const res = await fetch('/api/requests', {
-        method: 'POST',
+      const res = await fetch(`/api/requests/${id}`, {
+        method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
       if (!res.ok) {
         const data = await res.json();
-        throw new Error(data.error ?? 'Submission failed');
+        throw new Error(data.error ?? 'Update failed');
       }
       const data = await res.json();
       setSuccessModal({ open: true, itemName: data.name });
-      setForm(DEFAULT_FORM);
     } catch (err: any) {
       toast.error(err.message ?? 'Something went wrong');
     } finally {
@@ -169,65 +178,48 @@ export default function NewRequestPage() {
     }
   }
 
+  if (fetching || !form) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '4rem' }}>
+        <Loader2 size={24} style={{ animation: 'spin 1s linear infinite', color: 'var(--text-secondary)' }} />
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      </div>
+    );
+  }
+
   return (
     <div>
       <SuccessModal
         isOpen={successModal.open}
         itemName={successModal.itemName}
-        onSubmitAnother={() => setSuccessModal({ open: false, itemName: '' })}
+        title="Request Updated"
+        body="Your changes have been saved and are pending review."
+        submitAnotherLabel="Back to Dashboard"
+        onSubmitAnother={() => { setSuccessModal({ open: false, itemName: '' }); router.push('/cashier/dashboard'); }}
         onViewRequests={() => { setSuccessModal({ open: false, itemName: '' }); router.push('/cashier/dashboard'); }}
       />
 
-      <h1 className="page-title" style={{ marginBottom: '0.375rem' }}>New PLU Request</h1>
-      <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginBottom: '1.75rem' }}>
-        Submit a request to add or update a menu item in the POS system.
+      <Link href="/cashier/dashboard" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.375rem', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '1.25rem', textDecoration: 'none' }}>
+        <ChevronLeft size={14} /> Back to Dashboard
+      </Link>
+
+      <h1 className="page-title" style={{ marginBottom: '0.375rem' }}>Edit Request</h1>
+      <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
+        Request type: <strong>{requestType.replace(/_/g, ' ')}</strong>
       </p>
 
-      <form onSubmit={handleSubmit} style={{ maxWidth: '680px', margin: '0 auto' }}>
-        {/* Request Type */}
-        <div className="card" style={{ padding: '1.5rem', marginBottom: '1rem' }}>
-          <div className="label-caps" style={{ marginBottom: '0.75rem' }}>Request Type</div>
-          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-            {REQUEST_TYPES.map((t) => (
-              <button
-                key={t.value}
-                type="button"
-                onClick={() => set('requestType', t.value)}
-                style={{
-                  padding: '0.5rem 1rem',
-                  borderRadius: '0.375rem',
-                  border: `1px solid ${form.requestType === t.value ? 'var(--bg-dark)' : 'var(--border)'}`,
-                  background: form.requestType === t.value ? 'var(--bg-dark)' : 'transparent',
-                  color: form.requestType === t.value ? 'var(--accent-gold)' : 'var(--text-secondary)',
-                  fontSize: '0.8rem',
-                  fontWeight: form.requestType === t.value ? 500 : 400,
-                  cursor: 'pointer',
-                  transition: 'all 200ms ease',
-                }}
-              >
-                {t.label}
-              </button>
-            ))}
-          </div>
-        </div>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', padding: '0.75rem 1rem', background: 'rgba(184,134,11,0.06)', border: '1px solid rgba(184,134,11,0.2)', borderRadius: '6px', marginBottom: '1.5rem', maxWidth: '680px', margin: '0 auto 1.5rem' }}>
+        <AlertTriangle size={15} style={{ color: '#8B6914', flexShrink: 0, marginTop: '1px' }} />
+        <span style={{ fontSize: '0.8rem', color: '#8B6914', lineHeight: 1.5 }}>
+          This request is still pending. You can make changes before it is reviewed.
+        </span>
+      </div>
 
+      <form onSubmit={handleSubmit} style={{ maxWidth: '680px', margin: '0 auto' }}>
         {/* Item Details */}
         <div className="card" style={{ padding: '1.5rem', marginBottom: '1rem' }}>
           <div className="section-title" style={{ marginBottom: '1.25rem' }}>Item Details</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            {isUpdate && (
-              <FieldGroup label="PLU Code" hint="Existing POS code (e.g. ROM1011300000026)">
-                <input
-                  type="text"
-                  value={form.code}
-                  onChange={(e) => set('code', e.target.value)}
-                  placeholder="ROM1011300000026"
-                  className={`flex h-10 w-full rounded-md border bg-u-card px-3 py-2 text-sm text-u-primary placeholder:text-u-secondary/60 focus:outline-none focus:ring-2 focus:ring-u-gold/40 focus:border-u-gold transition-all duration-200 ${errors.code ? 'border-red-400' : 'border-u-input'}`}
-                />
-                {errors.code && <p style={{ fontSize: '0.75rem', color: '#8B3A2A' }}>{errors.code}</p>}
-              </FieldGroup>
-            )}
-
             <FieldGroup label="Item Name">
               <input
                 type="text"
@@ -250,13 +242,11 @@ export default function NewRequestPage() {
                 />
                 {errors.category && <p style={{ fontSize: '0.75rem', color: '#8B3A2A' }}>{errors.category}</p>}
               </FieldGroup>
-
               <FieldGroup label="Department" hint="Auto-filled from category">
                 <input
                   type="text"
                   value={form.department}
                   onChange={(e) => set('department', e.target.value)}
-                  placeholder="e.g. FOOD"
                   className="flex h-10 w-full rounded-md border border-u-input bg-u-cream px-3 py-2 text-sm text-u-primary placeholder:text-u-secondary/60 focus:outline-none focus:ring-2 focus:ring-u-gold/40 focus:border-u-gold transition-all duration-200"
                 />
               </FieldGroup>
@@ -306,14 +296,8 @@ export default function NewRequestPage() {
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.375rem 0.5rem' }}>
                     {visible.map((p) => (
-                      <label
-                        key={p}
-                        style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer', fontSize: '0.8rem', color: 'var(--text-primary)' }}
-                      >
-                        <Checkbox
-                          checked={form.printers.includes(p)}
-                          onCheckedChange={() => toggleList('printers', p)}
-                        />
+                      <label key={p} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer', fontSize: '0.8rem', color: 'var(--text-primary)' }}>
+                        <Checkbox checked={form.printers.includes(p)} onCheckedChange={() => toggleList('printers', p)} />
                         {p}
                       </label>
                     ))}
@@ -322,34 +306,21 @@ export default function NewRequestPage() {
               );
             })}
           </div>
-          {errors.printers && (
-            <p style={{ fontSize: '0.75rem', color: '#8B3A2A', marginTop: '0.5rem' }}>{errors.printers}</p>
-          )}
+          {errors.printers && <p style={{ fontSize: '0.75rem', color: '#8B3A2A', marginTop: '0.5rem' }}>{errors.printers}</p>}
         </div>
 
         {/* Outlets */}
         <div className="card" style={{ padding: '1.5rem', marginBottom: '1rem' }}>
           <div className="section-title" style={{ marginBottom: '0.25rem' }}>Outlets</div>
-          <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
-            Select which outlets this item applies to.
-          </p>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.625rem' }}>
             {outlets.map((o) => (
-              <label
-                key={o}
-                style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer', fontSize: '0.8rem', color: 'var(--text-primary)' }}
-              >
-                <Checkbox
-                  checked={form.outlets.includes(o)}
-                  onCheckedChange={() => toggleList('outlets', o)}
-                />
+              <label key={o} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer', fontSize: '0.8rem', color: 'var(--text-primary)' }}>
+                <Checkbox checked={form.outlets.includes(o)} onCheckedChange={() => toggleList('outlets', o)} />
                 {o}
               </label>
             ))}
           </div>
-          {errors.outlets && (
-            <p style={{ fontSize: '0.75rem', color: '#8B3A2A', marginTop: '0.5rem' }}>{errors.outlets}</p>
-          )}
+          {errors.outlets && <p style={{ fontSize: '0.75rem', color: '#8B3A2A', marginTop: '0.5rem' }}>{errors.outlets}</p>}
         </div>
 
         {/* POS Settings */}
@@ -365,15 +336,9 @@ export default function NewRequestPage() {
                 { key: 'hideReceipt', label: 'Hide on Receipt' },
               ] as { key: keyof FormState; label: string }[]
             ).map(({ key, label }) => (
-              <label
-                key={key}
-                style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', fontSize: '0.875rem', color: 'var(--text-primary)' }}
-              >
+              <label key={key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', fontSize: '0.875rem', color: 'var(--text-primary)' }}>
                 {label}
-                <Switch
-                  checked={form[key] as boolean}
-                  onCheckedChange={(v) => set(key, v as FormState[typeof key])}
-                />
+                <Switch checked={form[key] as boolean} onCheckedChange={(v) => set(key, v as FormState[typeof key])} />
               </label>
             ))}
           </div>
@@ -385,7 +350,6 @@ export default function NewRequestPage() {
             <textarea
               value={form.remarks}
               onChange={(e) => set('remarks', e.target.value)}
-              placeholder="Any additional notes..."
               rows={3}
               className="flex min-h-[80px] w-full rounded-md border border-u-input bg-u-card px-3 py-2 text-sm text-u-primary placeholder:text-u-secondary/60 focus:outline-none focus:ring-2 focus:ring-u-gold/40 focus:border-u-gold transition-all duration-200 resize-y"
             />
@@ -401,24 +365,15 @@ export default function NewRequestPage() {
               padding: '0.625rem 1.5rem',
               background: loading ? 'rgba(26,16,8,0.5)' : 'var(--bg-dark)',
               color: 'var(--accent-gold)', border: 'none', borderRadius: '0.375rem',
-              fontSize: '0.875rem', fontWeight: 500,
-              cursor: loading ? 'not-allowed' : 'pointer', transition: 'all 200ms ease',
+              fontSize: '0.875rem', fontWeight: 500, cursor: loading ? 'not-allowed' : 'pointer',
             }}
           >
             {loading && <Loader2 size={15} style={{ animation: 'spin 1s linear infinite' }} />}
-            {loading ? 'Submitting…' : 'Submit Request'}
+            {loading ? 'Saving…' : 'Save Changes'}
           </button>
-          <button
-            type="button"
-            onClick={() => setForm(DEFAULT_FORM)}
-            style={{
-              padding: '0.625rem 1.125rem', background: 'transparent',
-              color: 'var(--text-secondary)', border: '1px solid var(--border)',
-              borderRadius: '0.375rem', fontSize: '0.875rem', cursor: 'pointer',
-            }}
-          >
-            Clear Form
-          </button>
+          <Link href="/cashier/dashboard" style={{ display: 'inline-flex', alignItems: 'center', padding: '0.625rem 1.125rem', background: 'transparent', color: 'var(--text-secondary)', border: '1px solid var(--border)', borderRadius: '0.375rem', fontSize: '0.875rem', textDecoration: 'none' }}>
+            Cancel
+          </Link>
         </div>
       </form>
 

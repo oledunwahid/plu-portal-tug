@@ -4,7 +4,7 @@ import prisma from './prisma';
 import { getOutletGroup } from './outlets';
 
 export const authOptions = {
-  session: { strategy: 'jwt' as const },
+  session: { strategy: 'jwt' as const, maxAge: 30 * 24 * 60 * 60, updateAge: 24 * 60 * 60 },
   providers: [
     CredentialsProvider({
       name: 'credentials',
@@ -19,7 +19,8 @@ export const authOptions = {
           where: { email: credentials.email },
         });
 
-        if (!user || !user.active) return null;
+        if (!user) return null;
+        if (!user.active) throw new Error('INACTIVE_ACCOUNT');
 
         const passwordMatch = await bcrypt.compare(credentials.password, user.password);
         if (!passwordMatch) return null;

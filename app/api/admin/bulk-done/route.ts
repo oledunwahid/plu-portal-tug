@@ -15,6 +15,9 @@ export async function POST(request: NextRequest) {
     if (!Array.isArray(ids) || ids.length === 0) {
       return NextResponse.json({ error: 'ids array is required' }, { status: 400 });
     }
+    if (ids.length > 200) {
+      return NextResponse.json({ error: 'Cannot mark more than 200 requests at once' }, { status: 400 });
+    }
 
     const result = await prisma.pLURequest.updateMany({
       where: { id: { in: ids }, status: 'PENDING' },

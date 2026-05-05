@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/session';
 import prisma from '@/lib/prisma';
 import { updateRequestSchema } from '@/lib/validations';
+import { Prisma } from '@prisma/client';
 
 export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
   try {
@@ -63,6 +64,9 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
     await prisma.pLURequest.delete({ where: { id: params.id } });
     return NextResponse.json({ success: true });
   } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
+      return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    }
     console.error('[DELETE /api/admin/requests/:id]', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }

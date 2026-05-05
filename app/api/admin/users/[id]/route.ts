@@ -37,6 +37,24 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       return NextResponse.json({ error: 'Validation failed', issues: parsed.error.issues }, { status: 400 });
     }
 
+    // Safety guards
+    if (params.id === session.user.id && parsed.data.role === 'CASHIER') {
+      return NextResponse.json({ error: 'You cannot change your own role.' }, { status: 400 });
+    }
+    if (params.id === session.user.id && parsed.data.active === false) {
+      return NextResponse.json({ error: 'You cannot deactivate your own account.' }, { status: 400 });
+    }
+
+    // Email uniqueness check
+    if (parsed.data.email) {
+      const existing = await prisma.user.findFirst({
+        where: { email: parsed.data.email, NOT: { id: params.id } },
+      });
+      if (existing) {
+        return NextResponse.json({ error: 'Email already in use by another user.' }, { status: 409 });
+      }
+    }
+
     const data: any = { ...parsed.data };
     if (data.password) {
       data.password = await bcrypt.hash(data.password, 12);
@@ -60,6 +78,9 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
     const session = await getSession();
     if (!session || session.user.role !== 'ADMIN') {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+    if (params.id === session.user.id) {
+      return NextResponse.json({ error: 'Cannot delete your own account' }, { status: 400 });
     }
 
     await prisma.user.delete({ where: { id: params.id } });

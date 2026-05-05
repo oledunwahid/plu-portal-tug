@@ -61,7 +61,7 @@ export function TopBar() {
               {user.name}
             </div>
             <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', lineHeight: 1.2 }}>
-              {user.role}{user.outlet ? ` · ${user.outlet}` : ''}
+              {user.role === 'ADMIN' ? 'ADMIN · HEAD OFFICE' : `${user.role}${user.outlet ? ` · ${user.outlet}` : ''}`}
             </div>
           </div>
           <div

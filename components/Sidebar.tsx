@@ -3,8 +3,10 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, Download, Users, Plus, LogOut, Menu, X } from 'lucide-react';
-import { signOut, useSession } from 'next-auth/react';
+import { LayoutDashboard, Download, Users, Plus, Layers, Menu, X } from 'lucide-react';
+import { useSession } from 'next-auth/react';
+import { SignOutButton } from '@/components/SignOutButton';
+import { LogoBrand } from '@/components/LogoBrand';
 
 interface NavItem {
   label: string;
@@ -16,6 +18,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { label: 'Dashboard', href: '/cashier/dashboard', icon: <LayoutDashboard size={15} />, roles: ['CASHIER'] },
   { label: 'New Request', href: '/cashier/request/new', icon: <Plus size={15} />, roles: ['CASHIER'] },
+  { label: 'New Batch Request', href: '/cashier/request/batch/new', icon: <Layers size={15} />, roles: ['CASHIER'] },
   { label: 'Dashboard', href: '/admin/dashboard', icon: <LayoutDashboard size={15} />, roles: ['ADMIN'] },
   { label: 'Export', href: '/admin/export', icon: <Download size={15} />, roles: ['ADMIN'] },
   { label: 'Users', href: '/admin/users', icon: <Users size={15} />, roles: ['ADMIN'] },
@@ -30,13 +33,8 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <div style={{ padding: '20px 16px 14px', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
-        <div style={{ fontFamily: 'var(--font-display)', color: '#C9A84C', fontSize: '1.1rem', fontWeight: 500 }}>
-          The Union Group
-        </div>
-        <div style={{ color: 'rgba(255,255,255,0.3)', fontSize: '0.6rem', letterSpacing: '0.18em', textTransform: 'uppercase', marginTop: '3px' }}>
-          PLU Portal
-        </div>
+      <div style={{ padding: '16px 16px 12px', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
+        <LogoBrand variant="white" />
       </div>
 
       <nav style={{ flex: 1, padding: '10px 8px', overflowY: 'auto' }}>
@@ -69,16 +67,14 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
               {sessionUser?.name}
             </div>
             <div style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.35)' }}>
-              {sessionUser?.outlet} · {role}
+              {role === 'ADMIN' ? 'ADMIN · HEAD OFFICE' : `${role}${sessionUser?.outlet ? ` · ${sessionUser.outlet}` : ''}`}
             </div>
           </div>
         </div>
-        <button
-          onClick={() => signOut({ callbackUrl: '/login' })}
-          style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '10px', background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', fontSize: '0.7rem', cursor: 'pointer', padding: 0 }}
-        >
-          <LogOut size={12} /> Sign Out
-        </button>
+        <SignOutButton />
+        <p style={{ marginTop: '10px', fontSize: '0.58rem', color: 'rgba(255,255,255,0.15)', textAlign: 'center', lineHeight: 1.5, letterSpacing: '0.03em' }}>
+          Developed by Khaled · Supported by Fauzi
+        </p>
       </div>
     </div>
   );

@@ -6,7 +6,7 @@ import { X, Loader2, CheckCircle, Trash2 } from 'lucide-react';
 import { PRINTERS_BY_GROUP, OUTLETS_BY_GROUP, OutletGroup } from '@/lib/outlets';
 import { getCategoriesForOutlet } from '@/lib/categories';
 import StatusBadge, { TypeBadge } from '@/components/StatusBadge';
-import { formatDate } from '@/lib/utils';
+import { formatTimestamp } from '@/lib/format';
 
 interface FullRequest {
   id: string;
@@ -230,7 +230,7 @@ export default function RequestSlideOver({
                   <div><span style={{ color: 'var(--text-secondary)' }}>By: </span><span style={{ fontWeight: 500 }}>{request.submittedBy.name}</span></div>
                   <div><span style={{ color: 'var(--text-secondary)' }}>Outlet: </span><span style={{ fontWeight: 500 }}>{request.cashierOutlet}</span></div>
                   <div><span style={{ color: 'var(--text-secondary)' }}>Group: </span>{request.outletGroup}</div>
-                  <div><span style={{ color: 'var(--text-secondary)' }}>Date: </span>{formatDate(request.createdAt)}</div>
+                  <div><span style={{ color: 'var(--text-secondary)' }}>Date: </span>{formatTimestamp(request.createdAt)}</div>
                 </div>
                 {request.remarks && (
                   <div style={{ marginTop: '0.5rem', paddingTop: '0.5rem', borderTop: '1px solid var(--border)', color: 'var(--text-secondary)' }}>

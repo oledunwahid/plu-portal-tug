@@ -2,8 +2,9 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { toast } from 'sonner';
-import { PlusCircle, Tag, Type, Printer, Download, Loader2 } from 'lucide-react';
-import { formatDate, formatPrice } from '@/lib/utils';
+import { PlusCircle, Tag, Type, Printer, Download, Loader2, Layers } from 'lucide-react';
+import { formatPrice } from '@/lib/utils';
+import { formatTimestamp } from '@/lib/format';
 import StatusBadge from '@/components/StatusBadge';
 import TableSkeleton from '@/components/skeletons/TableSkeleton';
 
@@ -39,9 +40,9 @@ interface TabConfig {
 
 const TABS: TabConfig[] = [
   { type: 'NEW_ITEM', label: 'New Items', Icon: PlusCircle, color: '#2D4A2E', lightColor: 'rgba(45,74,46,0.12)', format: 'XLSX', defaultStatus: 'PENDING' },
-  { type: 'UPDATE_PRICE', label: 'Update Price', Icon: Tag, color: '#8B6914', lightColor: 'rgba(139,105,20,0.12)', format: 'CSV', defaultStatus: 'DONE' },
-  { type: 'UPDATE_NAME', label: 'Update Name', Icon: Type, color: '#7A2E1F', lightColor: 'rgba(122,46,31,0.12)', format: 'CSV', defaultStatus: 'DONE' },
-  { type: 'UPDATE_PRINTER', label: 'Update Printer', Icon: Printer, color: '#1F3A5F', lightColor: 'rgba(31,58,95,0.12)', format: 'CSV', defaultStatus: 'DONE' },
+  { type: 'UPDATE_PRICE', label: 'Update Price', Icon: Tag, color: '#8B6914', lightColor: 'rgba(139,105,20,0.12)', format: 'CSV', defaultStatus: 'ALL' },
+  { type: 'UPDATE_NAME', label: 'Update Name', Icon: Type, color: '#7A2E1F', lightColor: 'rgba(122,46,31,0.12)', format: 'CSV', defaultStatus: 'ALL' },
+  { type: 'UPDATE_PRINTER', label: 'Update Printer', Icon: Printer, color: '#1F3A5F', lightColor: 'rgba(31,58,95,0.12)', format: 'CSV', defaultStatus: 'ALL' },
 ];
 
 const SELECT_STYLE = {
@@ -79,7 +80,7 @@ const COLUMNS: Record<RequestType, ColumnDef[]> = {
     { key: 'printers', label: 'Printers', render: (r) => <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{r.printers.replace(/;/g, ' · ')}</span> },
     { key: 'outlets', label: 'Outlets', render: (r) => <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{r.outlets.replace(/;/g, ' · ')}</span> },
     { key: 'by', label: 'By', render: (r) => <span style={{ fontSize: '0.8rem' }}>{r.cashierOutlet}</span> },
-    { key: 'date', label: 'Date', render: (r) => <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{formatDate(r.createdAt)}</span> },
+    { key: 'date', label: 'Date', render: (r) => <div style={{ minWidth: '130px' }}><div style={{ fontSize: '0.8rem', color: 'var(--text-primary)' }}>{formatTimestamp(r.createdAt).split(', ')[0]}</div><div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontVariantNumeric: 'tabular-nums' }}>{formatTimestamp(r.createdAt).split(', ')[1]}</div></div> },
     { key: 'status', label: 'Status', render: (r) => <StatusBadge status={r.status} /> },
   ],
   UPDATE_PRICE: [
@@ -88,7 +89,7 @@ const COLUMNS: Record<RequestType, ColumnDef[]> = {
     { key: 'price', label: 'New Price', render: (r) => <span style={{ fontSize: '0.875rem', fontWeight: 500 }}>{r.price ? formatPrice(r.price) : '—'}</span> },
     { key: 'outlet', label: 'Outlet', render: (r) => <span style={{ fontSize: '0.8rem' }}>{r.cashierOutlet}</span> },
     { key: 'by', label: 'By', render: (r) => <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{r.submittedBy.name}</span> },
-    { key: 'date', label: 'Date', render: (r) => <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{formatDate(r.createdAt)}</span> },
+    { key: 'date', label: 'Date', render: (r) => <div style={{ minWidth: '130px' }}><div style={{ fontSize: '0.8rem', color: 'var(--text-primary)' }}>{formatTimestamp(r.createdAt).split(', ')[0]}</div><div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontVariantNumeric: 'tabular-nums' }}>{formatTimestamp(r.createdAt).split(', ')[1]}</div></div> },
     { key: 'status', label: 'Status', render: (r) => <StatusBadge status={r.status} /> },
   ],
   UPDATE_NAME: [
@@ -97,7 +98,7 @@ const COLUMNS: Record<RequestType, ColumnDef[]> = {
     { key: 'category', label: 'Category', render: (r) => <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{r.category}</span> },
     { key: 'outlet', label: 'Outlet', render: (r) => <span style={{ fontSize: '0.8rem' }}>{r.cashierOutlet}</span> },
     { key: 'by', label: 'By', render: (r) => <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{r.submittedBy.name}</span> },
-    { key: 'date', label: 'Date', render: (r) => <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{formatDate(r.createdAt)}</span> },
+    { key: 'date', label: 'Date', render: (r) => <div style={{ minWidth: '130px' }}><div style={{ fontSize: '0.8rem', color: 'var(--text-primary)' }}>{formatTimestamp(r.createdAt).split(', ')[0]}</div><div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontVariantNumeric: 'tabular-nums' }}>{formatTimestamp(r.createdAt).split(', ')[1]}</div></div> },
     { key: 'status', label: 'Status', render: (r) => <StatusBadge status={r.status} /> },
   ],
   UPDATE_PRINTER: [
@@ -106,7 +107,7 @@ const COLUMNS: Record<RequestType, ColumnDef[]> = {
     { key: 'printers', label: 'New Printers', render: (r) => <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{r.printers.replace(/;/g, ' · ')}</span> },
     { key: 'outlets', label: 'Outlets', render: (r) => <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{r.outlets.replace(/;/g, ' · ')}</span> },
     { key: 'by', label: 'By', render: (r) => <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{r.submittedBy.name}</span> },
-    { key: 'date', label: 'Date', render: (r) => <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{formatDate(r.createdAt)}</span> },
+    { key: 'date', label: 'Date', render: (r) => <div style={{ minWidth: '130px' }}><div style={{ fontSize: '0.8rem', color: 'var(--text-primary)' }}>{formatTimestamp(r.createdAt).split(', ')[0]}</div><div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontVariantNumeric: 'tabular-nums' }}>{formatTimestamp(r.createdAt).split(', ')[1]}</div></div> },
     { key: 'status', label: 'Status', render: (r) => <StatusBadge status={r.status} /> },
   ],
 };
@@ -122,6 +123,7 @@ export default function ExportPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [sourceFilter, setSourceFilter] = useState<'SINGLE' | 'BATCH' | 'ALL'>('ALL');
 
   const activeTab = TABS.find((t) => t.type === activeType)!;
   const columns = COLUMNS[activeType];
@@ -131,14 +133,14 @@ export default function ExportPage() {
     async function fetchCounts() {
       const results = await Promise.all(
         TABS.map(async (tab) => {
-          const params = new URLSearchParams({ requestType: tab.type, status: tab.defaultStatus });
+          const params = new URLSearchParams({ requestType: tab.type, status: tab.defaultStatus, countOnly: '1' });
           if (group !== 'ALL') params.set('outletGroup', group);
           if (from) params.set('from', from);
           if (to) params.set('to', to);
           try {
             const res = await fetch(`/api/admin/requests?${params}`);
-            const data = res.ok ? await res.json() : [];
-            return [tab.type, Array.isArray(data) ? data.length : 0] as const;
+            const data = res.ok ? await res.json() : {};
+            return [tab.type, typeof data.count === 'number' ? data.count : 0] as const;
           } catch {
             return [tab.type, 0] as const;
           }
@@ -158,15 +160,48 @@ export default function ExportPage() {
       if (statusFilter !== 'ALL') params.set('status', statusFilter);
       if (from) params.set('from', from);
       if (to) params.set('to', to);
-      const res = await fetch(`/api/admin/requests?${params}`);
-      if (!res.ok) throw new Error();
-      setRequests(await res.json());
+
+      function flattenBatches(batchData: any[]): any[] {
+        return batchData.flatMap((b: any) =>
+          (b.items as any[]).map((item: any) => ({
+            ...item,
+            id: `${b.id}:${item.id}`,
+            requestType: b.requestType,
+            status: b.status,
+            cashierOutlet: b.cashierOutlet,
+            outletGroup: b.outletGroup,
+            createdAt: b.createdAt,
+            submittedBy: b.submittedBy,
+          }))
+        );
+      }
+
+      if (sourceFilter === 'ALL') {
+        const [sRes, bRes] = await Promise.all([
+          fetch(`/api/admin/requests?${params}`),
+          fetch(`/api/admin/batches?${params}`),
+        ]);
+        const singles = sRes.ok ? await sRes.json() : [];
+        const batches = bRes.ok ? flattenBatches(await bRes.json()) : [];
+        const merged = [...singles, ...batches].sort(
+          (a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        );
+        setRequests(merged as any);
+      } else if (sourceFilter === 'BATCH') {
+        const res = await fetch(`/api/admin/batches?${params}`);
+        if (!res.ok) throw new Error();
+        setRequests(flattenBatches(await res.json()) as any);
+      } else {
+        const res = await fetch(`/api/admin/requests?${params}`);
+        if (!res.ok) throw new Error();
+        setRequests(await res.json());
+      }
     } catch {
       toast.error('Something went wrong. Please try again.');
     } finally {
       setLoading(false);
     }
-  }, [activeType, group, statusFilter, from, to]);
+  }, [activeType, group, statusFilter, from, to, sourceFilter]);
 
   useEffect(() => { fetchRequests(); }, [fetchRequests]);
 
@@ -191,19 +226,36 @@ export default function ExportPage() {
   async function handleDownload() {
     const toDownload = selectedIds.size > 0 ? Array.from(selectedIds) : requests.map((r) => r.id);
     if (toDownload.length === 0) { toast.error('No items to export'); return; }
+
+    const hasBatchItems = toDownload.some((id) => id.includes(':'));
+    const hasSingleItems = toDownload.some((id) => !id.includes(':'));
+    if (hasBatchItems && hasSingleItems) {
+      toast.error('Mixed selection detected — filter by Source (Single or Batch) before exporting.');
+      return;
+    }
+
     setDownloading(true);
     try {
-      const params = new URLSearchParams({ ids: toDownload.join(',') });
+      const isBatchItem = hasBatchItems;
+
+      const exportIds = isBatchItem
+        ? Array.from(new Set(toDownload.map((id) => id.split(':')[0])))
+        : toDownload;
+
+      const params = new URLSearchParams({ ids: exportIds.join(',') });
       const isXLSX = activeTab.format === 'XLSX';
-      const apiPath = isXLSX
-        ? `/api/admin/export/xlsx?${params}`
-        : `/api/admin/export/csv?${params}&type=${activeType}`;
+
+      // Route to the correct endpoint based on the data type detected above
+      const apiPath = isBatchItem
+        ? (isXLSX ? `/api/admin/export/batches/xlsx?${params}` : `/api/admin/export/batches/csv?${params}&type=${activeType}`)
+        : (isXLSX ? `/api/admin/export/xlsx?${params}` : `/api/admin/export/csv?${params}&type=${activeType}`);
 
       const res = await fetch(apiPath);
       if (!res.ok) {
         const d = await res.json().catch(() => ({}));
         throw new Error(d.error ?? 'Download failed');
       }
+
       const blob = await res.blob();
       const disposition = res.headers.get('Content-Disposition') ?? '';
       const match = disposition.match(/filename="([^"]+)"/);
@@ -211,8 +263,11 @@ export default function ExportPage() {
 
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = url; a.download = filename;
-      document.body.appendChild(a); a.click(); a.remove();
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
       URL.revokeObjectURL(url);
 
       if (isXLSX) {
@@ -227,7 +282,6 @@ export default function ExportPage() {
       setDownloading(false);
     }
   }
-
   const downloadCount = selectedIds.size > 0 ? selectedIds.size : requests.length;
 
   return (
@@ -236,6 +290,34 @@ export default function ExportPage() {
       <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginBottom: '1.5rem' }}>
         Export requests by type for processing or Quinos POS import.
       </p>
+
+      {/* Source toggle */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
+        <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontWeight: 500 }}>Request Source:</span>
+        {(['SINGLE', 'BATCH', 'ALL'] as const).map((s) => (
+          <button
+            key={s}
+            onClick={() => setSourceFilter(s)}
+            style={{
+              padding: '0.25rem 0.75rem',
+              borderRadius: '3px',
+              border: `1px solid ${sourceFilter === s ? 'var(--accent-gold)' : 'var(--border)'}`,
+              background: sourceFilter === s ? 'rgba(201,168,76,0.08)' : 'transparent',
+              color: sourceFilter === s ? 'var(--text-primary)' : 'var(--text-secondary)',
+              fontSize: '0.775rem',
+              fontWeight: sourceFilter === s ? 600 : 400,
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.35rem',
+            }}
+          >
+            {s === 'SINGLE' && 'Single Items'}
+            {s === 'BATCH' && <><Layers size={11} />Batch Items</>}
+            {s === 'ALL' && 'All'}
+          </button>
+        ))}
+      </div>
 
       {/* Global filter bar */}
       <div className="card" style={{ padding: '0.75rem 1.25rem', marginBottom: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.625rem', flexWrap: 'wrap' }}>

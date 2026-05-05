@@ -44,7 +44,7 @@ export const updateRequestSchema = z.object({
 
 export const createUserSchema = z.object({
   email: z.string().email('Valid email required'),
-  password: z.string().min(6, 'Password must be at least 6 characters'),
+  password: z.string().min(8, 'Password must be at least 8 characters'),
   name: z.string().min(1, 'Name is required'),
   role: z.enum(['CASHIER', 'ADMIN']),
   outlet: z.string().min(1, 'Outlet is required'),
@@ -53,7 +53,7 @@ export const createUserSchema = z.object({
 export const updateUserSchema = z.object({
   name: z.string().min(1).optional(),
   email: z.string().email().optional(),
-  password: z.string().min(6).optional(),
+  password: z.string().min(8).optional(),
   role: z.enum(['CASHIER', 'ADMIN']).optional(),
   outlet: z.string().optional(),
   active: z.boolean().optional(),

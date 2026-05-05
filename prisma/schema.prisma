@@ -21,6 +21,46 @@ model User {
   active    Boolean  @default(true)
   createdAt DateTime @default(now())
   requests  PLURequest[]
+  batches   RequestBatch[]
+}
+
+model RequestBatch {
+  id            String             @id @default(cuid())
+  title         String
+  requestType   String
+  status        String             @default("PENDING")
+  outletGroup   String
+  cashierOutlet String
+  userId        String
+  submittedBy   User               @relation(fields: [userId], references: [id])
+  items         RequestBatchItem[]
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  doneAt        DateTime?
+  adminNote     String?
+  exportedAt    DateTime?
+  exportBatchId String?
+}
+
+model RequestBatchItem {
+  id            String       @id @default(cuid())
+  batchId       String
+  batch         RequestBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  code          String?
+  name          String
+  category      String
+  department    String
+  price         Float?
+  folder        String?
+  serviceCharge Boolean      @default(true)
+  tax1          Boolean      @default(true)
+  tax2          Boolean      @default(true)
+  noDiscount    Boolean      @default(true)
+  hideReceipt   Boolean      @default(false)
+  printers      String
+  outlets       String
+  salesDef      String       @default("SALES")
+  sortOrder     Int          @default(0)
 }
 
 model PLURequest {
