@@ -20,8 +20,8 @@ const dmSans = DM_Sans({
 });
 
 export const metadata: Metadata = {
-  title: 'PLU Management Portal — The Union Group',
-  description: 'PLU request management for The Union Group restaurant outlets',
+  title: 'PLU Management Portal — PLU Management System',
+  description: 'PLU request management for PLU Management System restaurant outlets',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

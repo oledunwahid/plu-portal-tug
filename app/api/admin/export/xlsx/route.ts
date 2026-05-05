@@ -3,6 +3,8 @@ import { getSession } from '@/lib/session';
 import prisma from '@/lib/prisma';
 import { generateNewItemXLSX } from '@/lib/export';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(request: NextRequest) {
   try {
     const session = await getSession();

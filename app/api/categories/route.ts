@@ -4,6 +4,8 @@ import { getSession } from '@/lib/session';
 import { getCategoriesForOutlet } from '@/lib/categories';
 import { PRINTERS_BY_GROUP, OUTLETS_BY_GROUP, getOutletGroup, OutletGroup } from '@/lib/outlets';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(request: NextRequest) {
   try {
     const session = await getSession();

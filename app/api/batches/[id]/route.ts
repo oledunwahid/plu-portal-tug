@@ -3,6 +3,8 @@ import { getSession } from '@/lib/session';
 import prisma from '@/lib/prisma';
 import { Prisma } from '@prisma/client';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const session = await getSession();

@@ -1,6 +1,6 @@
 # PLU Management Portal
 
-Internal portal for The Union Group (Jakarta) to manage PLU (Price Look-Up) update requests for Quinos POS import.
+Internal portal for PLU Management System (Jakarta) to manage PLU (Price Look-Up) update requests for Quinos POS import.
 
 ## Setup
 
@@ -27,12 +27,12 @@ npm start
 
 ## Test Accounts
 
-| Role    | Email                    | Password    |
-|---------|--------------------------|-------------|
-| Admin   | admin@uniongroup.com     | admin123    |
-| Cashier | ibr@uniongroup.com       | cashier123  |
-| Cashier | union@uniongroup.com     | cashier123  |
-| Cashier | french@uniongroup.com    | cashier123  |
+| Role    | Email                 | Password   |
+| ------- | --------------------- | ---------- |
+| Admin   | admin@uniongroup.com  | admin123   |
+| Cashier | ibr@uniongroup.com    | cashier123 |
+| Cashier | union@uniongroup.com  | cashier123 |
+| Cashier | french@uniongroup.com | cashier123 |
 
 ## Features
 

@@ -4,6 +4,8 @@ import prisma from '@/lib/prisma';
 import { updateUserSchema } from '@/lib/validations';
 import bcrypt from 'bcryptjs';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const session = await getSession();

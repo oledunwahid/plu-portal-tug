@@ -4,6 +4,8 @@ import prisma from '@/lib/prisma';
 import { generateDoneCSV } from '@/lib/export';
 import { v4 as uuidv4 } from 'uuid';
 
+export const dynamic = 'force-dynamic';
+
 const UPDATE_TYPES = ['UPDATE_PRICE', 'UPDATE_NAME', 'UPDATE_PRINTER', 'UPDATE_FULL'];
 
 export async function GET(request: NextRequest) {

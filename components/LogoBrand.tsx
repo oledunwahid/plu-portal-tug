@@ -18,7 +18,7 @@ export function LogoBrand({ variant = 'white' }: { variant?: 'white' | 'dark' })
             fontSize: '1.5rem', fontWeight: 500, letterSpacing: '0.04em',
           }}
         >
-          The Union Group
+          PLU Management System
         </div>
         <div
           style={{
@@ -35,7 +35,7 @@ export function LogoBrand({ variant = 'white' }: { variant?: 'white' | 'dark' })
   return (
     <img
       src={src}
-      alt="The Union Group"
+      alt="PLU Management System"
       onError={() => setImgFailed(true)}
       style={{ height: '48px', width: 'auto', objectFit: 'contain', marginBottom: '0.75rem' }}
     />

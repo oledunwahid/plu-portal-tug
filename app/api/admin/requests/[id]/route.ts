@@ -5,6 +5,8 @@ import prisma from '@/lib/prisma';
 import { updateRequestSchema } from '@/lib/validations';
 import { Prisma } from '@prisma/client';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
   try {
     const session = await getSession();

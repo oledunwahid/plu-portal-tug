@@ -151,6 +151,21 @@ export default function ExportPage() {
     fetchCounts();
   }, [group, from, to]);
 
+  const flattenBatches = useCallback((batchData: any[]): any[] =>
+    batchData.flatMap((b: any) =>
+      (b.items as any[]).map((item: any) => ({
+        ...item,
+        id: `${b.id}:${item.id}`,
+        requestType: b.requestType,
+        status: b.status,
+        cashierOutlet: b.cashierOutlet,
+        outletGroup: b.outletGroup,
+        createdAt: b.createdAt,
+        submittedBy: b.submittedBy,
+      }))
+    )
+  , []);
+
   const fetchRequests = useCallback(async () => {
     setLoading(true);
     setSelectedIds(new Set());
@@ -160,21 +175,6 @@ export default function ExportPage() {
       if (statusFilter !== 'ALL') params.set('status', statusFilter);
       if (from) params.set('from', from);
       if (to) params.set('to', to);
-
-      function flattenBatches(batchData: any[]): any[] {
-        return batchData.flatMap((b: any) =>
-          (b.items as any[]).map((item: any) => ({
-            ...item,
-            id: `${b.id}:${item.id}`,
-            requestType: b.requestType,
-            status: b.status,
-            cashierOutlet: b.cashierOutlet,
-            outletGroup: b.outletGroup,
-            createdAt: b.createdAt,
-            submittedBy: b.submittedBy,
-          }))
-        );
-      }
 
       if (sourceFilter === 'ALL') {
         const [sRes, bRes] = await Promise.all([
@@ -201,7 +201,7 @@ export default function ExportPage() {
     } finally {
       setLoading(false);
     }
-  }, [activeType, group, statusFilter, from, to, sourceFilter]);
+  }, [activeType, group, statusFilter, from, to, sourceFilter, flattenBatches]);
 
   useEffect(() => { fetchRequests(); }, [fetchRequests]);
 

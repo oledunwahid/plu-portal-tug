@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { signIn, useSession } from 'next-auth/react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Loader2, Eye, EyeOff } from 'lucide-react';
@@ -8,22 +8,25 @@ import { toast } from 'sonner';
 import { LogoBrand } from '@/components/LogoBrand';
 import { ASSETS } from '@/lib/assets';
 
-export default function LoginPage() {
+function SignedOutToast() {
+  const searchParams = useSearchParams();
+  useEffect(() => {
+    if (searchParams.get('signedOut') === 'true') {
+      toast.success('You have been signed out.');
+      window.history.replaceState({}, '', '/login');
+    }
+  }, [searchParams]);
+  return null;
+}
+
+function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const router = useRouter();
-  const searchParams = useSearchParams();
   const { data: session, status } = useSession();
-
-  useEffect(() => {
-    if (searchParams.get('signedOut') === 'true') {
-      toast.success('You have been signed out.');
-      window.history.replaceState({}, '', '/login');
-    }
-  }, []);
 
   useEffect(() => {
     if (status === 'authenticated' && session?.user) {
@@ -179,7 +182,7 @@ export default function LoginPage() {
 
         <div style={{ position: 'absolute', bottom: '1.5rem', textAlign: 'center' }}>
           <p style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.18)', letterSpacing: '0.05em', marginBottom: '0.2rem' }}>
-            © {new Date().getFullYear()} The Union Group
+            © {new Date().getFullYear()} PLU Management System
           </p>
           <p style={{ fontSize: '0.58rem', color: 'rgba(255,255,255,0.1)', letterSpacing: '0.04em' }}>
             Developed by Khaled · Supported by Fauzi
@@ -207,7 +210,12 @@ export default function LoginPage() {
         <div style={{ position: 'absolute', inset: 0, background: '#2A1A0A', zIndex: -1 }} />
       </div>
 
+      <Suspense>
+        <SignedOutToast />
+      </Suspense>
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   );
 }
+
+export default LoginPage;

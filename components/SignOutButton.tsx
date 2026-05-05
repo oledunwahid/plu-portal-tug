@@ -28,7 +28,7 @@ export function SignOutButton() {
             fontSize: '1.4rem', fontWeight: 500, letterSpacing: '0.02em',
           }}
         >
-          The Union Group
+          PLU Management System
         </div>
         <div style={{ display: 'flex', gap: '6px', marginTop: '0.5rem' }}>
           {[0, 1, 2].map((i) => (

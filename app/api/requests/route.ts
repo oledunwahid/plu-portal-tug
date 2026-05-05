@@ -4,6 +4,8 @@ import { getSession } from '@/lib/session';
 import prisma from '@/lib/prisma';
 import { createRequestSchema } from '@/lib/validations';
 
+export const dynamic = 'force-dynamic';
+
 export async function POST(request: NextRequest) {
   try {
     const session = await getSession();

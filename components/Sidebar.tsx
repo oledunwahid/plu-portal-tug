@@ -99,7 +99,7 @@ export function Sidebar() {
         style={{ position: 'fixed', top: 0, left: 0, right: 0, height: '52px', background: '#1A1008', zIndex: 50, alignItems: 'center', justifyContent: 'space-between', padding: '0 16px' }}
       >
         <span style={{ fontFamily: 'var(--font-display)', color: '#C9A84C', fontSize: '1rem', fontWeight: 500 }}>
-          The Union Group
+          PLU Management System
         </span>
         <button
           onClick={() => setOpen(true)}
