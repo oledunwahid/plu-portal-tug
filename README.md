@@ -25,15 +25,6 @@ npm run build
 npm start
 ```
 
-## Test Accounts
-
-| Role    | Email                 | Password   |
-| ------- | --------------------- | ---------- |
-| Admin   | admin@uniongroup.com  | admin123   |
-| Cashier | ibr@uniongroup.com    | cashier123 |
-| Cashier | union@uniongroup.com  | cashier123 |
-| Cashier | french@uniongroup.com | cashier123 |
-
 ## Features
 
 - **Cashier**: Submit PLU requests (new item, price update, name update, printer change)
