@@ -1,5 +1,5 @@
 export const ASSETS = {
-  LOGO_WHITE: '/assets/logo-white.webp',
+  LOGO_WHITE: '/assets/logo-white.svg',
   LOGO_DARK: '/assets/logo-dark.svg',
   LOGO_MARK: '/assets/logo-mark.svg',
   LOGIN_HERO: '/assets/login-hero.jpeg',
