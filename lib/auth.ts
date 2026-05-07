@@ -1,6 +1,6 @@
 import CredentialsProvider from 'next-auth/providers/credentials';
 import bcrypt from 'bcryptjs';
-import prisma from './prisma';
+import { getUserByEmail } from './db';
 import { getOutletGroup } from './outlets';
 
 export const authOptions = {
@@ -15,11 +15,13 @@ export const authOptions = {
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) return null;
 
-        const user = await prisma.user.findUnique({
-          where: { email: credentials.email },
-        });
+        // Direct SQLite query — bypasses Prisma's native engine entirely.
+        // Prisma's .so.node binary gets killed by cPanel's resource limits;
+        // better-sqlite3 is in-process and unaffected.
+        const user = getUserByEmail(credentials.email);
 
         if (!user) return null;
+        // active is stored as INTEGER 0/1 — falsy check works for both
         if (!user.active) throw new Error('INACTIVE_ACCOUNT');
 
         const passwordMatch = await bcrypt.compare(credentials.password, user.password);
