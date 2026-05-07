@@ -1,0 +1,5 @@
+---
+deployment:
+  tasks:
+    - /bin/bash /home/plur2385/public_html/plu-portal/setup-production.sh
+    - touch /home/plur2385/public_html/plu-portal/tmp/restart.txt
