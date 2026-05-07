@@ -1,80 +1,57 @@
 #!/bin/bash
 # setup-production.sh
-# Run once after every deploy (git pull + npm install) to patch nodevenv's
-# Prisma client so it resolves paths correctly from the project root.
-#
-# Usage (from app root):  bash setup-production.sh
-# Auto-run via:           .cpanel.yml
+# Run after every "git pull" on the cPanel server.
+# Usage: bash setup-production.sh  (from app root)
 
 set -euo pipefail
 
 APP_ROOT="/home/plur2385/public_html/plu-portal"
-PROJECT_CLIENT="${APP_ROOT}/node_modules/.prisma/client"
-NODEVENV_CLIENT="/home/plur2385/nodevenv/public_html/plu-portal/20/lib/node_modules/.prisma/client"
-BINARY="libquery_engine-debian-openssl-1.1.x.so.node"
+NODE_BIN="/home/plur2385/nodevenv/public_html/plu-portal/20/bin/node"
+
+# Use nodevenv node if available (ensures correct Node version), fall back to PATH
+NODE_CMD="node"
+if [ -x "${NODE_BIN}" ]; then
+  NODE_CMD="${NODE_BIN}"
+fi
 
 echo "=== setup-production.sh ==="
-echo "APP_ROOT:          ${APP_ROOT}"
-echo "PROJECT_CLIENT:    ${PROJECT_CLIENT}"
-echo "NODEVENV_CLIENT:   ${NODEVENV_CLIENT}"
+echo "Node: $(${NODE_CMD} --version)"
 echo ""
 
-# ── Verify prerequisites ──────────────────────────────────────────────────────
+# ── 1. Install / update dependencies ──────────────────────────────────────────
+cd "${APP_ROOT}"
 
-if [ ! -f "${PROJECT_CLIENT}/index.js" ]; then
-  echo "ERROR: ${PROJECT_CLIENT}/index.js not found."
-  echo "Run 'npm install' in ${APP_ROOT} first, then re-run this script."
+echo "Installing npm dependencies…"
+# --ignore-scripts skips the prisma generate postinstall, which hangs on this host.
+# better-sqlite3 is rebuilt separately below.
+npm install --ignore-scripts 2>&1 | tail -5
+
+# Rebuild better-sqlite3 native addon (needs scripts, can't use --ignore-scripts)
+echo "Rebuilding better-sqlite3…"
+if [ -d "${APP_ROOT}/node_modules/better-sqlite3" ]; then
+  # Try downloading a pre-built binary first (fast, no compiler needed)
+  "${NODE_CMD}" "${APP_ROOT}/node_modules/.bin/node-pre-gyp" install \
+    --fallback-to-build \
+    --directory "${APP_ROOT}/node_modules/better-sqlite3" 2>&1 \
+    && echo "  better-sqlite3 binary ready" \
+    || {
+      echo "  node-pre-gyp failed, trying npm rebuild…"
+      npm rebuild better-sqlite3 2>&1 | tail -5
+    }
+else
+  echo "  ERROR: better-sqlite3 not in node_modules. Did 'npm install --ignore-scripts' run?"
   exit 1
 fi
 
-if [ ! -f "${PROJECT_CLIENT}/${BINARY}" ]; then
-  echo "ERROR: Engine binary not found at ${PROJECT_CLIENT}/${BINARY}"
-  exit 1
-fi
+# ── 2. Patch the Prisma generated client ──────────────────────────────────────
+echo ""
+echo "Patching Prisma client…"
+"${NODE_CMD}" "${APP_ROOT}/prisma/patch-client.js"
 
-mkdir -p "${NODEVENV_CLIENT}"
-
-# ── 1. Patch index.js in nodevenv ─────────────────────────────────────────────
-# Read from project (authoritative source), patch config.dirname and schemaEnvPath,
-# write to a temp file, then atomic-rename into nodevenv (breaks hardlink).
-echo "Patching ${NODEVENV_CLIENT}/index.js ..."
-
-sed \
-  -e "s|config\.dirname = __dirname|config.dirname = '${PROJECT_CLIENT}'|g" \
-  -e 's|"schemaEnvPath": "\.\./\.\./\.\./\.env"|"schemaEnvPath": null|g' \
-  "${PROJECT_CLIENT}/index.js" > "${NODEVENV_CLIENT}/index.js.new"
-
-mv "${NODEVENV_CLIENT}/index.js.new" "${NODEVENV_CLIENT}/index.js"
-echo "  config.dirname  => ${PROJECT_CLIENT}"
-echo "  schemaEnvPath   => null (DATABASE_URL set by server-start.js)"
-
-# ── 2. Replace default.js in nodevenv with a clean re-export ─────────────────
-# The server's default.js may have been hand-patched (throw removed etc.).
-# Restore it to the correct 1-line form.
-echo "Writing clean default.js ..."
-printf "module.exports = { ...require('.') }\n" > "${NODEVENV_CLIENT}/default.js"
-
-# ── 3. Copy schema.prisma to nodevenv ────────────────────────────────────────
-# Prisma checks for this file at config.dirname; it's also in inlineSchema but
-# having it on disk avoids any edge-case fallback warnings.
-if [ -f "${PROJECT_CLIENT}/schema.prisma" ]; then
-  cp "${PROJECT_CLIENT}/schema.prisma" "${NODEVENV_CLIENT}/schema.prisma"
-  echo "Copied schema.prisma"
-fi
-
-# ── 4. Copy + chmod the native binary ────────────────────────────────────────
-echo "Copying engine binary ..."
-cp "${PROJECT_CLIENT}/${BINARY}" "${NODEVENV_CLIENT}/${BINARY}"
-chmod 755 "${NODEVENV_CLIENT}/${BINARY}"
-chmod 755 "${PROJECT_CLIENT}/${BINARY}"
-echo "  ${BINARY} => 755"
-
-# ── 5. Ensure tmp/ exists (for Passenger-style restart) ───────────────────────
+# ── 3. Ensure tmp/ exists for Passenger-style restart ─────────────────────────
 mkdir -p "${APP_ROOT}/tmp"
 
-# ── Summary ───────────────────────────────────────────────────────────────────
 echo ""
 echo "=== Done ==="
-echo "Next step: restart the Node.js app in cPanel (Node.js Selector > Restart)"
-echo "Or from terminal:"
-echo "  touch ${APP_ROOT}/tmp/restart.txt"
+echo "Next: restart the Node.js app in cPanel (Node.js Selector > Restart)"
+echo "  or: touch ${APP_ROOT}/tmp/restart.txt"
