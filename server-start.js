@@ -3,11 +3,11 @@
 /**
  * cPanel Application startup file (set in Node.js Selector).
  *
- * REQUIRED: run "bash setup-production.sh" after every deploy before restarting.
- * That script patches .prisma/client/index.js and rebuilds better-sqlite3.
+ * Auth uses sql.js (pure WASM, no native modules, no compilation).
+ * WASM is loaded from public/sql-wasm.wasm (committed to git).
+ * After deploy: git pull → restart app in cPanel. No npm install required.
  *
- * This file handles runtime env + a belt-and-suspenders Module._compile patch
- * for Prisma routes (auth uses better-sqlite3 directly, so Prisma is optional).
+ * The Module._compile patch below is retained for any remaining Prisma routes.
  */
 
 'use strict';
