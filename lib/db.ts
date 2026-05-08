@@ -1,22 +1,11 @@
-/**
- * Direct SQLite access via better-sqlite3.
- * Used for queries that must survive cPanel's shared hosting resource limits,
- * where Prisma's native query engine binary gets killed.
- *
- * better-sqlite3 is synchronous and runs in-process — no child processes,
- * no resource-limit risk.
- */
-import Database from 'better-sqlite3';
+import initSqlJs from 'sql.js';
+import fs from 'fs';
 import path from 'path';
 
-// Matches Prisma's SQLite path resolution:
-//   "file:./dev.db"  → resolved relative to prisma/ (where schema.prisma lives)
-//   "file:/abs/path" → used as-is
 function resolveDbPath(): string {
   const url = process.env.DATABASE_URL ?? 'file:./dev.db';
   const filePart = url.replace(/^file:/, '');
   if (path.isAbsolute(filePart)) return filePart;
-  // Prisma resolves relative URLs from the schema.prisma directory
   const normalized = filePart.replace(/^\.\//, '');
   return path.resolve(process.cwd(), 'prisma', normalized);
 }
@@ -32,26 +21,34 @@ export interface DbUser {
   createdAt: string;
 }
 
-// Singleton — survives Next.js hot-reloads in dev via globalThis
-const g = globalThis as unknown as { __bsqlite?: Database.Database };
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const g = globalThis as unknown as { __sqljsDb?: any };
 
-function getDb(): Database.Database {
-  if (!g.__bsqlite) {
-    g.__bsqlite = new Database(resolveDbPath());
-    g.__bsqlite.pragma('journal_mode = WAL');
-    g.__bsqlite.pragma('foreign_keys = ON');
+async function getDb() {
+  if (!g.__sqljsDb) {
+    const SQL = await initSqlJs({
+      // Resolve from public/ — committed to git, works without node_modules at runtime.
+      locateFile: () => path.join(process.cwd(), 'public', 'sql-wasm.wasm'),
+    });
+    const fileBuffer = fs.readFileSync(resolveDbPath());
+    g.__sqljsDb = new SQL.Database(fileBuffer);
   }
-  return g.__bsqlite;
+  return g.__sqljsDb;
 }
 
-export function getUserByEmail(email: string): DbUser | null {
+export async function getUserByEmail(email: string): Promise<DbUser | null> {
   try {
-    const row = getDb()
-      .prepare<[string], DbUser>(
-        'SELECT id, email, password, name, role, outlet, active, createdAt FROM "User" WHERE email = ? LIMIT 1'
-      )
-      .get(email);
-    return row ?? null;
+    const db = await getDb();
+    const results = db.exec(
+      'SELECT id, email, password, name, role, outlet, active, createdAt FROM "User" WHERE email = ? LIMIT 1',
+      [email]
+    );
+    if (!results.length || !results[0].values.length) return null;
+    const { columns, values } = results[0];
+    const row: unknown[] = values[0];
+    const obj: Record<string, unknown> = {};
+    columns.forEach((col: string, i: number) => { obj[col] = row[i]; });
+    return obj as unknown as DbUser;
   } catch (err) {
     console.error('[db] getUserByEmail failed:', err);
     return null;

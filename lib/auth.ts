@@ -15,10 +15,9 @@ export const authOptions = {
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) return null;
 
-        // Direct SQLite query — bypasses Prisma's native engine entirely.
-        // Prisma's .so.node binary gets killed by cPanel's resource limits;
-        // better-sqlite3 is in-process and unaffected.
-        const user = getUserByEmail(credentials.email);
+        // Direct SQLite query via sql.js (pure WASM) — bypasses Prisma's native engine.
+        // Prisma's .so.node binary gets killed by cPanel's resource limits.
+        const user = await getUserByEmail(credentials.email);
 
         if (!user) return null;
         // active is stored as INTEGER 0/1 — falsy check works for both
