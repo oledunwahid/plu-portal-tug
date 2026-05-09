@@ -1,11 +1,14 @@
 /** @type {import('next').NextConfig} */
+const path = require('path');
+
 const nextConfig = {
   reactStrictMode: true,
   output: 'standalone',
   experimental: {
-    // sql.js is bundled by webpack (not externalized) so the server needs no npm install for it.
-    // Keep @prisma/client external in case any route still references Prisma types.
-    serverComponentsExternalPackages: ['@prisma/client'],
+    // @prisma/client removed from serverComponentsExternalPackages so webpack bundles
+    // the Prisma stub (lib/prisma.ts) directly — no runtime require('@prisma/client')
+    // that could trigger the native query-engine binary.
+    outputFileTracingRoot: path.join(__dirname),
     outputFileTracingExcludes: {
       '**': [
         '**/node_modules/.prisma/**',
