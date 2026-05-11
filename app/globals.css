@@ -245,11 +245,6 @@ a { text-decoration: none; color: inherit; transition: all 200ms ease; }
     padding: 1.5rem 1.25rem !important;
   }
   .bulk-bar { left: 0 !important; }
-  .login-hero-panel { display: none !important; }
-}
-
-@media (min-width: 768px) {
-  .login-hero-panel { display: block !important; }
 }
 
 @keyframes badge-pulse {

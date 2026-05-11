@@ -20,7 +20,8 @@
       "Bash(git push *)",
       "Bash(grep -rn \"PrismaClient\\\\|globalThis\\\\.prisma\\\\|\\\\\\\\.prisma\\\\b\" .next/server/chunks/*.js)",
       "Bash(grep -o \"[0-9]\\\\{3,5\\\\}\" .next/server/app/api/auth/\\\\[...nextauth\\\\]/route.js)",
-      "Bash(python -c ' *)"
+      "Bash(python -c ' *)",
+      "Bash(git commit *)"
     ]
   }
 }
