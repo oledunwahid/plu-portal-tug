@@ -1,4 +1,4 @@
-import { PLURequest } from '@prisma/client';
+import type { DbPLURequest as PLURequest } from './db';
 
 const CSV_HEADERS = [
   'Active',

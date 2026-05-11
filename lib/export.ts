@@ -28,7 +28,7 @@ interface RequestRow {
   remarks: string | null;
   cashierOutlet: string;
   outletGroup: string;
-  createdAt: Date;
+  createdAt: Date | string;
 }
 
 interface BatchItemRow extends Omit<RequestRow, 'id' | 'status' | 'requestType' | 'remarks' | 'cashierOutlet' | 'outletGroup' | 'createdAt'> {

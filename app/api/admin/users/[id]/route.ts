@@ -1,23 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/session';
-import prisma from '@/lib/prisma';
+import { getUserById, findUserByEmailExcluding, updateUser, deleteUser } from '@/lib/db';
 import { updateUserSchema } from '@/lib/validations';
 import bcrypt from 'bcryptjs';
 
 export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const session = await getSession();
-    if (!session || session.user.role !== 'ADMIN') {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-    }
+    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (session.user.role !== 'ADMIN') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
-    const user = await prisma.user.findUnique({
-      where: { id: params.id },
-      select: { id: true, email: true, name: true, role: true, outlet: true, active: true, createdAt: true },
-    });
-
+    const user = await getUserById(params.id);
     if (!user) return NextResponse.json({ error: 'Not found' }, { status: 404 });
     return NextResponse.json(user);
   } catch (error) {
@@ -29,9 +25,8 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
   try {
     const session = await getSession();
-    if (!session || session.user.role !== 'ADMIN') {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-    }
+    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (session.user.role !== 'ADMIN') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
     const body = await request.json();
     const parsed = updateUserSchema.safeParse(body);
@@ -39,7 +34,6 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       return NextResponse.json({ error: 'Validation failed', issues: parsed.error.issues }, { status: 400 });
     }
 
-    // Safety guards
     if (params.id === session.user.id && parsed.data.role === 'CASHIER') {
       return NextResponse.json({ error: 'You cannot change your own role.' }, { status: 400 });
     }
@@ -47,27 +41,18 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       return NextResponse.json({ error: 'You cannot deactivate your own account.' }, { status: 400 });
     }
 
-    // Email uniqueness check
     if (parsed.data.email) {
-      const existing = await prisma.user.findFirst({
-        where: { email: parsed.data.email, NOT: { id: params.id } },
-      });
-      if (existing) {
-        return NextResponse.json({ error: 'Email already in use by another user.' }, { status: 409 });
-      }
+      const collision = await findUserByEmailExcluding(parsed.data.email, params.id);
+      if (collision) return NextResponse.json({ error: 'Email already in use by another user.' }, { status: 409 });
     }
 
-    const data: any = { ...parsed.data };
+    const data: Parameters<typeof updateUser>[1] = { ...parsed.data };
     if (data.password) {
       data.password = await bcrypt.hash(data.password, 12);
     }
 
-    const user = await prisma.user.update({
-      where: { id: params.id },
-      data,
-      select: { id: true, email: true, name: true, role: true, outlet: true, active: true, createdAt: true },
-    });
-
+    const user = await updateUser(params.id, data);
+    if (!user) return NextResponse.json({ error: 'Not found' }, { status: 404 });
     return NextResponse.json(user);
   } catch (error) {
     console.error('[PATCH /api/admin/users/:id]', error);
@@ -78,14 +63,14 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const session = await getSession();
-    if (!session || session.user.role !== 'ADMIN') {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-    }
+    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (session.user.role !== 'ADMIN') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     if (params.id === session.user.id) {
       return NextResponse.json({ error: 'Cannot delete your own account' }, { status: 400 });
     }
 
-    await prisma.user.delete({ where: { id: params.id } });
+    const deleted = await deleteUser(params.id);
+    if (!deleted) return NextResponse.json({ error: 'Not found' }, { status: 404 });
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('[DELETE /api/admin/users/:id]', error);

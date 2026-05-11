@@ -1,29 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/session';
-import prisma from '@/lib/prisma';
+import { getRequestBatches, createRequestBatch } from '@/lib/db';
 import { OUTLET_TO_GROUP } from '@/lib/outlets';
+import type { BatchItemInput } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
 
 export async function GET() {
   try {
     const session = await getSession();
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const batches = await prisma.requestBatch.findMany({
-      where: { userId: session.user.id },
-      include: { items: { orderBy: { sortOrder: 'asc' } } },
-      orderBy: { createdAt: 'desc' },
-      take: 200,
-    });
-
-    return NextResponse.json(batches.map((b) => ({
-      ...b,
-      createdAt: b.createdAt.toISOString(),
-      updatedAt: b.updatedAt.toISOString(),
-      doneAt: b.doneAt?.toISOString() ?? null,
-      exportedAt: b.exportedAt?.toISOString() ?? null,
-    })));
+    const batches = await getRequestBatches({ userId: session.user.id, limit: 200 });
+    return NextResponse.json(batches);
   } catch (error) {
     console.error('[GET /api/batches]', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
@@ -46,45 +36,34 @@ export async function POST(req: NextRequest) {
 
     const validTypes = ['NEW_ITEM', 'UPDATE_PRICE', 'UPDATE_NAME', 'UPDATE_PRINTER', 'UPDATE_FULL'];
     const requestType = validTypes.includes(body.requestType) ? body.requestType : 'NEW_ITEM';
-
     const outletGroup = OUTLET_TO_GROUP[session.user.outlet] ?? 'UNION';
 
-    const batch = await prisma.requestBatch.create({
-      data: {
-        title: body.title.trim(),
-        requestType,
-        outletGroup,
-        cashierOutlet: session.user.outlet,
-        userId: session.user.id,
-        items: {
-          create: (body.items as any[]).map((item: any, index: number) => ({
-            code: item.code ?? null,
-            name: item.name,
-            category: item.category,
-            department: item.department,
-            price: item.price ?? null,
-            folder: item.folder ?? null,
-            serviceCharge: item.serviceCharge ?? true,
-            tax1: item.tax1 ?? true,
-            tax2: item.tax2 ?? true,
-            noDiscount: item.noDiscount ?? true,
-            hideReceipt: item.hideReceipt ?? false,
-            printers: Array.isArray(item.printers) ? item.printers.join(';') : (item.printers ?? ''),
-            outlets: Array.isArray(item.outlets) ? item.outlets.join(';') : (item.outlets ?? ''),
-            sortOrder: index,
-          })),
-        },
-      },
-      include: { items: { orderBy: { sortOrder: 'asc' } } },
+    const items: BatchItemInput[] = (body.items as unknown[]).map((item: unknown) => {
+      const i = item as Record<string, unknown>;
+      return {
+        code: (i.code as string | null) ?? null,
+        name: String(i.name ?? ''),
+        category: String(i.category ?? ''),
+        department: String(i.department ?? ''),
+        price: i.price != null ? Number(i.price) : null,
+        folder: (i.folder as string | null) ?? null,
+        serviceCharge: i.serviceCharge !== false,
+        tax1: i.tax1 !== false,
+        tax2: i.tax2 !== false,
+        noDiscount: i.noDiscount !== false,
+        hideReceipt: i.hideReceipt === true,
+        printers: Array.isArray(i.printers) ? (i.printers as string[]).join(';') : String(i.printers ?? ''),
+        outlets: Array.isArray(i.outlets) ? (i.outlets as string[]).join(';') : String(i.outlets ?? ''),
+        salesDef: (i.salesDef as string | undefined) ?? 'SALES',
+      };
     });
 
-    return NextResponse.json({
-      ...batch,
-      createdAt: batch.createdAt.toISOString(),
-      updatedAt: batch.updatedAt.toISOString(),
-      doneAt: null,
-      exportedAt: null,
-    }, { status: 201 });
+    const batch = await createRequestBatch(
+      { title: body.title.trim(), requestType, outletGroup, cashierOutlet: session.user.outlet, userId: session.user.id },
+      items
+    );
+
+    return NextResponse.json(batch, { status: 201 });
   } catch (error) {
     console.error('[POST /api/batches]', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

@@ -1,31 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/session';
-import prisma from '@/lib/prisma';
-import { Prisma } from '@prisma/client';
+import { getRequestBatchById, updateRequestBatch } from '@/lib/db';
+import type { BatchItemInput } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const session = await getSession();
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const batch = await prisma.requestBatch.findUnique({
-      where: { id: params.id },
-      include: { items: { orderBy: { sortOrder: 'asc' } } },
-    });
+    const batch = await getRequestBatchById(params.id);
     if (!batch) return NextResponse.json({ error: 'Not found' }, { status: 404 });
     if (session.user.role === 'CASHIER' && batch.userId !== session.user.id) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    return NextResponse.json({
-      ...batch,
-      createdAt: batch.createdAt.toISOString(),
-      updatedAt: batch.updatedAt.toISOString(),
-      doneAt: batch.doneAt?.toISOString() ?? null,
-      exportedAt: batch.exportedAt?.toISOString() ?? null,
-    });
+    return NextResponse.json(batch);
   } catch (error) {
     console.error('[GET /api/batches/:id]', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
@@ -37,61 +29,47 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     const session = await getSession();
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const batch = await prisma.requestBatch.findUnique({
-      where: { id: params.id },
-      include: { items: true },
-    });
-    if (!batch) return NextResponse.json({ error: 'Not found' }, { status: 404 });
-    if (session.user.role === 'CASHIER' && batch.userId !== session.user.id) {
+    const existing = await getRequestBatchById(params.id);
+    if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    if (session.user.role === 'CASHIER' && existing.userId !== session.user.id) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
-    if (batch.status === 'DONE') {
+    if (existing.status === 'DONE') {
       return NextResponse.json({ error: 'Cannot edit a completed batch' }, { status: 409 });
     }
 
     const body = await req.json();
 
-    // Delete existing items and recreate
-    await prisma.requestBatchItem.deleteMany({ where: { batchId: params.id } });
+    const items: BatchItemInput[] = (Array.isArray(body.items) ? body.items : []).map(
+      (item: unknown) => {
+        const i = item as Record<string, unknown>;
+        return {
+          code: (i.code as string | null) ?? null,
+          name: String(i.name ?? ''),
+          category: String(i.category ?? ''),
+          department: String(i.department ?? ''),
+          price: i.price != null ? Number(i.price) : null,
+          folder: (i.folder as string | null) ?? null,
+          serviceCharge: i.serviceCharge !== false,
+          tax1: i.tax1 !== false,
+          tax2: i.tax2 !== false,
+          noDiscount: i.noDiscount !== false,
+          hideReceipt: i.hideReceipt === true,
+          printers: Array.isArray(i.printers) ? (i.printers as string[]).join(';') : String(i.printers ?? ''),
+          outlets: Array.isArray(i.outlets) ? (i.outlets as string[]).join(';') : String(i.outlets ?? ''),
+          salesDef: (i.salesDef as string | undefined) ?? 'SALES',
+        };
+      }
+    );
 
-    const updated = await prisma.requestBatch.update({
-      where: { id: params.id },
-      data: {
-        title: body.title?.trim() ?? batch.title,
-        requestType: body.requestType ?? batch.requestType,
-        items: {
-          create: (body.items as any[]).map((item: any, index: number) => ({
-            code: item.code ?? null,
-            name: item.name,
-            category: item.category,
-            department: item.department,
-            price: item.price ?? null,
-            folder: item.folder ?? null,
-            serviceCharge: item.serviceCharge ?? true,
-            tax1: item.tax1 ?? true,
-            tax2: item.tax2 ?? true,
-            noDiscount: item.noDiscount ?? true,
-            hideReceipt: item.hideReceipt ?? false,
-            printers: Array.isArray(item.printers) ? item.printers.join(';') : (item.printers ?? ''),
-            outlets: Array.isArray(item.outlets) ? item.outlets.join(';') : (item.outlets ?? ''),
-            sortOrder: index,
-          })),
-        },
-      },
-      include: { items: { orderBy: { sortOrder: 'asc' } } },
-    });
-
-    return NextResponse.json({
-      ...updated,
-      createdAt: updated.createdAt.toISOString(),
-      updatedAt: updated.updatedAt.toISOString(),
-      doneAt: updated.doneAt?.toISOString() ?? null,
-      exportedAt: updated.exportedAt?.toISOString() ?? null,
-    });
+    const updated = await updateRequestBatch(
+      params.id,
+      { title: body.title?.trim(), requestType: body.requestType },
+      items
+    );
+    if (!updated) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    return NextResponse.json(updated);
   } catch (error) {
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
-      return NextResponse.json({ error: 'Not found' }, { status: 404 });
-    }
     console.error('[PATCH /api/batches/:id]', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
