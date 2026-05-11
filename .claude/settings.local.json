@@ -13,7 +13,14 @@
       "Bash(curl -s -o /dev/null -w \"%{http_code}\" -L http://localhost:3001)",
       "Bash(pkill -f \"next dev\")",
       "Bash(npx tsc *)",
-      "Bash(npx next *)"
+      "Bash(npx next *)",
+      "Bash(git check-ignore *)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)",
+      "Bash(grep -rn \"PrismaClient\\\\|globalThis\\\\.prisma\\\\|\\\\\\\\.prisma\\\\b\" .next/server/chunks/*.js)",
+      "Bash(grep -o \"[0-9]\\\\{3,5\\\\}\" .next/server/app/api/auth/\\\\[...nextauth\\\\]/route.js)",
+      "Bash(python -c ' *)"
     ]
   }
 }
