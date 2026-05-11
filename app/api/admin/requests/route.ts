@@ -1,55 +1,33 @@
 import { NextRequest, NextResponse } from 'next/server';
-
 import { getSession } from '@/lib/session';
-import prisma from '@/lib/prisma';
-import { Prisma } from '@prisma/client';
+import { getPLURequests, countPLURequests } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
 
 export async function GET(request: NextRequest) {
   try {
     const session = await getSession();
-    if (!session || session.user.role !== 'ADMIN') {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-    }
+    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (session.user.role !== 'ADMIN') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
     const { searchParams } = new URL(request.url);
-    const status = searchParams.get('status');
-    const outletGroup = searchParams.get('outletGroup');
-    const requestType = searchParams.get('requestType');
-    const from = searchParams.get('from');
-    const to = searchParams.get('to');
-    const userId = searchParams.get('userId');
-    const countOnly = searchParams.get('countOnly') === '1';
+    const status      = searchParams.get('status') ?? undefined;
+    const outletGroup = searchParams.get('outletGroup') ?? undefined;
+    const requestType = searchParams.get('requestType') ?? undefined;
+    const from        = searchParams.get('from') ?? undefined;
+    const to          = searchParams.get('to') ?? undefined;
+    const userId      = searchParams.get('userId') ?? undefined;
+    const countOnly   = searchParams.get('countOnly') === '1';
 
-    const where: Prisma.PLURequestWhereInput = {};
-
-    if (status && status !== 'ALL') where.status = status as any;
-    if (outletGroup && outletGroup !== 'ALL') where.outletGroup = outletGroup;
-    if (requestType && requestType !== 'ALL') where.requestType = requestType as any;
-    if (userId) where.userId = userId;
-    if (from || to) {
-      where.createdAt = {};
-      if (from) (where.createdAt as any).gte = new Date(from);
-      if (to) {
-        const toDate = new Date(to);
-        toDate.setHours(23, 59, 59, 999);
-        (where.createdAt as any).lte = toDate;
-      }
-    }
+    const filters = { status, outletGroup, requestType, from, to, userId };
 
     if (countOnly) {
-      const count = await prisma.pLURequest.count({ where });
+      const count = await countPLURequests(filters);
       return NextResponse.json({ count });
     }
 
-    const requests = await prisma.pLURequest.findMany({
-      where,
-      include: { submittedBy: { select: { id: true, name: true, email: true, outlet: true } } },
-      orderBy: { createdAt: 'desc' },
-      take: 500,
-    });
-
+    const requests = await getPLURequests({ ...filters, limit: 500 });
     return NextResponse.json(requests);
   } catch (error) {
     console.error('[GET /api/admin/requests]', error);

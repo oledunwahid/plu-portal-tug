@@ -1,6 +1,148 @@
 import initSqlJs from 'sql.js';
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
+
+// ── Types ────────────────────────────────────────────────────────────────────
+
+export interface DbUser {
+  id: string;
+  email: string;
+  password: string;
+  name: string;
+  role: string;
+  outlet: string;
+  active: boolean;
+  createdAt: string;
+}
+
+export interface DbUserPublic {
+  id: string;
+  email: string;
+  name: string;
+  role: string;
+  outlet: string;
+  active: boolean;
+  createdAt: string;
+}
+
+export interface DbPLURequest {
+  id: string;
+  requestType: string;
+  status: string;
+  code: string | null;
+  name: string;
+  category: string;
+  department: string;
+  price: number | null;
+  folder: string | null;
+  serviceCharge: boolean;
+  tax1: boolean;
+  tax2: boolean;
+  noDiscount: boolean;
+  hideReceipt: boolean;
+  printers: string;
+  outlets: string;
+  salesDef: string;
+  remarks: string | null;
+  userId: string;
+  outletGroup: string;
+  cashierOutlet: string;
+  createdAt: string;
+  updatedAt: string;
+  doneAt: string | null;
+  adminNote: string | null;
+  exportedAt: string | null;
+  exportBatchId: string | null;
+}
+
+export interface DbPLURequestWithUser extends DbPLURequest {
+  submittedBy: { id: string; name: string; email: string; outlet: string };
+}
+
+export interface DbRequestBatchItem {
+  id: string;
+  batchId: string;
+  code: string | null;
+  name: string;
+  category: string;
+  department: string;
+  price: number | null;
+  folder: string | null;
+  serviceCharge: boolean;
+  tax1: boolean;
+  tax2: boolean;
+  noDiscount: boolean;
+  hideReceipt: boolean;
+  printers: string;
+  outlets: string;
+  salesDef: string;
+  sortOrder: number;
+}
+
+export interface DbRequestBatch {
+  id: string;
+  title: string;
+  requestType: string;
+  status: string;
+  outletGroup: string;
+  cashierOutlet: string;
+  userId: string;
+  createdAt: string;
+  updatedAt: string;
+  doneAt: string | null;
+  adminNote: string | null;
+  exportedAt: string | null;
+  exportBatchId: string | null;
+}
+
+export interface DbRequestBatchWithItems extends DbRequestBatch {
+  items: DbRequestBatchItem[];
+  submittedBy?: { id: string; name: string; email: string; outlet: string };
+}
+
+export interface BatchItemInput {
+  code?: string | null;
+  name: string;
+  category: string;
+  department: string;
+  price?: number | null;
+  folder?: string | null;
+  serviceCharge?: boolean;
+  tax1?: boolean;
+  tax2?: boolean;
+  noDiscount?: boolean;
+  hideReceipt?: boolean;
+  printers: string;
+  outlets: string;
+  salesDef?: string;
+}
+
+export interface PLURequestFilters {
+  status?: string;
+  outletGroup?: string;
+  requestType?: string;
+  from?: string;
+  to?: string;
+  userId?: string;
+  ids?: string[];
+  limit?: number;
+  orderAsc?: boolean;
+}
+
+export interface RequestBatchFilters {
+  status?: string;
+  outletGroup?: string;
+  requestType?: string;
+  from?: string;
+  to?: string;
+  userId?: string;
+  ids?: string[];
+  limit?: number;
+  orderAsc?: boolean;
+}
+
+// ── DB init ──────────────────────────────────────────────────────────────────
 
 function resolveDbPath(): string {
   const url = process.env.DATABASE_URL ?? 'file:./dev.db';
@@ -10,47 +152,710 @@ function resolveDbPath(): string {
   return path.resolve(process.cwd(), 'prisma', normalized);
 }
 
-export interface DbUser {
-  id: string;
-  email: string;
-  password: string;
-  name: string;
-  role: string;
-  outlet: string;
-  active: number; // SQLite stores Prisma Boolean as 0 / 1
-  createdAt: string;
-}
-
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const g = globalThis as unknown as { __sqljsDb?: any };
+const g = globalThis as unknown as { __sqljsDb?: any; __sqljsSql?: any };
 
 async function getDb() {
   if (!g.__sqljsDb) {
-    const SQL = await initSqlJs({
-      // Resolve from public/ — committed to git, works without node_modules at runtime.
-      locateFile: () => path.join(process.cwd(), 'public', 'sql-wasm.wasm'),
-    });
-    const fileBuffer = fs.readFileSync(resolveDbPath());
-    g.__sqljsDb = new SQL.Database(fileBuffer);
+    const dbPath = resolveDbPath();
+    if (!fs.existsSync(dbPath)) throw new Error(`DB file not found: ${dbPath}`);
+    if (!g.__sqljsSql) {
+      g.__sqljsSql = await initSqlJs({
+        locateFile: () => path.join(process.cwd(), 'public', 'sql-wasm.wasm'),
+      });
+    }
+    g.__sqljsDb = new g.__sqljsSql.Database(fs.readFileSync(dbPath));
   }
   return g.__sqljsDb;
 }
 
+// Write lock — chains writes sequentially so concurrent requests don't race.
+let writeQueue: Promise<unknown> = Promise.resolve();
+
+async function withWriteLock<T>(fn: (db: ReturnType<typeof getDb> extends Promise<infer U> ? U : never) => T | Promise<T>): Promise<T> {
+  const task = writeQueue.then(async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const db: any = await getDb();
+    const result = await fn(db);
+    fs.writeFileSync(resolveDbPath(), Buffer.from(db.export()));
+    return result;
+  });
+  writeQueue = task.catch(() => {});
+  return task as Promise<T>;
+}
+
+// ── Row utilities ────────────────────────────────────────────────────────────
+
+function rowToObj(columns: string[], values: unknown[]): Record<string, unknown> {
+  const obj: Record<string, unknown> = {};
+  columns.forEach((col, i) => { obj[col] = values[i]; });
+  return obj;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function execFirst(db: any, sql: string, params: unknown[] = []): Record<string, unknown> | null {
+  const results = db.exec(sql, params);
+  if (!results.length || !results[0].values.length) return null;
+  return rowToObj(results[0].columns, results[0].values[0]);
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function execAll(db: any, sql: string, params: unknown[] = []): Record<string, unknown>[] {
+  const results = db.exec(sql, params);
+  if (!results.length) return [];
+  const { columns, values } = results[0];
+  return (values as unknown[][]).map((row) => rowToObj(columns, row));
+}
+
+function normBool(v: unknown): boolean { return v === 1 || v === true; }
+function normStr(v: unknown): string | null { return v == null ? null : String(v); }
+function newId(): string { return crypto.randomUUID(); }
+function nowIso(): string { return new Date().toISOString(); }
+
+// ── User row mappers ─────────────────────────────────────────────────────────
+
+function rowToDbUser(row: Record<string, unknown>): DbUser {
+  return {
+    id: String(row.id),
+    email: String(row.email),
+    password: String(row.password),
+    name: String(row.name),
+    role: String(row.role),
+    outlet: String(row.outlet),
+    active: normBool(row.active),
+    createdAt: String(row.createdAt),
+  };
+}
+
+function rowToDbUserPublic(row: Record<string, unknown>): DbUserPublic {
+  return {
+    id: String(row.id),
+    email: String(row.email),
+    name: String(row.name),
+    role: String(row.role),
+    outlet: String(row.outlet),
+    active: normBool(row.active),
+    createdAt: String(row.createdAt),
+  };
+}
+
+// ── User helpers ─────────────────────────────────────────────────────────────
+
 export async function getUserByEmail(email: string): Promise<DbUser | null> {
   try {
     const db = await getDb();
-    const results = db.exec(
+    const row = execFirst(db,
       'SELECT id, email, password, name, role, outlet, active, createdAt FROM "User" WHERE email = ? LIMIT 1',
-      [email]
-    );
-    if (!results.length || !results[0].values.length) return null;
-    const { columns, values } = results[0];
-    const row: unknown[] = values[0];
-    const obj: Record<string, unknown> = {};
-    columns.forEach((col: string, i: number) => { obj[col] = row[i]; });
-    return obj as unknown as DbUser;
+      [email]);
+    return row ? rowToDbUser(row) : null;
   } catch (err) {
     console.error('[db] getUserByEmail failed:', err);
     return null;
   }
+}
+
+export async function getUserById(id: string): Promise<DbUserPublic | null> {
+  try {
+    const db = await getDb();
+    const row = execFirst(db,
+      'SELECT id, email, name, role, outlet, active, createdAt FROM "User" WHERE id = ? LIMIT 1',
+      [id]);
+    return row ? rowToDbUserPublic(row) : null;
+  } catch (err) {
+    console.error('[db] getUserById failed:', err);
+    return null;
+  }
+}
+
+export async function getAllUsers(): Promise<DbUserPublic[]> {
+  try {
+    const db = await getDb();
+    const rows = execAll(db,
+      'SELECT id, email, name, role, outlet, active, createdAt FROM "User" ORDER BY createdAt DESC');
+    return rows.map(rowToDbUserPublic);
+  } catch (err) {
+    console.error('[db] getAllUsers failed:', err);
+    return [];
+  }
+}
+
+export async function findUserByEmailExcluding(email: string, excludeId: string): Promise<DbUserPublic | null> {
+  try {
+    const db = await getDb();
+    const row = execFirst(db,
+      'SELECT id, email, name, role, outlet, active, createdAt FROM "User" WHERE email = ? AND id != ? LIMIT 1',
+      [email, excludeId]);
+    return row ? rowToDbUserPublic(row) : null;
+  } catch (err) {
+    console.error('[db] findUserByEmailExcluding failed:', err);
+    return null;
+  }
+}
+
+export async function createUser(data: {
+  email: string; password: string; name: string; role: string; outlet: string;
+}): Promise<DbUserPublic> {
+  return withWriteLock((db) => {
+    const id = newId();
+    const now = nowIso();
+    db.run(
+      'INSERT INTO "User" (id, email, password, name, role, outlet, active, createdAt) VALUES (?,?,?,?,?,?,1,?)',
+      [id, data.email, data.password, data.name, data.role, data.outlet, now]);
+    const row = execFirst(db, 'SELECT id, email, name, role, outlet, active, createdAt FROM "User" WHERE id = ?', [id]);
+    if (!row) throw new Error('User creation failed');
+    return rowToDbUserPublic(row);
+  });
+}
+
+export async function updateUser(id: string, data: Partial<{
+  email: string; password: string; name: string; role: string; outlet: string; active: boolean;
+}>): Promise<DbUserPublic | null> {
+  return withWriteLock((db) => {
+    const sets: string[] = [];
+    const vals: unknown[] = [];
+    if (data.email !== undefined)    { sets.push('email = ?');    vals.push(data.email); }
+    if (data.password !== undefined) { sets.push('password = ?'); vals.push(data.password); }
+    if (data.name !== undefined)     { sets.push('name = ?');     vals.push(data.name); }
+    if (data.role !== undefined)     { sets.push('role = ?');     vals.push(data.role); }
+    if (data.outlet !== undefined)   { sets.push('outlet = ?');   vals.push(data.outlet); }
+    if (data.active !== undefined)   { sets.push('active = ?');   vals.push(data.active ? 1 : 0); }
+    if (sets.length > 0) {
+      vals.push(id);
+      db.run(`UPDATE "User" SET ${sets.join(', ')} WHERE id = ?`, vals);
+    }
+    const row = execFirst(db, 'SELECT id, email, name, role, outlet, active, createdAt FROM "User" WHERE id = ?', [id]);
+    return row ? rowToDbUserPublic(row) : null;
+  });
+}
+
+export async function deleteUser(id: string): Promise<boolean> {
+  return withWriteLock((db) => {
+    const existing = execFirst(db, 'SELECT id FROM "User" WHERE id = ?', [id]);
+    if (!existing) return false;
+    db.run('DELETE FROM "User" WHERE id = ?', [id]);
+    return true;
+  });
+}
+
+// ── PLURequest row mapper ────────────────────────────────────────────────────
+
+function rowToPLURequest(row: Record<string, unknown>): DbPLURequest {
+  return {
+    id: String(row.id),
+    requestType: String(row.requestType),
+    status: String(row.status),
+    code: normStr(row.code),
+    name: String(row.name),
+    category: String(row.category),
+    department: String(row.department),
+    price: row.price != null ? Number(row.price) : null,
+    folder: normStr(row.folder),
+    serviceCharge: normBool(row.serviceCharge),
+    tax1: normBool(row.tax1),
+    tax2: normBool(row.tax2),
+    noDiscount: normBool(row.noDiscount),
+    hideReceipt: normBool(row.hideReceipt),
+    printers: String(row.printers ?? ''),
+    outlets: String(row.outlets ?? ''),
+    salesDef: String(row.salesDef ?? 'SALES'),
+    remarks: normStr(row.remarks),
+    userId: String(row.userId),
+    outletGroup: String(row.outletGroup),
+    cashierOutlet: String(row.cashierOutlet),
+    createdAt: String(row.createdAt),
+    updatedAt: String(row.updatedAt),
+    doneAt: normStr(row.doneAt),
+    adminNote: normStr(row.adminNote),
+    exportedAt: normStr(row.exportedAt),
+    exportBatchId: normStr(row.exportBatchId),
+  };
+}
+
+function rowToPLURequestWithUser(row: Record<string, unknown>): DbPLURequestWithUser {
+  return {
+    ...rowToPLURequest(row),
+    submittedBy: {
+      id: String(row.u_id ?? row.userId),
+      name: String(row.u_name ?? ''),
+      email: String(row.u_email ?? ''),
+      outlet: String(row.u_outlet ?? ''),
+    },
+  };
+}
+
+// ── PLURequest filter builder ────────────────────────────────────────────────
+
+function buildPLUConditions(filters: PLURequestFilters, alias: string): { conditions: string[]; params: unknown[] } {
+  const conditions: string[] = [];
+  const params: unknown[] = [];
+  if (filters.status && filters.status !== 'ALL')           { conditions.push(`${alias}.status = ?`);       params.push(filters.status); }
+  if (filters.outletGroup && filters.outletGroup !== 'ALL') { conditions.push(`${alias}.outletGroup = ?`);  params.push(filters.outletGroup); }
+  if (filters.requestType && filters.requestType !== 'ALL') { conditions.push(`${alias}.requestType = ?`);  params.push(filters.requestType); }
+  if (filters.userId)                                        { conditions.push(`${alias}.userId = ?`);      params.push(filters.userId); }
+  if (filters.from) {
+    conditions.push(`${alias}.createdAt >= ?`);
+    params.push(filters.from);
+  }
+  if (filters.to) {
+    const d = new Date(filters.to); d.setHours(23, 59, 59, 999);
+    conditions.push(`${alias}.createdAt <= ?`);
+    params.push(d.toISOString());
+  }
+  if (filters.ids && filters.ids.length > 0) {
+    conditions.push(`${alias}.id IN (${filters.ids.map(() => '?').join(',')})`);
+    params.push(...filters.ids);
+  }
+  return { conditions, params };
+}
+
+// ── PLURequest helpers ───────────────────────────────────────────────────────
+
+export async function getPLURequests(filters: PLURequestFilters = {}): Promise<DbPLURequestWithUser[]> {
+  try {
+    const db = await getDb();
+    const { conditions, params } = buildPLUConditions(filters, 'pr');
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    const limit = Math.min(filters.limit ?? 500, 500);
+    const order = filters.orderAsc ? 'ASC' : 'DESC';
+    const rows = execAll(db, `
+      SELECT pr.*, u.id as u_id, u.name as u_name, u.email as u_email, u.outlet as u_outlet
+      FROM "PLURequest" pr LEFT JOIN "User" u ON pr.userId = u.id
+      ${where} ORDER BY pr.createdAt ${order} LIMIT ?
+    `, [...params, limit]);
+    return rows.map(rowToPLURequestWithUser);
+  } catch (err) {
+    console.error('[db] getPLURequests failed:', err);
+    return [];
+  }
+}
+
+export async function getPLURequestsRaw(filters: PLURequestFilters = {}): Promise<DbPLURequest[]> {
+  try {
+    const db = await getDb();
+    const { conditions, params } = buildPLUConditions(filters, 'pr');
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    const limit = Math.min(filters.limit ?? 500, 2000);
+    const order = filters.orderAsc ? 'ASC' : 'DESC';
+    const rows = execAll(db, `
+      SELECT pr.* FROM "PLURequest" pr
+      ${where} ORDER BY pr.createdAt ${order} LIMIT ?
+    `, [...params, limit]);
+    return rows.map(rowToPLURequest);
+  } catch (err) {
+    console.error('[db] getPLURequestsRaw failed:', err);
+    return [];
+  }
+}
+
+export async function countPLURequests(filters: PLURequestFilters = {}): Promise<number> {
+  try {
+    const db = await getDb();
+    const { conditions, params } = buildPLUConditions(filters, 'pr');
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    const row = execFirst(db,
+      `SELECT COUNT(*) as cnt FROM "PLURequest" pr ${where}`, params);
+    return row ? Number(row.cnt) : 0;
+  } catch (err) {
+    console.error('[db] countPLURequests failed:', err);
+    return 0;
+  }
+}
+
+export async function getPLURequestById(id: string): Promise<DbPLURequestWithUser | null> {
+  try {
+    const db = await getDb();
+    const row = execFirst(db, `
+      SELECT pr.*, u.id as u_id, u.name as u_name, u.email as u_email, u.outlet as u_outlet
+      FROM "PLURequest" pr LEFT JOIN "User" u ON pr.userId = u.id
+      WHERE pr.id = ? LIMIT 1
+    `, [id]);
+    return row ? rowToPLURequestWithUser(row) : null;
+  } catch (err) {
+    console.error('[db] getPLURequestById failed:', err);
+    return null;
+  }
+}
+
+export async function getPLURequestByIdSimple(id: string): Promise<DbPLURequest | null> {
+  try {
+    const db = await getDb();
+    const row = execFirst(db, 'SELECT * FROM "PLURequest" WHERE id = ? LIMIT 1', [id]);
+    return row ? rowToPLURequest(row) : null;
+  } catch (err) {
+    console.error('[db] getPLURequestByIdSimple failed:', err);
+    return null;
+  }
+}
+
+export async function createPLURequest(data: {
+  requestType: string; code?: string | null; name: string; category: string;
+  department: string; price?: number | null; folder?: string | null;
+  serviceCharge: boolean; tax1: boolean; tax2: boolean; noDiscount: boolean;
+  hideReceipt: boolean; printers: string; outlets: string;
+  remarks?: string | null; userId: string; outletGroup: string; cashierOutlet: string;
+  salesDef?: string;
+}): Promise<DbPLURequest> {
+  return withWriteLock((db) => {
+    const id = newId();
+    const now = nowIso();
+    db.run(`
+      INSERT INTO "PLURequest" (
+        id, requestType, status, code, name, category, department, price, folder,
+        serviceCharge, tax1, tax2, noDiscount, hideReceipt, printers, outlets,
+        salesDef, remarks, userId, outletGroup, cashierOutlet,
+        createdAt, updatedAt, doneAt, adminNote, exportedAt, exportBatchId
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,null,null,null,null)
+    `, [
+      id, data.requestType, 'PENDING', data.code ?? null, data.name, data.category,
+      data.department, data.price ?? null, data.folder ?? null,
+      data.serviceCharge ? 1 : 0, data.tax1 ? 1 : 0, data.tax2 ? 1 : 0,
+      data.noDiscount ? 1 : 0, data.hideReceipt ? 1 : 0,
+      data.printers, data.outlets, data.salesDef ?? 'SALES', data.remarks ?? null,
+      data.userId, data.outletGroup, data.cashierOutlet, now, now,
+    ]);
+    const row = execFirst(db, 'SELECT * FROM "PLURequest" WHERE id = ?', [id]);
+    if (!row) throw new Error('PLURequest creation failed');
+    return rowToPLURequest(row);
+  });
+}
+
+export async function updatePLURequest(id: string, data: Partial<{
+  code: string | null; name: string; category: string; department: string;
+  price: number | null; folder: string | null;
+  serviceCharge: boolean; tax1: boolean; tax2: boolean; noDiscount: boolean;
+  hideReceipt: boolean; printers: string; outlets: string;
+  remarks: string | null; adminNote: string | null; status: string;
+  doneAt: string | null; exportedAt: string | null; exportBatchId: string | null;
+}>): Promise<DbPLURequest | null> {
+  return withWriteLock((db) => {
+    const sets: string[] = ['updatedAt = ?'];
+    const vals: unknown[] = [nowIso()];
+
+    const boolFields = ['serviceCharge', 'tax1', 'tax2', 'noDiscount', 'hideReceipt'] as const;
+    const strFields = [
+      'code', 'name', 'category', 'department', 'folder', 'printers', 'outlets',
+      'remarks', 'adminNote', 'status', 'doneAt', 'exportedAt', 'exportBatchId',
+    ] as const;
+
+    for (const f of boolFields) {
+      if (f in data && data[f] !== undefined) { sets.push(`${f} = ?`); vals.push(data[f] ? 1 : 0); }
+    }
+    for (const f of strFields) {
+      if (f in data) { sets.push(`${f} = ?`); vals.push(data[f] ?? null); }
+    }
+    if ('price' in data) { sets.push('price = ?'); vals.push(data.price ?? null); }
+
+    vals.push(id);
+    db.run(`UPDATE "PLURequest" SET ${sets.join(', ')} WHERE id = ?`, vals);
+    const row = execFirst(db, 'SELECT * FROM "PLURequest" WHERE id = ?', [id]);
+    return row ? rowToPLURequest(row) : null;
+  });
+}
+
+export async function deletePLURequest(id: string): Promise<boolean> {
+  return withWriteLock((db) => {
+    const existing = execFirst(db, 'SELECT id FROM "PLURequest" WHERE id = ?', [id]);
+    if (!existing) return false;
+    db.run('DELETE FROM "PLURequest" WHERE id = ?', [id]);
+    return true;
+  });
+}
+
+export async function bulkMarkPLURequestsDone(ids: string[]): Promise<number> {
+  if (ids.length === 0) return 0;
+  return withWriteLock((db) => {
+    const now = nowIso();
+    const ph = ids.map(() => '?').join(',');
+    db.run(
+      `UPDATE "PLURequest" SET status = 'DONE', doneAt = ?, updatedAt = ? WHERE id IN (${ph}) AND status = 'PENDING'`,
+      [now, now, ...ids]);
+    return db.getRowsModified() as number;
+  });
+}
+
+export async function markPLURequestsExported(ids: string[], exportedAt: string, exportBatchId: string): Promise<void> {
+  if (ids.length === 0) return;
+  await withWriteLock((db) => {
+    const now = nowIso();
+    const ph = ids.map(() => '?').join(',');
+    db.run(
+      `UPDATE "PLURequest" SET exportedAt = ?, exportBatchId = ?, updatedAt = ? WHERE id IN (${ph})`,
+      [exportedAt, exportBatchId, now, ...ids]);
+  });
+}
+
+// ── Metrics ──────────────────────────────────────────────────────────────────
+
+export async function getPLUMetrics(filters: { outletGroup?: string; from?: string; to?: string } = {}): Promise<{
+  newItems: number; updatePrice: number; updateName: number; updatePrinter: number; totalDone: number;
+}> {
+  const zero = { newItems: 0, updatePrice: 0, updateName: 0, updatePrinter: 0, totalDone: 0 };
+  try {
+    const db = await getDb();
+    const conditions: string[] = [];
+    const params: unknown[] = [];
+    if (filters.outletGroup && filters.outletGroup !== 'ALL') { conditions.push('outletGroup = ?'); params.push(filters.outletGroup); }
+    if (filters.from) { conditions.push('createdAt >= ?'); params.push(filters.from); }
+    if (filters.to) {
+      const d = new Date(filters.to); d.setHours(23, 59, 59, 999);
+      conditions.push('createdAt <= ?'); params.push(d.toISOString());
+    }
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    const row = execFirst(db, `
+      SELECT
+        COUNT(CASE WHEN requestType = 'NEW_ITEM' THEN 1 END) as newItems,
+        COUNT(CASE WHEN requestType = 'UPDATE_PRICE' THEN 1 END) as updatePrice,
+        COUNT(CASE WHEN requestType = 'UPDATE_NAME' THEN 1 END) as updateName,
+        COUNT(CASE WHEN requestType = 'UPDATE_PRINTER' THEN 1 END) as updatePrinter,
+        COUNT(CASE WHEN status = 'DONE' THEN 1 END) as totalDone
+      FROM "PLURequest" ${where}
+    `, params);
+    if (!row) return zero;
+    return {
+      newItems: Number(row.newItems),
+      updatePrice: Number(row.updatePrice),
+      updateName: Number(row.updateName),
+      updatePrinter: Number(row.updatePrinter),
+      totalDone: Number(row.totalDone),
+    };
+  } catch (err) {
+    console.error('[db] getPLUMetrics failed:', err);
+    return zero;
+  }
+}
+
+// ── RequestBatchItem row mapper ───────────────────────────────────────────────
+
+function rowToRequestBatchItem(row: Record<string, unknown>): DbRequestBatchItem {
+  return {
+    id: String(row.id),
+    batchId: String(row.batchId),
+    code: normStr(row.code),
+    name: String(row.name),
+    category: String(row.category),
+    department: String(row.department),
+    price: row.price != null ? Number(row.price) : null,
+    folder: normStr(row.folder),
+    serviceCharge: normBool(row.serviceCharge),
+    tax1: normBool(row.tax1),
+    tax2: normBool(row.tax2),
+    noDiscount: normBool(row.noDiscount),
+    hideReceipt: normBool(row.hideReceipt),
+    printers: String(row.printers ?? ''),
+    outlets: String(row.outlets ?? ''),
+    salesDef: String(row.salesDef ?? 'SALES'),
+    sortOrder: Number(row.sortOrder ?? 0),
+  };
+}
+
+function rowToRequestBatch(row: Record<string, unknown>): DbRequestBatch {
+  return {
+    id: String(row.id),
+    title: String(row.title),
+    requestType: String(row.requestType),
+    status: String(row.status),
+    outletGroup: String(row.outletGroup),
+    cashierOutlet: String(row.cashierOutlet),
+    userId: String(row.userId),
+    createdAt: String(row.createdAt),
+    updatedAt: String(row.updatedAt),
+    doneAt: normStr(row.doneAt),
+    adminNote: normStr(row.adminNote),
+    exportedAt: normStr(row.exportedAt),
+    exportBatchId: normStr(row.exportBatchId),
+  };
+}
+
+// ── RequestBatch filter builder ───────────────────────────────────────────────
+
+function buildBatchConditions(filters: RequestBatchFilters, alias: string): { conditions: string[]; params: unknown[] } {
+  const conditions: string[] = [];
+  const params: unknown[] = [];
+  if (filters.status && filters.status !== 'ALL')           { conditions.push(`${alias}.status = ?`);      params.push(filters.status); }
+  if (filters.outletGroup && filters.outletGroup !== 'ALL') { conditions.push(`${alias}.outletGroup = ?`); params.push(filters.outletGroup); }
+  if (filters.requestType && filters.requestType !== 'ALL') { conditions.push(`${alias}.requestType = ?`); params.push(filters.requestType); }
+  if (filters.userId)                                        { conditions.push(`${alias}.userId = ?`);     params.push(filters.userId); }
+  if (filters.from) {
+    conditions.push(`${alias}.createdAt >= ?`);
+    params.push(filters.from);
+  }
+  if (filters.to) {
+    const d = new Date(filters.to); d.setHours(23, 59, 59, 999);
+    conditions.push(`${alias}.createdAt <= ?`);
+    params.push(d.toISOString());
+  }
+  if (filters.ids && filters.ids.length > 0) {
+    conditions.push(`${alias}.id IN (${filters.ids.map(() => '?').join(',')})`);
+    params.push(...filters.ids);
+  }
+  return { conditions, params };
+}
+
+// ── RequestBatch helpers ──────────────────────────────────────────────────────
+
+export async function getRequestBatches(filters: RequestBatchFilters = {}): Promise<DbRequestBatchWithItems[]> {
+  try {
+    const db = await getDb();
+    const { conditions, params } = buildBatchConditions(filters, 'rb');
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    const limit = Math.min(filters.limit ?? 500, 2000);
+    const order = filters.orderAsc ? 'ASC' : 'DESC';
+
+    const batchRows = execAll(db, `
+      SELECT rb.*, u.id as u_id, u.name as u_name, u.email as u_email, u.outlet as u_outlet
+      FROM "RequestBatch" rb LEFT JOIN "User" u ON rb.userId = u.id
+      ${where} ORDER BY rb.createdAt ${order} LIMIT ?
+    `, [...params, limit]);
+
+    if (batchRows.length === 0) return [];
+
+    const batchIds = batchRows.map((r) => String(r.id));
+    const itemRows = execAll(db,
+      `SELECT * FROM "RequestBatchItem" WHERE batchId IN (${batchIds.map(() => '?').join(',')}) ORDER BY sortOrder ASC`,
+      batchIds);
+
+    const itemsByBatch: Record<string, DbRequestBatchItem[]> = {};
+    for (const item of itemRows) {
+      const bid = String(item.batchId);
+      if (!itemsByBatch[bid]) itemsByBatch[bid] = [];
+      itemsByBatch[bid].push(rowToRequestBatchItem(item));
+    }
+
+    return batchRows.map((row) => ({
+      ...rowToRequestBatch(row),
+      items: itemsByBatch[String(row.id)] ?? [],
+      submittedBy: {
+        id: String(row.u_id ?? row.userId),
+        name: String(row.u_name ?? ''),
+        email: String(row.u_email ?? ''),
+        outlet: String(row.u_outlet ?? ''),
+      },
+    }));
+  } catch (err) {
+    console.error('[db] getRequestBatches failed:', err);
+    return [];
+  }
+}
+
+export async function getRequestBatchById(id: string): Promise<DbRequestBatchWithItems | null> {
+  try {
+    const db = await getDb();
+    const row = execFirst(db, `
+      SELECT rb.*, u.id as u_id, u.name as u_name, u.email as u_email, u.outlet as u_outlet
+      FROM "RequestBatch" rb LEFT JOIN "User" u ON rb.userId = u.id
+      WHERE rb.id = ? LIMIT 1
+    `, [id]);
+    if (!row) return null;
+    const itemRows = execAll(db,
+      'SELECT * FROM "RequestBatchItem" WHERE batchId = ? ORDER BY sortOrder ASC', [id]);
+    return {
+      ...rowToRequestBatch(row),
+      items: itemRows.map(rowToRequestBatchItem),
+      submittedBy: {
+        id: String(row.u_id ?? row.userId),
+        name: String(row.u_name ?? ''),
+        email: String(row.u_email ?? ''),
+        outlet: String(row.u_outlet ?? ''),
+      },
+    };
+  } catch (err) {
+    console.error('[db] getRequestBatchById failed:', err);
+    return null;
+  }
+}
+
+function insertBatchItems(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  db: any, batchId: string, items: BatchItemInput[]
+): DbRequestBatchItem[] {
+  const created: DbRequestBatchItem[] = [];
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    const itemId = newId();
+    const sc = item.serviceCharge ?? true;
+    const t1 = item.tax1 ?? true;
+    const t2 = item.tax2 ?? true;
+    const nd = item.noDiscount ?? true;
+    const hr = item.hideReceipt ?? false;
+    db.run(`
+      INSERT INTO "RequestBatchItem"
+        (id, batchId, code, name, category, department, price, folder,
+         serviceCharge, tax1, tax2, noDiscount, hideReceipt, printers, outlets, salesDef, sortOrder)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    `, [
+      itemId, batchId, item.code ?? null, item.name, item.category, item.department,
+      item.price ?? null, item.folder ?? null,
+      sc ? 1 : 0, t1 ? 1 : 0, t2 ? 1 : 0, nd ? 1 : 0, hr ? 1 : 0,
+      item.printers, item.outlets, item.salesDef ?? 'SALES', i,
+    ]);
+    created.push({
+      id: itemId, batchId,
+      code: item.code ?? null, name: item.name, category: item.category,
+      department: item.department, price: item.price ?? null, folder: item.folder ?? null,
+      serviceCharge: sc, tax1: t1, tax2: t2, noDiscount: nd, hideReceipt: hr,
+      printers: item.printers, outlets: item.outlets,
+      salesDef: item.salesDef ?? 'SALES', sortOrder: i,
+    });
+  }
+  return created;
+}
+
+export async function createRequestBatch(
+  data: { title: string; requestType: string; outletGroup: string; cashierOutlet: string; userId: string },
+  items: BatchItemInput[]
+): Promise<DbRequestBatchWithItems> {
+  return withWriteLock((db) => {
+    const id = newId();
+    const now = nowIso();
+    db.run(`
+      INSERT INTO "RequestBatch"
+        (id, title, requestType, status, outletGroup, cashierOutlet, userId,
+         createdAt, updatedAt, doneAt, adminNote, exportedAt, exportBatchId)
+      VALUES (?,?,?,'PENDING',?,?,?,?,?,null,null,null,null)
+    `, [id, data.title, data.requestType, data.outletGroup, data.cashierOutlet, data.userId, now, now]);
+
+    const createdItems = insertBatchItems(db, id, items);
+    const row = execFirst(db, 'SELECT * FROM "RequestBatch" WHERE id = ?', [id]);
+    if (!row) throw new Error('Batch creation failed');
+    return { ...rowToRequestBatch(row), items: createdItems };
+  });
+}
+
+export async function updateRequestBatch(
+  id: string,
+  data: { title?: string; requestType?: string },
+  items: BatchItemInput[]
+): Promise<DbRequestBatchWithItems | null> {
+  return withWriteLock((db) => {
+    const existing = execFirst(db, 'SELECT * FROM "RequestBatch" WHERE id = ?', [id]);
+    if (!existing) return null;
+
+    const now = nowIso();
+    db.run('UPDATE "RequestBatch" SET title = ?, requestType = ?, updatedAt = ? WHERE id = ?', [
+      data.title ?? String(existing.title),
+      data.requestType ?? String(existing.requestType),
+      now, id,
+    ]);
+    db.run('DELETE FROM "RequestBatchItem" WHERE batchId = ?', [id]);
+    const createdItems = insertBatchItems(db, id, items);
+    const row = execFirst(db, 'SELECT * FROM "RequestBatch" WHERE id = ?', [id]);
+    if (!row) return null;
+    return { ...rowToRequestBatch(row), items: createdItems };
+  });
+}
+
+export async function markRequestBatchDone(id: string): Promise<{ batch: DbRequestBatch; itemCount: number } | null> {
+  return withWriteLock((db) => {
+    const existing = execFirst(db, 'SELECT id, status FROM "RequestBatch" WHERE id = ?', [id]);
+    if (!existing) return null;
+    const now = nowIso();
+    db.run('UPDATE "RequestBatch" SET status = ?, doneAt = ?, updatedAt = ? WHERE id = ?',
+      ['DONE', now, now, id]);
+    const itemCountRow = execFirst(db,
+      'SELECT COUNT(*) as cnt FROM "RequestBatchItem" WHERE batchId = ?', [id]);
+    const itemCount = itemCountRow ? Number(itemCountRow.cnt) : 0;
+    const updated = execFirst(db, 'SELECT * FROM "RequestBatch" WHERE id = ?', [id]);
+    if (!updated) return null;
+    return { batch: rowToRequestBatch(updated), itemCount };
+  });
 }

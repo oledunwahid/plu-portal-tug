@@ -1,79 +1,59 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/session';
-import prisma from '@/lib/prisma';
+import { getPLURequestsRaw, markPLURequestsExported } from '@/lib/db';
 import { generateDoneCSV } from '@/lib/export';
 import { v4 as uuidv4 } from 'uuid';
 
 export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
 
 const UPDATE_TYPES = ['UPDATE_PRICE', 'UPDATE_NAME', 'UPDATE_PRINTER', 'UPDATE_FULL'];
 
 export async function GET(request: NextRequest) {
   try {
     const session = await getSession();
-    if (!session || session.user.role !== 'ADMIN') {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-    }
+    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (session.user.role !== 'ADMIN') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
     const { searchParams } = new URL(request.url);
     const idsParam = searchParams.get('ids');
-    const ids = idsParam ? idsParam.split(',').filter(Boolean) : null;
-    const type = searchParams.get('type');
-    const preview = searchParams.get('preview') === 'true';
+    const ids      = idsParam ? idsParam.split(',').filter(Boolean) : null;
+    const type     = searchParams.get('type') ?? undefined;
+    const preview  = searchParams.get('preview') === 'true';
 
-    const where: any = {};
-    if (type && type !== 'ALL') where.requestType = type;
+    const filters: Parameters<typeof getPLURequestsRaw>[0] = { orderAsc: true, limit: 2000 };
+    if (type && type !== 'ALL') filters.requestType = type;
 
     if (ids && ids.length > 0) {
-      where.id = { in: ids };
+      filters.ids = ids;
     } else {
-      const group = searchParams.get('group') ?? searchParams.get('outletGroup');
-      const status = searchParams.get('status');
-      const from = searchParams.get('from');
-      const to = searchParams.get('to');
+      const group  = searchParams.get('group') ?? searchParams.get('outletGroup') ?? undefined;
+      const status = searchParams.get('status') ?? undefined;
+      const from   = searchParams.get('from') ?? undefined;
+      const to     = searchParams.get('to') ?? undefined;
       if (!group) return NextResponse.json({ error: 'group is required' }, { status: 400 });
-      if (group !== 'ALL') where.outletGroup = group;
-      if (status && status !== 'ALL') where.status = status;
-      if (from || to) {
-        where.createdAt = {};
-        if (from) where.createdAt.gte = new Date(from);
-        if (to) {
-          const toDate = new Date(to);
-          toDate.setHours(23, 59, 59, 999);
-          where.createdAt.lte = toDate;
-        }
-      }
+      if (group !== 'ALL') filters.outletGroup = group;
+      if (status && status !== 'ALL') filters.status = status;
+      if (from) filters.from = from;
+      if (to)   filters.to   = to;
     }
 
-    const requests = await prisma.pLURequest.findMany({
-      where,
-      orderBy: { createdAt: 'asc' },
-    });
+    const requests = await getPLURequestsRaw(filters);
 
-    if (preview) {
-      return NextResponse.json({ count: requests.length, items: requests });
-    }
+    if (preview) return NextResponse.json({ count: requests.length, items: requests });
+    if (requests.length === 0) return NextResponse.json({ error: 'No requests found for this filter' }, { status: 404 });
 
-    if (requests.length === 0) {
-      return NextResponse.json({ error: 'No requests found for this filter' }, { status: 404 });
-    }
-
-    const csv = generateDoneCSV(requests as any);
+    const csv = generateDoneCSV(requests);
     const now = new Date();
 
-    // Mark with exportedAt only for update-type requests (not NEW_ITEM)
     const updateIds = requests.filter((r) => UPDATE_TYPES.includes(r.requestType)).map((r) => r.id);
     if (updateIds.length > 0) {
-      const batchId = uuidv4();
-      await prisma.pLURequest.updateMany({
-        where: { id: { in: updateIds } },
-        data: { exportedAt: now, exportBatchId: batchId },
-      });
+      await markPLURequestsExported(updateIds, now.toISOString(), uuidv4());
     }
 
-    const dateStr = now.toISOString().slice(0, 10);
+    const dateStr  = now.toISOString().slice(0, 10);
     const typeSlug = type ? type.toLowerCase().replace(/_/g, '-') : 'mixed';
-    const group = searchParams.get('group') ?? searchParams.get('outletGroup') ?? 'all';
+    const group    = searchParams.get('group') ?? searchParams.get('outletGroup') ?? 'all';
     const filename = `plu-${typeSlug}-${group.toLowerCase()}-${dateStr}.csv`;
 
     return new NextResponse(csv, {
