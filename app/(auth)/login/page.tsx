@@ -57,7 +57,38 @@ function LoginForm() {
     }
   };
 
-  if (status === 'loading') return null;
+  if (status === 'loading') {
+    return (
+      <div style={{
+        position: 'fixed', inset: 0, zIndex: 9999,
+        background: '#1A1008',
+        display: 'flex', flexDirection: 'column',
+        alignItems: 'center', justifyContent: 'center', gap: '1rem',
+      }}>
+        <div style={{
+          fontFamily: 'var(--font-display)', color: '#C9A84C',
+          fontSize: '1.5rem', fontWeight: 500, letterSpacing: '0.03em',
+        }}>
+          PLU Management System
+        </div>
+        <div style={{ display: 'flex', gap: '6px', marginTop: '0.25rem' }}>
+          {[0, 1, 2].map((i) => (
+            <div key={i} style={{
+              width: '6px', height: '6px', borderRadius: '50%',
+              background: 'rgba(201,168,76,0.4)',
+              animation: `lp-dot 1.2s ease-in-out ${i * 0.2}s infinite`,
+            }} />
+          ))}
+        </div>
+        <style>{`
+          @keyframes lp-dot {
+            0%, 100% { opacity: 0.3; transform: scale(0.8); }
+            50%       { opacity: 1;   transform: scale(1.1); }
+          }
+        `}</style>
+      </div>
+    );
+  }
 
   return (
     <div className="lp-root">
