@@ -21,7 +21,12 @@
       "Bash(grep -rn \"PrismaClient\\\\|globalThis\\\\.prisma\\\\|\\\\\\\\.prisma\\\\b\" .next/server/chunks/*.js)",
       "Bash(grep -o \"[0-9]\\\\{3,5\\\\}\" .next/server/app/api/auth/\\\\[...nextauth\\\\]/route.js)",
       "Bash(python -c ' *)",
-      "Bash(git commit *)"
+      "Bash(git commit *)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\makka\\\\plu-portal-tug\\\\app\" -Recurse -Filter \"*.tsx\")",
+      "Bash(Select-Object FullName)",
+      "Bash(Sort-Object FullName)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\makka\\\\plu-portal-tug\\\\lib\" -File)",
+      "Bash(Select-Object Name)"
     ]
   }
 }
