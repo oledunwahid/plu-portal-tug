@@ -1,10 +1,4 @@
 {
-  "/api/auth/[...nextauth]/route": "app/api/auth/[...nextauth]/route.js",
-  "/(auth)/login/page": "app/(auth)/login/page.js",
-  "/api/plu/next-sequence/route": "app/api/plu/next-sequence/route.js",
   "/cashier/request/new/page": "app/cashier/request/new/page.js",
-  "/admin/export/page": "app/admin/export/page.js",
-  "/cashier/request/batch/new/page": "app/cashier/request/batch/new/page.js",
-  "/cashier/dashboard/page": "app/cashier/dashboard/page.js",
-  "/cashier/request/edit/[id]/page": "app/cashier/request/edit/[id]/page.js"
+  "/cashier/dashboard/page": "app/cashier/dashboard/page.js"
 }

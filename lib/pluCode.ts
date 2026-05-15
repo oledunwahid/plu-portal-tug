@@ -297,28 +297,23 @@ export function suggestPLUCode(
 
   const isMilOutlet = MIL_OUTLETS.has(cashierOutlet)
   const isMultiOutlet = selectedOutlets.length > 1
-  const isTUGDept = TUG_DEPARTMENTS.includes(entry.department)
+  const tugEligible = TUG_DEPARTMENTS.includes(entry.department)
 
   let prefix: string
   let isTUG = false
   let reason: string
 
-  if (isMilOutlet) {
-    if (isTUGDept && isMultiOutlet) {
-      // MIL outlet + TUG-eligible category + 2+ outlets → TUG
-      prefix = 'TUG'
-      isTUG = true
-      reason = `TUG prefix: ${entry.department} item sold at multiple outlets (MIL outlet)`
-    } else {
-      // MIL outlet + non-TUG category, or single outlet → MIL
-      prefix = 'MIL'
-      reason = 'MIL prefix for Milano outlet'
-    }
-  } else if (isMultiOutlet && isTUGDept) {
+  if (tugEligible && isMultiOutlet) {
+    // TUG wins for ALL outlets (including MIL) when category is TUG-eligible + 2+ outlets
     prefix = 'TUG'
     isTUG = true
-    reason = `TUG prefix suggested: ${entry.department} item sold at multiple outlets`
+    reason = `TUG prefix: ${entry.department} item sold at multiple outlets`
+  } else if (isMilOutlet) {
+    // MIL outlet + single outlet, or non-TUG category
+    prefix = 'MIL'
+    reason = 'MIL prefix for Milano outlet'
   } else {
+    // All other outlets
     prefix = OUTLET_TO_PREFIX[cashierOutlet] ?? 'UNI'
     const hasFallback = !(cashierOutlet in OUTLET_TO_PREFIX)
     reason = hasFallback
