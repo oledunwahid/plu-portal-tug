@@ -265,8 +265,8 @@ export const OUTLET_TO_PREFIX: Record<string, string> = {
 
 const NEW_ITEM_SEQUENCE_START = 4000
 
-// Departments eligible for TUG prefix when 2+ outlets selected.
-// COCKTAILS, FOOD, BAKERY, PASTRY are excluded — always use outlet prefix.
+// Departments that always use TUG prefix, regardless of outlet or outlet count.
+// COCKTAILS, FOOD, BAKERY, PASTRY always use the outlet's own prefix.
 // MIL variants share the same department string in CATEGORY_CODE_MAP so this covers them automatically.
 const TUG_DEPARTMENTS = [
   'ALCOHOLIC BEVERAGES',
@@ -296,24 +296,21 @@ export function suggestPLUCode(
   if (!entry) return null
 
   const isMilOutlet = MIL_OUTLETS.has(cashierOutlet)
-  const isMultiOutlet = selectedOutlets.length > 1
   const tugEligible = TUG_DEPARTMENTS.includes(entry.department)
 
   let prefix: string
   let isTUG = false
   let reason: string
 
-  if (tugEligible && isMultiOutlet) {
-    // TUG wins for ALL outlets (including MIL) when category is TUG-eligible + 2+ outlets
+  if (tugEligible) {
+    // TUG for all outlets — purely category/department driven, no outlet count check
     prefix = 'TUG'
     isTUG = true
-    reason = `TUG prefix: ${entry.department} item sold at multiple outlets`
+    reason = `TUG prefix: ${entry.department}`
   } else if (isMilOutlet) {
-    // MIL outlet + single outlet, or non-TUG category
     prefix = 'MIL'
     reason = 'MIL prefix for Milano outlet'
   } else {
-    // All other outlets
     prefix = OUTLET_TO_PREFIX[cashierOutlet] ?? 'UNI'
     const hasFallback = !(cashierOutlet in OUTLET_TO_PREFIX)
     reason = hasFallback
