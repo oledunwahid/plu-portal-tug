@@ -3,7 +3,10 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, Download, Users, Plus, Layers, Menu, X } from 'lucide-react';
+import {
+  LayoutDashboard, Download, Users, Plus, Layers, Menu, X,
+  BookOpen, Database, ScanBarcode, FileText, BookMarked, ChevronDown, ChevronRight,
+} from 'lucide-react';
 import { useSession } from 'next-auth/react';
 import { SignOutButton } from '@/components/SignOutButton';
 import { LogoBrand } from '@/components/LogoBrand';
@@ -24,12 +27,31 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Users', href: '/admin/users', icon: <Users size={15} />, roles: ['ADMIN'] },
 ];
 
+const KB_ITEMS = [
+  { label: 'Master Items', href: '/admin/kb/items', icon: <Database size={14} /> },
+  { label: 'Barcode Lookup', href: '/admin/kb/barcode', icon: <ScanBarcode size={14} /> },
+  { label: 'Wiki', href: '/admin/kb/wiki', icon: <FileText size={14} /> },
+  { label: 'Glossary', href: '/admin/kb/glossary', icon: <BookMarked size={14} /> },
+];
+
+const LINK_STYLE = (active: boolean): React.CSSProperties => ({
+  display: 'flex', alignItems: 'center', gap: '9px',
+  padding: '8px 10px', borderRadius: '5px', marginBottom: '2px',
+  fontSize: '0.8rem', textDecoration: 'none',
+  color: active ? '#C9A84C' : 'rgba(255,255,255,0.5)',
+  background: active ? 'rgba(201,168,76,0.12)' : 'transparent',
+});
+
 function SidebarContent({ onClose }: { onClose?: () => void }) {
   const pathname = usePathname();
   const { data: session } = useSession();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sessionUser = session?.user as any;
   const role = (sessionUser?.role ?? 'CASHIER') as 'ADMIN' | 'CASHIER';
   const items = NAV_ITEMS.filter((i) => i.roles.includes(role));
+
+  const isOnKB = pathname.startsWith('/admin/kb');
+  const [kbOpen, setKbOpen] = useState(isOnKB);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -39,22 +61,47 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
 
       <nav style={{ flex: 1, padding: '10px 8px', overflowY: 'auto' }}>
         {items.map((item) => (
-          <Link
-            key={item.href}
-            href={item.href}
-            onClick={onClose}
-            style={{
-              display: 'flex', alignItems: 'center', gap: '9px',
-              padding: '8px 10px', borderRadius: '5px', marginBottom: '2px',
-              fontSize: '0.8rem', textDecoration: 'none',
-              color: pathname === item.href ? '#C9A84C' : 'rgba(255,255,255,0.5)',
-              background: pathname === item.href ? 'rgba(201,168,76,0.12)' : 'transparent',
-            }}
-          >
+          <Link key={item.href} href={item.href} onClick={onClose} style={LINK_STYLE(pathname === item.href)}>
             {item.icon}
             {item.label}
           </Link>
         ))}
+
+        {role === 'ADMIN' && (
+          <>
+            <div style={{ padding: '10px 10px 4px', marginTop: '6px' }}>
+              <span style={{ fontSize: '0.6rem', letterSpacing: '0.1em', color: 'rgba(255,255,255,0.2)', fontWeight: 700, textTransform: 'uppercase' }}>
+                Knowledge Base
+              </span>
+            </div>
+
+            <button
+              onClick={() => setKbOpen((o) => !o)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: '9px',
+                width: '100%', padding: '8px 10px', borderRadius: '5px', marginBottom: '2px',
+                fontSize: '0.8rem', background: 'transparent', border: 'none', cursor: 'pointer',
+                color: isOnKB ? '#C9A84C' : 'rgba(255,255,255,0.5)',
+                textAlign: 'left',
+              }}
+            >
+              <BookOpen size={15} />
+              <span style={{ flex: 1 }}>Knowledge Base</span>
+              {kbOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+            </button>
+
+            {kbOpen && (
+              <div style={{ marginLeft: '10px' }}>
+                {KB_ITEMS.map((item) => (
+                  <Link key={item.href} href={item.href} onClick={onClose} style={LINK_STYLE(pathname === item.href)}>
+                    {item.icon}
+                    {item.label}
+                  </Link>
+                ))}
+              </div>
+            )}
+          </>
+        )}
       </nav>
 
       <div style={{ padding: '12px 10px', borderTop: '1px solid rgba(255,255,255,0.07)' }}>
@@ -85,7 +132,6 @@ export function Sidebar() {
 
   return (
     <>
-      {/* Desktop sidebar — shown via CSS */}
       <div
         className="sidebar-desktop"
         style={{ position: 'fixed', top: 0, left: 0, bottom: 0, width: '240px', background: '#1A1008', zIndex: 40 }}
@@ -93,7 +139,6 @@ export function Sidebar() {
         <SidebarContent />
       </div>
 
-      {/* Mobile topbar — shown via CSS */}
       <div
         className="topbar-mobile"
         style={{ position: 'fixed', top: 0, left: 0, right: 0, height: '52px', background: '#1A1008', zIndex: 50, alignItems: 'center', justifyContent: 'space-between', padding: '0 16px' }}
@@ -109,7 +154,6 @@ export function Sidebar() {
         </button>
       </div>
 
-      {/* Mobile drawer */}
       {open && (
         <>
           <div

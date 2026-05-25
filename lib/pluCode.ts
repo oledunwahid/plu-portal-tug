@@ -230,6 +230,8 @@ export const OUTLET_TO_PREFIX: Record<string, string> = {
   BISPIK:  'BIS',
   MILGI:   'MIL',
   MILPIK:  'MIL',
+  'BISSCBD-B': 'BIS',
+  IND1:    'SLR',
   // Union Group
   UTP:    'UNI',
   UPKW:   'UNI',
@@ -278,7 +280,7 @@ const TUG_DEPARTMENTS = [
 
 const MIL_OUTLETS = new Set(['MILGI', 'MILPIK'])
 
-export const KNOWN_PREFIXES = ['ROM', 'BCH', 'LWY', 'PIE', 'TUG', 'UNI', 'CNS', 'MIL', 'BIS', 'BLC']
+export const KNOWN_PREFIXES = ['ROM', 'BCH', 'LWY', 'PIE', 'TUG', 'UNI', 'CNS', 'MIL', 'BIS', 'BLC', 'SLR']
 
 export function assemblePLUCode(prefix: string, deptCode: string, catCode: string, sequence: number): string {
   const code = `${prefix}${deptCode}${catCode}${String(sequence).padStart(8, '0')}`

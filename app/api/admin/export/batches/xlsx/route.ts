@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/session';
 import { getRequestBatches } from '@/lib/db';
-import { generateBatchXLSX } from '@/lib/export';
+import { generateBatchXLSX, generateBatchDoneXLSX } from '@/lib/export';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -15,9 +15,10 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const idsParam = searchParams.get('ids');
     const ids      = idsParam ? idsParam.split(',').filter(Boolean) : null;
+    const type     = searchParams.get('type') ?? 'NEW_ITEM';
 
     const filters: Parameters<typeof getRequestBatches>[0] = {
-      requestType: 'NEW_ITEM', orderAsc: true, limit: 2000,
+      requestType: type, orderAsc: true, limit: 2000,
     };
 
     if (ids && ids.length > 0) {
@@ -46,9 +47,10 @@ export async function GET(request: NextRequest) {
 
     if (items.length === 0) return NextResponse.json({ error: 'No batch items found' }, { status: 404 });
 
-    const buffer   = generateBatchXLSX(items);
+    const buffer   = type === 'NEW_ITEM' ? generateBatchXLSX(items) : generateBatchDoneXLSX(items);
     const dateStr  = new Date().toISOString().slice(0, 10);
-    const filename = `batch-new-items-${dateStr}.xlsx`;
+    const typeLabel = type === 'NEW_ITEM' ? 'batch-new-items' : `batch-${type.toLowerCase().replace(/_/g, '-')}`;
+    const filename = `${typeLabel}-${dateStr}.xlsx`;
 
     return new NextResponse(new Uint8Array(buffer), {
       status: 200,

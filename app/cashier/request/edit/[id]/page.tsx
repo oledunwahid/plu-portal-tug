@@ -13,12 +13,18 @@ import { Loader2, ChevronLeft, AlertTriangle } from 'lucide-react';
 import { SuccessModal } from '@/components/SuccessModal';
 import Link from 'next/link';
 
+function formatIDR(value: number): string {
+  if (!value || value === 0) return 'Rp 0';
+  return 'Rp ' + value.toLocaleString('id-ID');
+}
+
 interface FormState {
   name: string;
   category: string;
   department: string;
   price: string;
   folder: string;
+  barcode: string;
   serviceCharge: boolean;
   tax1: boolean;
   tax2: boolean;
@@ -66,7 +72,14 @@ export default function EditRequestPage() {
     group: c.department,
   }));
 
-  const needsPrice = requestType === 'NEW_ITEM' || requestType === 'UPDATE_PRICE';
+  const showName = requestType === 'NEW_ITEM' || requestType === 'UPDATE_NAME' || requestType === 'UPDATE_FULL';
+  const showCategoryDept = requestType === 'NEW_ITEM' || requestType === 'UPDATE_FULL';
+  const showPrice = requestType === 'NEW_ITEM' || requestType === 'UPDATE_PRICE' || requestType === 'UPDATE_FULL';
+  const showFolder = requestType === 'NEW_ITEM' || requestType === 'UPDATE_FULL';
+  const showPrintersCard = requestType === 'NEW_ITEM' || requestType === 'UPDATE_PRINTER' || requestType === 'UPDATE_FULL';
+  const showOutletsCard = true;
+  const showPOSCard = requestType === 'NEW_ITEM' || requestType === 'UPDATE_FULL';
+  const showItemDetailsCard = showName || showCategoryDept || showPrice || showFolder;
 
   useEffect(() => {
     async function load() {
@@ -85,6 +98,7 @@ export default function EditRequestPage() {
           department: data.department,
           price: data.price != null ? String(data.price) : '',
           folder: data.folder ?? '',
+          barcode: data.department === 'WINE' ? (data.barcode ?? '') : '',
           serviceCharge: data.serviceCharge,
           tax1: data.tax1,
           tax2: data.tax2,
@@ -107,7 +121,7 @@ export default function EditRequestPage() {
   useEffect(() => {
     if (form?.category) {
       const dept = getDepartmentForCategory(form.category);
-      setForm((f) => f ? { ...f, department: dept } : f);
+      setForm((f) => f ? { ...f, department: dept, barcode: dept !== 'WINE' ? '' : f.barcode } : f);
     }
   }, [form?.category]);
 
@@ -129,13 +143,20 @@ export default function EditRequestPage() {
   function validate(): boolean {
     if (!form) return false;
     const errs: Partial<Record<keyof FormState, string>> = {};
-    if (!form.name.trim()) errs.name = 'Item name is required';
-    if (!form.category) errs.category = 'Category is required';
-    if (needsPrice && !form.price) errs.price = 'Price is required';
-    if (form.price && (isNaN(Number(form.price)) || Number(form.price) <= 0))
-      errs.price = 'Price must be a positive number';
-    if (form.printers.length === 0) errs.printers = 'Select at least one printer';
-    if (form.outlets.length === 0) errs.outlets = 'Select at least one outlet';
+    if (requestType === 'NEW_ITEM') {
+      if (!form.name.trim()) errs.name = 'Item name is required';
+      if (!form.category) errs.category = 'Category is required';
+      if (!form.price) errs.price = 'Price is required';
+      if (form.price && (isNaN(Number(form.price)) || Number(form.price) <= 0)) errs.price = 'Price must be a positive number';
+      if (form.printers.length === 0) errs.printers = 'Select at least one printer';
+      if (form.outlets.length === 0) errs.outlets = 'Select at least one outlet';
+    } else if (requestType === 'UPDATE_PRICE') {
+      if (!form.price || isNaN(Number(form.price)) || Number(form.price) <= 0) errs.price = 'Price must be a positive number greater than 0';
+    } else if (requestType === 'UPDATE_NAME') {
+      if (!form.name.trim()) errs.name = 'Item name is required';
+    } else if (requestType === 'UPDATE_PRINTER') {
+      if (form.printers.length === 0) errs.printers = 'Select at least one printer';
+    }
     setErrors(errs);
     return Object.keys(errs).length === 0;
   }
@@ -158,6 +179,7 @@ export default function EditRequestPage() {
         hideReceipt: form.hideReceipt,
         printers: form.printers.join(';'),
         outlets: form.outlets.join(';'),
+        barcode: form.department === 'WINE' ? form.barcode || null : null,
         remarks: form.remarks || null,
       };
       const res = await fetch(`/api/requests/${id}`, {
@@ -217,132 +239,163 @@ export default function EditRequestPage() {
 
       <form onSubmit={handleSubmit} style={{ maxWidth: '680px', margin: '0 auto' }}>
         {/* Item Details */}
-        <div className="card" style={{ padding: '1.5rem', marginBottom: '1rem' }}>
-          <div className="section-title" style={{ marginBottom: '1.25rem' }}>Item Details</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            <FieldGroup label="Item Name">
-              <input
-                type="text"
-                value={form.name}
-                onChange={(e) => set('name', e.target.value)}
-                placeholder="e.g. Chix Poppers"
-                className={`flex h-10 w-full rounded-md border bg-u-card px-3 py-2 text-sm text-u-primary placeholder:text-u-secondary/60 focus:outline-none focus:ring-2 focus:ring-u-gold/40 focus:border-u-gold transition-all duration-200 ${errors.name ? 'border-red-400' : 'border-u-input'}`}
-              />
-              {errors.name && <p style={{ fontSize: '0.75rem', color: '#8B3A2A' }}>{errors.name}</p>}
-            </FieldGroup>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-              <FieldGroup label="Category">
-                <Combobox
-                  options={categoryOptions}
-                  value={form.category}
-                  onChange={(v) => set('category', v)}
-                  placeholder="Select category..."
-                  searchPlaceholder="Search categories..."
-                />
-                {errors.category && <p style={{ fontSize: '0.75rem', color: '#8B3A2A' }}>{errors.category}</p>}
-              </FieldGroup>
-              <FieldGroup label="Department" hint="Auto-filled from category">
-                <input
-                  type="text"
-                  value={form.department}
-                  onChange={(e) => set('department', e.target.value)}
-                  className="flex h-10 w-full rounded-md border border-u-input bg-u-cream px-3 py-2 text-sm text-u-primary placeholder:text-u-secondary/60 focus:outline-none focus:ring-2 focus:ring-u-gold/40 focus:border-u-gold transition-all duration-200"
-                />
-              </FieldGroup>
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-              {needsPrice && (
-                <FieldGroup label="Price (IDR)">
+        {showItemDetailsCard && (
+          <div className="card" style={{ padding: '1.5rem', marginBottom: '1rem' }}>
+            <div className="section-title" style={{ marginBottom: '1.25rem' }}>Item Details</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              {showName && (
+                <FieldGroup label="Item Name">
                   <input
-                    type="number"
-                    value={form.price}
-                    onChange={(e) => set('price', e.target.value)}
-                    placeholder="95000"
-                    className={`flex h-10 w-full rounded-md border bg-u-card px-3 py-2 text-sm text-u-primary placeholder:text-u-secondary/60 focus:outline-none focus:ring-2 focus:ring-u-gold/40 focus:border-u-gold transition-all duration-200 ${errors.price ? 'border-red-400' : 'border-u-input'}`}
+                    type="text"
+                    value={form.name}
+                    onChange={(e) => set('name', e.target.value)}
+                    placeholder="e.g. Chix Poppers"
+                    className={`flex h-10 w-full rounded-md border bg-u-card px-3 py-2 text-sm text-u-primary placeholder:text-u-secondary/60 focus:outline-none focus:ring-2 focus:ring-u-gold/40 focus:border-u-gold transition-all duration-200 ${errors.name ? 'border-red-400' : 'border-u-input'}`}
                   />
-                  {errors.price && <p style={{ fontSize: '0.75rem', color: '#8B3A2A' }}>{errors.price}</p>}
+                  {errors.name && <p style={{ fontSize: '0.75rem', color: '#8B3A2A' }}>{errors.name}</p>}
                 </FieldGroup>
               )}
-              <FieldGroup label="Folder / Menu Section">
-                <input
-                  type="text"
-                  value={form.folder}
-                  onChange={(e) => set('folder', e.target.value)}
-                  placeholder="e.g. CINCO DE MAYO"
-                  className="flex h-10 w-full rounded-md border border-u-input bg-u-card px-3 py-2 text-sm text-u-primary placeholder:text-u-secondary/60 focus:outline-none focus:ring-2 focus:ring-u-gold/40 focus:border-u-gold transition-all duration-200"
-                />
-              </FieldGroup>
+
+              {showCategoryDept && (
+                <>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                    <FieldGroup label="Category">
+                      <Combobox
+                        options={categoryOptions}
+                        value={form.category}
+                        onChange={(v) => set('category', v)}
+                        placeholder="Select category..."
+                        searchPlaceholder="Search categories..."
+                      />
+                      {errors.category && <p style={{ fontSize: '0.75rem', color: '#8B3A2A' }}>{errors.category}</p>}
+                    </FieldGroup>
+                    <FieldGroup label="Department" hint="Auto-filled from category">
+                      <input
+                        type="text"
+                        value={form.department}
+                        onChange={(e) => set('department', e.target.value)}
+                        className="flex h-10 w-full rounded-md border border-u-input bg-u-cream px-3 py-2 text-sm text-u-primary placeholder:text-u-secondary/60 focus:outline-none focus:ring-2 focus:ring-u-gold/40 focus:border-u-gold transition-all duration-200"
+                      />
+                    </FieldGroup>
+                  </div>
+
+                  {form.department === 'WINE' && (
+                    <FieldGroup label="Barcode">
+                      <input
+                        type="text"
+                        value={form.barcode}
+                        onChange={(e) => set('barcode', e.target.value)}
+                        placeholder="Enter barcode"
+                        className="flex h-10 w-full rounded-md border border-u-input bg-u-card px-3 py-2 text-sm text-u-primary placeholder:text-u-secondary/60 focus:outline-none focus:ring-2 focus:ring-u-gold/40 focus:border-u-gold transition-all duration-200"
+                      />
+                    </FieldGroup>
+                  )}
+                </>
+              )}
+
+              {(showPrice || showFolder) && (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                  {showPrice && (
+                    <FieldGroup label="Price (IDR)">
+                      <input
+                        type="number"
+                        value={form.price}
+                        onChange={(e) => set('price', e.target.value)}
+                        placeholder="95000"
+                        className={`flex h-10 w-full rounded-md border bg-u-card px-3 py-2 text-sm text-u-primary placeholder:text-u-secondary/60 focus:outline-none focus:ring-2 focus:ring-u-gold/40 focus:border-u-gold transition-all duration-200 ${errors.price ? 'border-red-400' : 'border-u-input'}`}
+                      />
+                      <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>{formatIDR(Number(form.price))}</p>
+                      {errors.price && <p style={{ fontSize: '0.75rem', color: '#8B3A2A' }}>{errors.price}</p>}
+                    </FieldGroup>
+                  )}
+                  {showFolder && (
+                    <FieldGroup label="Folder / Menu Section">
+                      <input
+                        type="text"
+                        value={form.folder}
+                        onChange={(e) => set('folder', e.target.value)}
+                        placeholder="e.g. CINCO DE MAYO"
+                        className="flex h-10 w-full rounded-md border border-u-input bg-u-card px-3 py-2 text-sm text-u-primary placeholder:text-u-secondary/60 focus:outline-none focus:ring-2 focus:ring-u-gold/40 focus:border-u-gold transition-all duration-200"
+                      />
+                    </FieldGroup>
+                  )}
+                </div>
+              )}
             </div>
           </div>
-        </div>
+        )}
 
         {/* Printers — grouped */}
-        <div className="card" style={{ padding: '1.5rem', marginBottom: '1rem' }}>
-          <div className="section-title" style={{ marginBottom: '0.25rem' }}>Printers</div>
-          <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
-            Select which kitchen/bar printers should receive this item's tickets.
-          </p>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            {PRINTER_GROUPS.map((group) => {
-              const visible = group.printers.filter((p) => availablePrinters.has(p));
-              if (visible.length === 0) return null;
-              return (
-                <div key={group.label}>
-                  <div style={{ fontSize: '0.62rem', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--text-secondary)', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <span>{group.label}</span>
-                    <div style={{ flex: 1, height: '1px', background: 'var(--border)' }} />
+        {showPrintersCard && (
+          <div className="card" style={{ padding: '1.5rem', marginBottom: '1rem' }}>
+            <div className="section-title" style={{ marginBottom: '0.25rem' }}>Printers</div>
+            <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
+              Select which kitchen/bar printers should receive this item's tickets.
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              {PRINTER_GROUPS.map((group) => {
+                const visible = group.printers.filter((p) => availablePrinters.has(p));
+                if (visible.length === 0) return null;
+                return (
+                  <div key={group.label}>
+                    <div style={{ fontSize: '0.62rem', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--text-secondary)', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <span>{group.label}</span>
+                      <div style={{ flex: 1, height: '1px', background: 'var(--border)' }} />
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.375rem 0.5rem' }}>
+                      {visible.map((p) => (
+                        <label key={p} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer', fontSize: '0.8rem', color: 'var(--text-primary)' }}>
+                          <Checkbox checked={form.printers.includes(p)} onCheckedChange={() => toggleList('printers', p)} />
+                          {p}
+                        </label>
+                      ))}
+                    </div>
                   </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.375rem 0.5rem' }}>
-                    {visible.map((p) => (
-                      <label key={p} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer', fontSize: '0.8rem', color: 'var(--text-primary)' }}>
-                        <Checkbox checked={form.printers.includes(p)} onCheckedChange={() => toggleList('printers', p)} />
-                        {p}
-                      </label>
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
+            {errors.printers && <p style={{ fontSize: '0.75rem', color: '#8B3A2A', marginTop: '0.5rem' }}>{errors.printers}</p>}
           </div>
-          {errors.printers && <p style={{ fontSize: '0.75rem', color: '#8B3A2A', marginTop: '0.5rem' }}>{errors.printers}</p>}
-        </div>
+        )}
 
         {/* Outlets */}
-        <div className="card" style={{ padding: '1.5rem', marginBottom: '1rem' }}>
-          <div className="section-title" style={{ marginBottom: '0.25rem' }}>Outlets</div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.625rem' }}>
-            {outlets.map((o) => (
-              <label key={o} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer', fontSize: '0.8rem', color: 'var(--text-primary)' }}>
-                <Checkbox checked={form.outlets.includes(o)} onCheckedChange={() => toggleList('outlets', o)} />
-                {o}
-              </label>
-            ))}
+        {showOutletsCard && (
+          <div className="card" style={{ padding: '1.5rem', marginBottom: '1rem' }}>
+            <div className="section-title" style={{ marginBottom: '0.25rem' }}>Outlets</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.625rem' }}>
+              {outlets.map((o) => (
+                <label key={o} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer', fontSize: '0.8rem', color: 'var(--text-primary)' }}>
+                  <Checkbox checked={form.outlets.includes(o)} onCheckedChange={() => toggleList('outlets', o)} />
+                  {o}
+                </label>
+              ))}
+            </div>
+            {errors.outlets && <p style={{ fontSize: '0.75rem', color: '#8B3A2A', marginTop: '0.5rem' }}>{errors.outlets}</p>}
           </div>
-          {errors.outlets && <p style={{ fontSize: '0.75rem', color: '#8B3A2A', marginTop: '0.5rem' }}>{errors.outlets}</p>}
-        </div>
+        )}
 
         {/* POS Settings */}
-        <div className="card" style={{ padding: '1.5rem', marginBottom: '1rem' }}>
-          <div className="section-title" style={{ marginBottom: '1.25rem' }}>POS Settings</div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.875rem' }}>
-            {(
-              [
-                { key: 'serviceCharge', label: 'Service Charge' },
-                { key: 'tax1', label: 'Tax 1' },
-                { key: 'tax2', label: 'Tax 2' },
-                { key: 'noDiscount', label: 'No Discount' },
-                { key: 'hideReceipt', label: 'Hide on Receipt' },
-              ] as { key: keyof FormState; label: string }[]
-            ).map(({ key, label }) => (
-              <label key={key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', fontSize: '0.875rem', color: 'var(--text-primary)' }}>
-                {label}
-                <Switch checked={form[key] as boolean} onCheckedChange={(v) => set(key, v as FormState[typeof key])} />
-              </label>
-            ))}
+        {showPOSCard && (
+          <div className="card" style={{ padding: '1.5rem', marginBottom: '1rem' }}>
+            <div className="section-title" style={{ marginBottom: '1.25rem' }}>POS Settings</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.875rem' }}>
+              {(
+                [
+                  { key: 'serviceCharge', label: 'Service Charge' },
+                  { key: 'tax1', label: 'Tax 1' },
+                  { key: 'tax2', label: 'Tax 2' },
+                  { key: 'noDiscount', label: 'No Discount' },
+                  { key: 'hideReceipt', label: 'Hide on Receipt' },
+                ] as { key: keyof FormState; label: string }[]
+              ).map(({ key, label }) => (
+                <label key={key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', fontSize: '0.875rem', color: 'var(--text-primary)' }}>
+                  {label}
+                  <Switch checked={form[key] as boolean} onCheckedChange={(v) => set(key, v as FormState[typeof key])} />
+                </label>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Remarks */}
         <div className="card" style={{ padding: '1.5rem', marginBottom: '1.5rem' }}>

@@ -61,7 +61,57 @@ model RequestBatchItem {
   printers      String
   outlets       String
   salesDef      String       @default("SALES")
+  barcode       String?
   sortOrder     Int          @default(0)
+}
+
+model MasterItem {
+  id            String   @id @default(cuid())
+  active        Int      @default(1)
+  code          String   @unique
+  name          String
+  category      String
+  department    String
+  salesDef      String   @default("SALES")
+  price         Float?
+  plu           String?
+  barcode       String?
+  uom           String?
+  folder        String?
+  serviceCharge Int      @default(1)
+  tax1          Int      @default(1)
+  tax2          Int      @default(1)
+  noDiscount    Int      @default(1)
+  hideReceipt   Int      @default(0)
+  printers      String?
+  outlets       String?
+  outletGroup   String?
+  importedAt    DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model WikiArticle {
+  id          String   @id @default(cuid())
+  title       String
+  content     String
+  category    String
+  isPinned    Boolean  @default(false)
+  createdBy   String
+  updatedBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model GlossaryEntry {
+  id                String   @id @default(cuid())
+  type              String
+  term              String
+  definition        String
+  defaultDefinition String?
+  grp               String?
+  isSeeded          Boolean  @default(false)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 }
 
 model PLURequest {
@@ -84,6 +134,7 @@ model PLURequest {
   printers             String
   outlets              String
   salesDef             String   @default("SALES")
+  barcode              String?
   remarks              String?
 
   submittedBy   User     @relation(fields: [userId], references: [id])

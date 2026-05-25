@@ -31,6 +31,7 @@ const OUTLET_GROUPS: { label: string; key: OutletGroup }[] = [
   { label: 'CNS', key: 'CNS' },
   { label: 'French', key: 'FRENCH' },
   { label: 'IBR', key: 'IBR' },
+  { label: 'IND', key: 'IND' },
 ];
 
 export default function UsersPage() {

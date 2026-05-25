@@ -113,8 +113,12 @@ export default function AdminDashboard() {
       if (sourceFilter !== 'BATCH') {
         fetches.push(
           fetch(`/api/admin/requests?${params}`)
-            .then((r) => r.json())
-            .then((data) => { setRequests(data); setSelected(new Set()); })
+            .then(async (r) => {
+              if (!r.ok) throw new Error();
+              const data = await r.json();
+              setRequests(Array.isArray(data) ? data : []);
+              setSelected(new Set());
+            })
             .catch(() => { toast.error('Failed to load requests'); })
         );
       } else {
@@ -190,8 +194,13 @@ export default function AdminDashboard() {
   async function bulkDelete() {
     setBulkLoading(true);
     try {
-      await Promise.all(Array.from(selected).map((id) => fetch(`/api/admin/requests/${id}`, { method: 'DELETE' })));
-      toast.success(`Deleted ${selected.size} request${selected.size !== 1 ? 's' : ''}`);
+      const results = await Promise.all(
+        Array.from(selected).map((id) => fetch(`/api/admin/requests/${id}`, { method: 'DELETE' }))
+      );
+      const failed = results.filter((r) => !r.ok).length;
+      const succeeded = results.length - failed;
+      if (succeeded > 0) toast.success(`Deleted ${succeeded} request${succeeded !== 1 ? 's' : ''}`);
+      if (failed > 0) toast.error(`${failed} deletion${failed !== 1 ? 's' : ''} failed`);
       setBulkDeleteConfirm(false);
       fetchRequests();
     } catch {
@@ -270,7 +279,8 @@ export default function AdminDashboard() {
         </div>
         <button
           onClick={fetchRequests}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: '0.375rem', padding: '0.5rem 0.875rem', background: 'transparent', border: '1px solid var(--border)', borderRadius: '0.375rem', fontSize: '0.8rem', color: 'var(--text-secondary)', cursor: 'pointer' }}
+          disabled={loading}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: '0.375rem', padding: '0.5rem 0.875rem', background: 'transparent', border: '1px solid var(--border)', borderRadius: '0.375rem', fontSize: '0.8rem', color: 'var(--text-secondary)', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.5 : 1 }}
         >
           <RefreshCw size={13} />
           Refresh
@@ -345,6 +355,7 @@ export default function AdminDashboard() {
           <option value="CNS">CNS</option>
           <option value="FRENCH">French</option>
           <option value="IBR">IBR</option>
+          <option value="IND">IND</option>
         </select>
 
         <select value={filters.requestType} onChange={(e) => setFilters((f) => ({ ...f, requestType: e.target.value }))} style={SELECT_STYLE}>

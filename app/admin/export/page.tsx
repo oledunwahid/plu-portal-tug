@@ -122,7 +122,7 @@ export default function ExportPage() {
   const [tabCounts, setTabCounts] = useState<Partial<Record<RequestType, number>>>({});
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
-  const [downloading, setDownloading] = useState(false);
+  const [downloadingFormat, setDownloadingFormat] = useState<'XLSX' | 'CSV' | null>(null);
   const [sourceFilter, setSourceFilter] = useState<'SINGLE' | 'BATCH' | 'ALL'>('ALL');
 
   const activeTab = TABS.find((t) => t.type === activeType)!;
@@ -223,7 +223,7 @@ export default function ExportPage() {
     });
   }
 
-  async function handleDownload() {
+  async function handleDownload(format: 'XLSX' | 'CSV') {
     const toDownload = selectedIds.size > 0 ? Array.from(selectedIds) : requests.map((r) => r.id);
     if (toDownload.length === 0) { toast.error('No items to export'); return; }
 
@@ -234,7 +234,7 @@ export default function ExportPage() {
       return;
     }
 
-    setDownloading(true);
+    setDownloadingFormat(format);
     try {
       const isBatchItem = hasBatchItems;
 
@@ -243,12 +243,11 @@ export default function ExportPage() {
         : toDownload;
 
       const params = new URLSearchParams({ ids: exportIds.join(',') });
-      const isXLSX = activeTab.format === 'XLSX';
+      const isXLSX = format === 'XLSX';
 
-      // Route to the correct endpoint based on the data type detected above
       const apiPath = isBatchItem
-        ? (isXLSX ? `/api/admin/export/batches/xlsx?${params}` : `/api/admin/export/batches/csv?${params}&type=${activeType}`)
-        : (isXLSX ? `/api/admin/export/xlsx?${params}` : `/api/admin/export/csv?${params}&type=${activeType}`);
+        ? (isXLSX ? `/api/admin/export/batches/xlsx?${params}&type=${activeType}` : `/api/admin/export/batches/csv?${params}&type=${activeType}`)
+        : (isXLSX ? `/api/admin/export/xlsx?${params}&type=${activeType}` : `/api/admin/export/csv?${params}&type=${activeType}`);
 
       const res = await fetch(apiPath);
       if (!res.ok) {
@@ -259,7 +258,7 @@ export default function ExportPage() {
       const blob = await res.blob();
       const disposition = res.headers.get('Content-Disposition') ?? '';
       const match = disposition.match(/filename="([^"]+)"/);
-      const filename = match?.[1] ?? `export.${activeTab.format.toLowerCase()}`;
+      const filename = match?.[1] ?? `export.${format.toLowerCase()}`;
 
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -270,16 +269,17 @@ export default function ExportPage() {
       a.remove();
       URL.revokeObjectURL(url);
 
-      if (isXLSX) {
-        toast.success(`XLSX downloaded — ${toDownload.length} items. Assign codes in Quinos, then mark as Done.`);
+      const plural = toDownload.length !== 1 ? 's' : '';
+      if (format === 'XLSX' && activeType === 'NEW_ITEM') {
+        toast.success(`XLSX downloaded — ${toDownload.length} item${plural}. Assign codes in Quinos, then mark as Done.`);
       } else {
-        toast.success(`CSV downloaded — ${toDownload.length} items exported to Quinos format.`);
+        toast.success(`${format} downloaded — ${toDownload.length} item${plural}.`);
       }
       fetchRequests();
     } catch (err: any) {
       toast.error(err.message ?? 'Something went wrong. Please try again.');
     } finally {
-      setDownloading(false);
+      setDownloadingFormat(null);
     }
   }
   const downloadCount = selectedIds.size > 0 ? selectedIds.size : requests.length;
@@ -327,6 +327,7 @@ export default function ExportPage() {
           <option value="CNS">CNS</option>
           <option value="FRENCH">French</option>
           <option value="IBR">IBR</option>
+          <option value="IND">IND</option>
         </select>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
           <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={DATE_STYLE} />
@@ -481,21 +482,31 @@ export default function ExportPage() {
             <span style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
               {selectedIds.size > 0 ? `${selectedIds.size} selected` : `All ${requests.length} shown`}
             </span>
-            <button
-              onClick={handleDownload}
-              disabled={downloading}
-              style={{
-                display: 'inline-flex', alignItems: 'center', gap: '0.5rem',
-                padding: '0.5rem 1.25rem',
-                background: activeTab.format === 'XLSX' ? '#2D4A2E' : 'var(--bg-dark)',
-                color: activeTab.format === 'XLSX' ? '#F0F7F0' : 'var(--accent-gold)',
-                border: 'none', borderRadius: '4px', fontSize: '0.875rem', fontWeight: 600,
-                cursor: downloading ? 'not-allowed' : 'pointer', opacity: downloading ? 0.7 : 1,
-              }}
-            >
-              {downloading ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Download size={14} />}
-              {downloading ? 'Downloading…' : `Download ${activeTab.format} (${downloadCount})`}
-            </button>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              {(activeType === 'NEW_ITEM' ? (['XLSX', 'CSV'] as const) : (['CSV', 'XLSX'] as const)).map((fmt) => {
+                const isActive = downloadingFormat === fmt;
+                const isDisabled = downloadingFormat !== null;
+                const isXLSX = fmt === 'XLSX';
+                return (
+                  <button
+                    key={fmt}
+                    onClick={() => handleDownload(fmt)}
+                    disabled={isDisabled}
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', gap: '0.5rem',
+                      padding: '0.5rem 1.25rem',
+                      background: isXLSX ? '#2D4A2E' : 'var(--bg-dark)',
+                      color: isXLSX ? '#F0F7F0' : 'var(--accent-gold)',
+                      border: 'none', borderRadius: '4px', fontSize: '0.875rem', fontWeight: 600,
+                      cursor: isDisabled ? 'not-allowed' : 'pointer', opacity: isDisabled ? 0.7 : 1,
+                    }}
+                  >
+                    {isActive ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Download size={14} />}
+                    {isActive ? 'Downloading…' : `${fmt} (${downloadCount})`}
+                  </button>
+                );
+              })}
+            </div>
           </div>
         )}
       </div>

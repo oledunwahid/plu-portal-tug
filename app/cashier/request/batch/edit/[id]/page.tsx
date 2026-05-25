@@ -6,7 +6,6 @@ import { useRouter, useParams } from 'next/navigation';
 import { getCategoriesForOutlet, getDepartmentForCategory } from '@/lib/categories';
 import { PRINTERS_BY_GROUP, OUTLETS_BY_GROUP, OutletGroup } from '@/lib/outlets';
 import { Combobox } from '@/components/ui/combobox';
-import { Checkbox } from '@/components/ui/checkbox';
 import { MultiSelect } from '@/components/ui/multi-select';
 import { toast } from 'sonner';
 import { Loader2, Plus, Trash2, Copy, ChevronLeft } from 'lucide-react';
@@ -30,6 +29,7 @@ interface ItemRow {
   department: string;
   price: string;
   folder: string;
+  barcode: string;
   serviceCharge: boolean;
   tax1: boolean;
   tax2: boolean;
@@ -50,10 +50,16 @@ const POS_FIELDS: { key: keyof ItemRow; abbr: string; full: string }[] = [
 
 function uid() { return Math.random().toString(36).slice(2, 10); }
 
+function formatPriceDisplay(raw: string): string {
+  if (!raw) return '';
+  const n = parseInt(raw, 10);
+  return isNaN(n) ? '' : n.toLocaleString('id-ID');
+}
+
 function makeDefaultRow(): ItemRow {
   return {
     _id: uid(), code: '', name: '', category: '', department: '',
-    price: '', folder: '',
+    price: '', folder: '', barcode: '',
     serviceCharge: true, tax1: true, tax2: true, noDiscount: true, hideReceipt: false,
     printers: [], outlets: [], errors: {},
   };
@@ -88,8 +94,14 @@ export default function BatchEditPage() {
   const [titleError, setTitleError] = useState('');
 
   const isUpdate = requestType !== 'NEW_ITEM';
-  const needsPrice = requestType === 'NEW_ITEM' || requestType === 'UPDATE_PRICE';
+  const showNameCol = requestType === 'NEW_ITEM' || requestType === 'UPDATE_NAME' || requestType === 'UPDATE_FULL';
   const showCategoryCol = requestType === 'NEW_ITEM' || requestType === 'UPDATE_FULL';
+  const showPriceCol = requestType === 'NEW_ITEM' || requestType === 'UPDATE_PRICE' || requestType === 'UPDATE_FULL';
+  const showFolderCol = requestType === 'NEW_ITEM' || requestType === 'UPDATE_FULL';
+  const showBarcodeColumn = showCategoryCol && items.some((r) => r.department === 'WINE');
+  const showPrintersCol = requestType === 'NEW_ITEM' || requestType === 'UPDATE_PRINTER' || requestType === 'UPDATE_FULL';
+  const showOutletsCol = true;
+  const showPOSCol = requestType === 'NEW_ITEM' || requestType === 'UPDATE_FULL';
 
   useEffect(() => {
     if (!batchId) return;
@@ -119,6 +131,7 @@ export default function BatchEditPage() {
           department: item.department,
           price: item.price != null ? String(item.price) : '',
           folder: item.folder ?? '',
+          barcode: item.barcode ?? '',
           serviceCharge: item.serviceCharge,
           tax1: item.tax1,
           tax2: item.tax2,
@@ -162,7 +175,10 @@ export default function BatchEditPage() {
     setItems((prev) => prev.map((row, i) => {
       if (i !== idx) return row;
       const updated = { ...row, [key]: value, errors: { ...row.errors, [key]: undefined } };
-      if (key === 'category') updated.department = getDepartmentForCategory(value as string);
+      if (key === 'category') {
+        updated.department = getDepartmentForCategory(value as string);
+        if (updated.department !== 'WINE') updated.barcode = '';
+      }
       return updated;
     }));
   }
@@ -172,11 +188,23 @@ export default function BatchEditPage() {
     if (!title.trim()) { setTitleError('Batch title is required'); valid = false; }
     const updatedItems = items.map((row) => {
       const errors: Record<string, string> = {};
-      if (!row.name.trim()) errors.name = 'Name required';
-      if (isUpdate && !row.code.trim()) errors.code = 'Code required';
-      if (needsPrice && (!row.price || Number(row.price) <= 0)) errors.price = 'Price required';
-      if (row.printers.length === 0) errors.printers = 'Select printer';
-      if (row.outlets.length === 0) errors.outlets = 'Select outlet';
+      if (requestType === 'NEW_ITEM') {
+        if (!row.name.trim()) errors.name = 'Name required';
+        if (!row.price || Number(row.price) <= 0) errors.price = 'Price required';
+        if (row.printers.length === 0) errors.printers = 'Select printer';
+        if (row.outlets.length === 0) errors.outlets = 'Select outlet';
+      } else if (requestType === 'UPDATE_PRICE') {
+        if (!row.code.trim()) errors.code = 'Code required';
+        if (!row.price || Number(row.price) <= 0) errors.price = 'Price required';
+      } else if (requestType === 'UPDATE_NAME') {
+        if (!row.code.trim()) errors.code = 'Code required';
+        if (!row.name.trim()) errors.name = 'Name required';
+      } else if (requestType === 'UPDATE_PRINTER') {
+        if (!row.code.trim()) errors.code = 'Code required';
+        if (row.printers.length === 0) errors.printers = 'Select printer';
+      } else if (requestType === 'UPDATE_FULL') {
+        if (!row.code.trim()) errors.code = 'Code required';
+      }
       if (Object.keys(errors).length > 0) valid = false;
       return { ...row, errors };
     });
@@ -197,7 +225,7 @@ export default function BatchEditPage() {
           name: row.name.trim(),
           category: row.category,
           department: row.department,
-          price: row.price ? Number(row.price) : undefined,
+          price: row.price ? parseInt(String(row.price).replace(/\./g, ''), 10) || undefined : undefined,
           folder: row.folder || undefined,
           serviceCharge: row.serviceCharge,
           tax1: row.tax1,
@@ -206,6 +234,7 @@ export default function BatchEditPage() {
           hideReceipt: row.hideReceipt,
           printers: row.printers,
           outlets: row.outlets,
+          barcode: row.department === 'WINE' ? row.barcode || undefined : undefined,
         })),
       };
       const res = await fetch(`/api/batches/${batchId}`, {
@@ -267,15 +296,12 @@ export default function BatchEditPage() {
 
             <div>
               <div className="label-caps" style={{ marginBottom: '0.75rem' }}>Request Type</div>
-              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                {REQUEST_TYPES.map((t) => (
-                  <button key={t.value} type="button" onClick={() => setRequestType(t.value)}
-                    style={{ padding: '0.5rem 1rem', borderRadius: '0.375rem', border: `1px solid ${requestType === t.value ? 'var(--bg-dark)' : 'var(--border)'}`, background: requestType === t.value ? 'var(--bg-dark)' : 'transparent', color: requestType === t.value ? 'var(--accent-gold)' : 'var(--text-secondary)', fontSize: '0.8rem', fontWeight: requestType === t.value ? 500 : 400, cursor: 'pointer', transition: 'all 200ms ease' }}
-                  >
-                    {t.label}
-                  </button>
-                ))}
+              <div style={{ display: 'inline-flex', alignItems: 'center', padding: '0.5rem 1rem', background: 'var(--bg-dark)', color: 'var(--accent-gold)', borderRadius: '0.375rem', fontSize: '0.8rem', fontWeight: 500 }}>
+                {REQUEST_TYPES.find((t) => t.value === requestType)?.label ?? requestType}
               </div>
+              <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.375rem' }}>
+                Request type cannot be changed after creation.
+              </p>
             </div>
           </div>
         </div>
@@ -307,14 +333,15 @@ export default function BatchEditPage() {
                 <tr>
                   <th style={{ width: '36px', textAlign: 'center' }}>#</th>
                   {isUpdate && <th style={{ minWidth: '140px' }}>Code</th>}
-                  <th style={{ minWidth: '180px' }}>Name</th>
+                  {showNameCol && <th style={{ minWidth: '180px' }}>Name</th>}
                   {showCategoryCol && <th style={{ minWidth: '160px' }}>Category</th>}
                   {showCategoryCol && <th style={{ minWidth: '90px' }}>Dept</th>}
-                  {needsPrice && <th style={{ minWidth: '105px' }}>Price (IDR)</th>}
-                  {showCategoryCol && <th style={{ minWidth: '120px' }}>Folder</th>}
-                  <th style={{ minWidth: '155px' }}>Printers</th>
-                  <th style={{ minWidth: '140px' }}>Outlets</th>
-                  <th style={{ minWidth: '72px' }}>POS</th>
+                  {showPriceCol && <th style={{ minWidth: '170px' }}>Price (IDR)</th>}
+                  {showBarcodeColumn && <th style={{ minWidth: '100px' }}>Barcode</th>}
+                  {showFolderCol && <th style={{ minWidth: '120px' }}>Folder</th>}
+                  {showPrintersCol && <th style={{ minWidth: '155px' }}>Printers</th>}
+                  {showOutletsCol && <th style={{ minWidth: '140px' }}>Outlets</th>}
+                  {showPOSCol && <th style={{ minWidth: '150px' }}>POS</th>}
                   <th style={{ width: '66px' }}></th>
                 </tr>
               </thead>
@@ -333,11 +360,13 @@ export default function BatchEditPage() {
                         </td>
                       )}
 
-                      <td>
-                        <input type="text" value={row.name} onChange={(e) => updateRow(idx, 'name', e.target.value)} placeholder="Item name"
-                          style={{ ...INPUT_STYLE, borderColor: row.errors.name ? 'rgba(122,46,31,0.5)' : undefined }} />
-                        {row.errors.name && <p style={{ fontSize: '0.7rem', color: '#8B3A2A', margin: '2px 0 0' }}>{row.errors.name}</p>}
-                      </td>
+                      {showNameCol && (
+                        <td>
+                          <input type="text" value={row.name} onChange={(e) => updateRow(idx, 'name', e.target.value)} placeholder="Item name"
+                            style={{ ...INPUT_STYLE, borderColor: row.errors.name ? 'rgba(122,46,31,0.5)' : undefined }} />
+                          {row.errors.name && <p style={{ fontSize: '0.7rem', color: '#8B3A2A', margin: '2px 0 0' }}>{row.errors.name}</p>}
+                        </td>
+                      )}
 
                       {showCategoryCol && (
                         <td>
@@ -351,51 +380,81 @@ export default function BatchEditPage() {
                         </td>
                       )}
 
-                      {needsPrice && (
+                      {showPriceCol && (
                         <td>
-                          <input type="number" value={row.price} onChange={(e) => updateRow(idx, 'price', e.target.value)} placeholder="0"
-                            style={{ ...INPUT_STYLE, borderColor: row.errors.price ? 'rgba(122,46,31,0.5)' : undefined }} />
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                            <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', flexShrink: 0 }}>Rp</span>
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              value={formatPriceDisplay(row.price)}
+                              onChange={(e) => updateRow(idx, 'price', e.target.value.replace(/\D/g, ''))}
+                              placeholder="0"
+                              style={{ ...INPUT_STYLE, flex: 1, minWidth: '140px', borderColor: row.errors.price ? 'rgba(122,46,31,0.5)' : undefined }}
+                            />
+                          </div>
                           {row.errors.price && <p style={{ fontSize: '0.7rem', color: '#8B3A2A', margin: '2px 0 0' }}>{row.errors.price}</p>}
                         </td>
                       )}
 
-                      {showCategoryCol && (
+                      {showBarcodeColumn && (
+                        <td>
+                          {row.department === 'WINE' ? (
+                            <input type="text" value={row.barcode} onChange={(e) => updateRow(idx, 'barcode', e.target.value)} placeholder="Barcode" style={INPUT_STYLE} />
+                          ) : null}
+                        </td>
+                      )}
+
+                      {showFolderCol && (
                         <td>
                           <input type="text" value={row.folder} onChange={(e) => updateRow(idx, 'folder', e.target.value)} placeholder="Folder" style={INPUT_STYLE} />
                         </td>
                       )}
 
                       {/* Printers */}
-                      <td>
-                        <MultiSelect
-                          options={availablePrinters}
-                          value={row.printers}
-                          onChange={(v) => updateRow(idx, 'printers', v)}
-                          placeholder="Printers…"
-                          error={row.errors.printers}
-                        />
-                      </td>
+                      {showPrintersCol && (
+                        <td>
+                          <MultiSelect
+                            options={availablePrinters}
+                            value={row.printers}
+                            onChange={(v) => updateRow(idx, 'printers', v)}
+                            placeholder="Printers…"
+                            error={row.errors.printers}
+                          />
+                        </td>
+                      )}
 
                       {/* Outlets */}
-                      <td>
-                        <MultiSelect
-                          options={availableOutlets}
-                          value={row.outlets}
-                          onChange={(v) => updateRow(idx, 'outlets', v)}
-                          placeholder="Outlets…"
-                          error={row.errors.outlets}
-                        />
-                      </td>
+                      {showOutletsCol && (
+                        <td>
+                          <MultiSelect
+                            options={availableOutlets}
+                            value={row.outlets}
+                            onChange={(v) => updateRow(idx, 'outlets', v)}
+                            placeholder="Outlets…"
+                            error={row.errors.outlets}
+                          />
+                        </td>
+                      )}
 
                       {/* POS Settings */}
-                      <td style={{ paddingTop: '0.5rem' }}>
-                        {POS_FIELDS.map(({ key, abbr, full }) => (
-                          <label key={key} title={full} style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.72rem', cursor: 'pointer', marginBottom: '0.2rem', whiteSpace: 'nowrap' }}>
-                            <Checkbox checked={row[key] as boolean} onCheckedChange={(v) => updateRow(idx, key, v)} />
-                            <span style={{ color: 'var(--text-secondary)' }}>{abbr}</span>
-                          </label>
-                        ))}
-                      </td>
+                      {showPOSCol && (
+                        <td>
+                          <MultiSelect
+                            options={POS_FIELDS.map((f) => f.full)}
+                            value={POS_FIELDS.filter((f) => row[f.key] as boolean).map((f) => f.full)}
+                            onChange={(selected) => {
+                              setItems((prev) => prev.map((r, i) => {
+                                if (i !== idx) return r;
+                                const updates: Partial<ItemRow> = {};
+                                POS_FIELDS.forEach(({ key, full }) => { (updates as any)[key] = selected.includes(full); });
+                                return { ...r, ...updates };
+                              }));
+                            }}
+                            placeholder="POS Settings..."
+                          />
+                        </td>
+                      )}
 
                       {/* Actions */}
                       <td style={{ paddingTop: '0.5rem' }}>

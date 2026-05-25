@@ -1,4 +1,4 @@
-export type OutletGroup = 'UNION' | 'CNS' | 'FRENCH' | 'IBR';
+export type OutletGroup = 'UNION' | 'CNS' | 'FRENCH' | 'IBR' | 'IND';
 
 export const OUTLET_TO_GROUP: Record<string, OutletGroup> = {
   UTP: 'UNION', UPKW: 'UNION', UPS: 'UNION', USC: 'UNION', UCP: 'UNION',
@@ -13,14 +13,17 @@ export const OUTLET_TO_GROUP: Record<string, OutletGroup> = {
   'PIE-SNPT': 'FRENCH', 'PIE-SNPT-B': 'FRENCH',
 
   ROMSCBD: 'IBR', ROMPIM: 'IBR', BISSCBD: 'IBR', BISPIK: 'IBR',
-  MILGI: 'IBR', MILPIK: 'IBR',
+  MILGI: 'IBR', MILPIK: 'IBR', 'BISSCBD-B': 'IBR',
+
+  IND1: 'IND',
 };
 
 export const OUTLETS_BY_GROUP: Record<OutletGroup, string[]> = {
   UNION: ['UTP','UPKW','UPS','USC','UCP','UGI','UPIM','UPIK','UMKG','USMS','UCP-B','UPS-B','USC-B','UPIK-B','UMKG-B'],
   CNS:   ['CSPI','CSPP','CSSG','CSPI-B','CSPP-B','CSSG-B'],
   FRENCH: ['LWY-OAK','LWY-OAK-B','BAB-SEN','BAB-SEN-B','PIE-SNPT','PIE-SNPT-B'],
-  IBR:   ['ROMSCBD','ROMPIM','BISSCBD','BISPIK','MILGI','MILPIK'],
+  IBR:   ['ROMSCBD','ROMPIM','BISSCBD','BISPIK','MILGI','MILPIK','BISSCBD-B'],
+  IND:   ['IND1'],
 };
 
 export const ALL_OUTLETS = Object.keys(OUTLET_TO_GROUP);
@@ -58,6 +61,11 @@ export const PRINTERS_BY_GROUP: Record<OutletGroup, string[]> = {
     'BAR','BAR2','BAR3','BAR4','BAR5','BAR6','BL','BILL','PIZZA',
     'PASTRY','DESSERT','DESSERT2','DESSERT3','WINE','WINE2',
     'CIGAR','CIGAR2','EVENT','EVENT2','EVENT3',
+  ],
+  IND: [
+    'KITCHEN1','KITCHEN2','KITCHEN3',
+    'BAR','BAR2','BL','BILL',
+    'DESSERT','WINE','EVENT',
   ],
 };
 

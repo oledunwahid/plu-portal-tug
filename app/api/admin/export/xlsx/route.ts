@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/session';
 import { getPLURequestsRaw } from '@/lib/db';
-import { generateNewItemXLSX } from '@/lib/export';
+import { generateNewItemXLSX, generateDoneXLSX } from '@/lib/export';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -15,9 +15,10 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const idsParam = searchParams.get('ids');
     const ids      = idsParam ? idsParam.split(',').filter(Boolean) : null;
+    const type     = searchParams.get('type') ?? 'NEW_ITEM';
 
     const filters: Parameters<typeof getPLURequestsRaw>[0] = {
-      requestType: 'NEW_ITEM', orderAsc: true, limit: 2000,
+      requestType: type, orderAsc: true, limit: 2000,
     };
 
     if (ids && ids.length > 0) {
@@ -34,12 +35,13 @@ export async function GET(request: NextRequest) {
     }
 
     const requests = await getPLURequestsRaw(filters);
-    if (requests.length === 0) return NextResponse.json({ error: 'No NEW_ITEM requests found' }, { status: 404 });
+    if (requests.length === 0) return NextResponse.json({ error: 'No requests found' }, { status: 404 });
 
-    const buffer   = generateNewItemXLSX(requests);
+    const buffer   = type === 'NEW_ITEM' ? generateNewItemXLSX(requests) : generateDoneXLSX(requests);
     const dateStr  = new Date().toISOString().slice(0, 10);
     const group    = searchParams.get('group') ?? searchParams.get('outletGroup') ?? 'all';
-    const filename = `new-items-${group.toLowerCase()}-${dateStr}.xlsx`;
+    const typeLabel = type === 'NEW_ITEM' ? 'new-items' : type.toLowerCase().replace(/_/g, '-');
+    const filename = `${typeLabel}-${group.toLowerCase()}-${dateStr}.xlsx`;
 
     return new NextResponse(new Uint8Array(buffer), {
       status: 200,

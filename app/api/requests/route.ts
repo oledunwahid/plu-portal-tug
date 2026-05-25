@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/session';
-import { getPLURequests, createPLURequest } from '@/lib/db';
+import { getPLURequests, createPLURequest, getMasterItemByCode } from '@/lib/db';
 import { createRequestSchema } from '@/lib/validations';
 
 export const dynamic = 'force-dynamic';
@@ -47,13 +47,22 @@ export async function POST(request: NextRequest) {
       hideReceipt: data.hideReceipt,
       printers: data.printers,
       outlets: data.outlets,
+      barcode: data.department === 'WINE' ? (data.barcode ?? null) : null,
       remarks: data.remarks ?? null,
       userId: session.user.id,
       outletGroup: session.user.outletGroup,
       cashierOutlet: session.user.outlet,
     });
 
-    return NextResponse.json(pluRequest, { status: 201 });
+    let warning: string | undefined;
+    if (data.requestType === 'NEW_ITEM' && data.code) {
+      const existing = await getMasterItemByCode(data.code);
+      if (existing) {
+        warning = `Code ${data.code} already exists in the master registry as '${existing.name}'. Admin will review.`;
+      }
+    }
+
+    return NextResponse.json({ ...pluRequest, warning }, { status: 201 });
   } catch (error) {
     console.error('[POST /api/requests]', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

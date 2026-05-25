@@ -48,7 +48,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
           name: String(i.name ?? ''),
           category: String(i.category ?? ''),
           department: String(i.department ?? ''),
-          price: i.price != null ? Number(i.price) : null,
+          price: i.price != null ? parseInt(String(i.price).replace(/[.,]/g, ''), 10) || null : null,
           folder: (i.folder as string | null) ?? null,
           serviceCharge: i.serviceCharge !== false,
           tax1: i.tax1 !== false,
@@ -58,6 +58,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
           printers: Array.isArray(i.printers) ? (i.printers as string[]).join(';') : String(i.printers ?? ''),
           outlets: Array.isArray(i.outlets) ? (i.outlets as string[]).join(';') : String(i.outlets ?? ''),
           salesDef: (i.salesDef as string | undefined) ?? 'SALES',
+          barcode: (i.barcode as string | null) ?? null,
         };
       }
     );

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/session';
-import { getRequestBatches, createRequestBatch } from '@/lib/db';
+import { getRequestBatches, createRequestBatch, getMasterItemByCode } from '@/lib/db';
 import { OUTLET_TO_GROUP } from '@/lib/outlets';
 import type { BatchItemInput } from '@/lib/db';
 
@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
         name: String(i.name ?? ''),
         category: String(i.category ?? ''),
         department: String(i.department ?? ''),
-        price: i.price != null ? Number(i.price) : null,
+        price: i.price != null ? parseInt(String(i.price).replace(/[.,]/g, ''), 10) || null : null,
         folder: (i.folder as string | null) ?? null,
         serviceCharge: i.serviceCharge !== false,
         tax1: i.tax1 !== false,
@@ -56,6 +56,7 @@ export async function POST(req: NextRequest) {
         printers: Array.isArray(i.printers) ? (i.printers as string[]).join(';') : String(i.printers ?? ''),
         outlets: Array.isArray(i.outlets) ? (i.outlets as string[]).join(';') : String(i.outlets ?? ''),
         salesDef: (i.salesDef as string | undefined) ?? 'SALES',
+        barcode: (i.barcode as string | null) ?? null,
       };
     });
 
@@ -64,7 +65,19 @@ export async function POST(req: NextRequest) {
       items
     );
 
-    return NextResponse.json(batch, { status: 201 });
+    const warnings: string[] = [];
+    if (requestType === 'NEW_ITEM') {
+      for (const item of items) {
+        if (item.code) {
+          const existing = await getMasterItemByCode(item.code);
+          if (existing) {
+            warnings.push(`Code ${item.code} already exists in the master registry as '${existing.name}'.`);
+          }
+        }
+      }
+    }
+
+    return NextResponse.json({ ...batch, warnings: warnings.length > 0 ? warnings : undefined }, { status: 201 });
   } catch (error) {
     console.error('[POST /api/batches]', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

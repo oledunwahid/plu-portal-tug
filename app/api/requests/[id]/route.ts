@@ -52,6 +52,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       folder: parsed.data.folder ?? null,
       printers: parsed.data.printers,
       outlets: parsed.data.outlets,
+      barcode: parsed.data.department === 'WINE' ? (parsed.data.barcode ?? null) : null,
       serviceCharge: parsed.data.serviceCharge,
       tax1: parsed.data.tax1,
       tax2: parsed.data.tax2,
