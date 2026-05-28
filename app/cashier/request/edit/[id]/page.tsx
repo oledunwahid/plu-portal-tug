@@ -30,6 +30,7 @@ interface FormState {
   tax2: boolean;
   noDiscount: boolean;
   hideReceipt: boolean;
+  salesDef: string;
   printers: string[];
   outlets: string[];
   remarks: string;
@@ -79,6 +80,7 @@ export default function EditRequestPage() {
   const showPrintersCard = requestType === 'NEW_ITEM' || requestType === 'UPDATE_PRINTER' || requestType === 'UPDATE_FULL';
   const showOutletsCard = true;
   const showPOSCard = requestType === 'NEW_ITEM' || requestType === 'UPDATE_FULL';
+  const showSalesDef = requestType === 'NEW_ITEM' || requestType === 'UPDATE_FULL';
   const showItemDetailsCard = showName || showCategoryDept || showPrice || showFolder;
 
   useEffect(() => {
@@ -104,6 +106,7 @@ export default function EditRequestPage() {
           tax2: data.tax2,
           noDiscount: data.noDiscount,
           hideReceipt: data.hideReceipt,
+          salesDef: data.salesDef ?? 'SALES',
           printers: data.printers ? data.printers.split(';') : [],
           outlets: data.outlets ? data.outlets.split(';') : [],
           remarks: data.remarks ?? '',
@@ -146,12 +149,10 @@ export default function EditRequestPage() {
     if (requestType === 'NEW_ITEM') {
       if (!form.name.trim()) errs.name = 'Item name is required';
       if (!form.category) errs.category = 'Category is required';
-      if (!form.price) errs.price = 'Price is required';
-      if (form.price && (isNaN(Number(form.price)) || Number(form.price) <= 0)) errs.price = 'Price must be a positive number';
       if (form.printers.length === 0) errs.printers = 'Select at least one printer';
       if (form.outlets.length === 0) errs.outlets = 'Select at least one outlet';
     } else if (requestType === 'UPDATE_PRICE') {
-      if (!form.price || isNaN(Number(form.price)) || Number(form.price) <= 0) errs.price = 'Price must be a positive number greater than 0';
+      if (!form.price || isNaN(Number(form.price)) || Number(form.price) <= 0) errs.price = 'Harga baru harus diisi dan lebih dari 0';
     } else if (requestType === 'UPDATE_NAME') {
       if (!form.name.trim()) errs.name = 'Item name is required';
     } else if (requestType === 'UPDATE_PRINTER') {
@@ -170,7 +171,7 @@ export default function EditRequestPage() {
         name: form.name.trim(),
         category: form.category,
         department: form.department,
-        price: form.price ? Number(form.price) : null,
+        price: form.price !== '' ? Number(form.price) : 0,
         folder: form.folder || null,
         serviceCharge: form.serviceCharge,
         tax1: form.tax1,
@@ -180,6 +181,7 @@ export default function EditRequestPage() {
         printers: form.printers.join(';'),
         outlets: form.outlets.join(';'),
         barcode: form.department === 'WINE' ? form.barcode || null : null,
+        salesDef: form.salesDef || 'SALES',
         remarks: form.remarks || null,
       };
       const res = await fetch(`/api/requests/${id}`, {
@@ -320,6 +322,19 @@ export default function EditRequestPage() {
                     </FieldGroup>
                   )}
                 </div>
+              )}
+
+              {showSalesDef && (
+                <FieldGroup label="SALES DEF">
+                  <select
+                    value={form.salesDef}
+                    onChange={(e) => set('salesDef', e.target.value)}
+                    className="flex h-10 w-full rounded-md border border-u-input bg-u-card px-3 py-2 text-sm text-u-primary focus:outline-none focus:ring-2 focus:ring-u-gold/40 focus:border-u-gold transition-all duration-200"
+                  >
+                    <option value="SALES">SALES</option>
+                    <option value="MODIFIER">MODIFIER</option>
+                  </select>
+                </FieldGroup>
               )}
             </div>
           </div>

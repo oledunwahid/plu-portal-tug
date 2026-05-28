@@ -7,7 +7,7 @@ import StatusBadge from '@/components/StatusBadge';
 import Link from 'next/link';
 import { formatPrice } from '@/lib/utils';
 import { formatTimestamp } from '@/lib/format';
-import { PlusCircle, Pencil, Lock, Layers, ChevronDown, ChevronRight, Loader2 } from 'lucide-react';
+import { PlusCircle, Pencil, Lock, Layers, ChevronDown, ChevronRight, Loader2, Tag } from 'lucide-react';
 import { toast } from 'sonner';
 
 const TYPE_LABELS: Record<string, string> = {
@@ -17,6 +17,16 @@ const TYPE_LABELS: Record<string, string> = {
   UPDATE_PRINTER: 'Change Printer',
   UPDATE_FULL: 'Full Update',
 };
+
+interface DiscountRequest {
+  id: string;
+  buttonName: string;
+  discountType: string;
+  discountValue: number;
+  discountValueType: string;
+  status: string;
+  createdAt: string;
+}
 
 interface SingleRequest {
   id: string;
@@ -56,6 +66,7 @@ export default function CashierDashboard() {
   const router = useRouter();
   const [singles, setSingles] = useState<SingleRequest[]>([]);
   const [batches, setBatches] = useState<BatchRequest[]>([]);
+  const [discounts, setDiscounts] = useState<DiscountRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedBatches, setExpandedBatches] = useState<Set<string>>(new Set());
 
@@ -66,12 +77,14 @@ export default function CashierDashboard() {
   const fetchAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [sRes, bRes] = await Promise.all([
+      const [sRes, bRes, dRes] = await Promise.all([
         fetch('/api/requests'),
         fetch('/api/batches'),
+        fetch('/api/discount'),
       ]);
       if (sRes.ok) setSingles((await sRes.json()).map((r: any) => ({ ...r, _source: 'single' })));
       if (bRes.ok) setBatches((await bRes.json()).map((b: any) => ({ ...b, _source: 'batch' })));
+      if (dRes.ok) setDiscounts(await dRes.json());
     } catch {
       toast.error('Failed to load requests');
     } finally {
@@ -290,6 +303,89 @@ export default function CashierDashboard() {
               </tbody>
             </table>
           </div>
+        </div>
+      )}
+
+      {/* Discount Requests Section */}
+      {discounts.length > 0 && (
+        <div className="card" style={{ overflow: 'hidden', marginTop: '1.5rem' }}>
+          <div style={{ padding: '0.875rem 1.25rem', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <Tag size={13} style={{ color: '#8B6914' }} />
+              <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-primary)' }}>My Discount Requests</span>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{discounts.length}</span>
+            </div>
+            <Link href="/cashier/discount/new" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.75rem', color: 'var(--text-secondary)', border: '1px solid var(--border)', borderRadius: '3px', padding: '0.2rem 0.5rem', textDecoration: 'none' }}>
+              <PlusCircle size={11} /> New
+            </Link>
+          </div>
+          <div style={{ overflowX: 'auto' }}>
+            <table>
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Button Name</th>
+                  <th>Type</th>
+                  <th>Value</th>
+                  <th>Status</th>
+                  <th style={{ width: '60px' }}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {discounts.map((dr) => (
+                  <tr key={dr.id}>
+                    <td style={{ minWidth: '120px' }}>
+                      <div style={{ fontSize: '0.8rem' }}>{formatTimestamp(dr.createdAt).split(', ')[0]}</div>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', fontVariantNumeric: 'tabular-nums' }}>{formatTimestamp(dr.createdAt).split(', ')[1]}</div>
+                    </td>
+                    <td style={{ fontWeight: 500, fontSize: '0.875rem' }}>{dr.buttonName}</td>
+                    <td style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                      {dr.discountType === 'FIXED_AMOUNT' ? 'Nominal' : 'Persentase'}
+                    </td>
+                    <td style={{ fontSize: '0.8rem' }}>
+                      {dr.discountValueType === 'IDR'
+                        ? `Rp ${dr.discountValue.toLocaleString('id-ID')}`
+                        : `${dr.discountValue}%`}
+                    </td>
+                    <td>
+                      <span style={{
+                        display: 'inline-block', padding: '0.15rem 0.55rem', borderRadius: '0.25rem',
+                        fontSize: '0.7rem', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase',
+                        background: dr.status === 'PENDING' ? 'rgba(184,134,11,0.1)' : 'rgba(61,90,62,0.1)',
+                        color: dr.status === 'PENDING' ? '#8B6914' : '#2D4A2E',
+                        border: `1px solid ${dr.status === 'PENDING' ? 'rgba(184,134,11,0.25)' : 'rgba(61,90,62,0.25)'}`,
+                      }}>
+                        {dr.status}
+                      </span>
+                    </td>
+                    <td>
+                      {dr.status === 'PENDING' ? (
+                        <Link href={`/cashier/discount/edit/${dr.id}`} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.75rem', color: 'var(--text-secondary)', border: '1px solid var(--border)', borderRadius: '3px', padding: '0.2rem 0.45rem', textDecoration: 'none' }}>
+                          <Pencil size={11} /> Edit
+                        </Link>
+                      ) : (
+                        <span title="Processed" style={{ cursor: 'help', color: 'var(--text-secondary)', display: 'inline-flex', padding: '0.2rem' }}>
+                          <Lock size={12} />
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {discounts.length === 0 && !loading && (
+        <div style={{ marginTop: '1.5rem', padding: '1.25rem', background: 'var(--bg-card)', borderRadius: '8px', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <Tag size={14} style={{ color: 'var(--text-secondary)' }} />
+            <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>No discount requests yet</span>
+          </div>
+          <Link href="/cashier/discount/new" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.375rem', fontSize: '0.8rem', color: 'var(--text-secondary)', border: '1px solid var(--border)', borderRadius: '3px', padding: '0.3rem 0.625rem', textDecoration: 'none' }}>
+            <PlusCircle size={12} /> New Discount Request
+          </Link>
         </div>
       )}
 

@@ -48,6 +48,7 @@ export async function POST(request: NextRequest) {
       printers: data.printers,
       outlets: data.outlets,
       barcode: data.department === 'WINE' ? (data.barcode ?? null) : null,
+      salesDef: data.salesDef ?? 'SALES',
       remarks: data.remarks ?? null,
       userId: session.user.id,
       outletGroup: session.user.outletGroup,

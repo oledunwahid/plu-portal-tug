@@ -197,6 +197,43 @@ async function getDb() {
       definition TEXT NOT NULL, defaultDefinition TEXT, grp TEXT,
       isSeeded INTEGER NOT NULL DEFAULT 0, createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL
     )`);
+    g.__sqljsDb.run(`CREATE TABLE IF NOT EXISTS "DiscountRequest" (
+      id TEXT PRIMARY KEY,
+      status TEXT NOT NULL DEFAULT 'PENDING',
+      outletGroup TEXT NOT NULL,
+      cashierOutlet TEXT NOT NULL,
+      userId TEXT NOT NULL,
+      buttonName TEXT NOT NULL,
+      discountType TEXT NOT NULL,
+      discountValue REAL NOT NULL,
+      discountValueType TEXT NOT NULL,
+      outlets TEXT NOT NULL DEFAULT '',
+      applicableTo TEXT NOT NULL,
+      conditions TEXT,
+      remarks TEXT,
+      adminNote TEXT,
+      createdAt TEXT NOT NULL,
+      updatedAt TEXT NOT NULL,
+      doneAt TEXT
+    )`);
+    // Add outlets column to existing DiscountRequest tables that were created before this column was added
+    const drCols = execAll(g.__sqljsDb, `PRAGMA table_info("DiscountRequest")`, []);
+    if (!drCols.some((c) => c.name === 'outlets')) {
+      g.__sqljsDb.run(`ALTER TABLE "DiscountRequest" ADD COLUMN outlets TEXT NOT NULL DEFAULT ''`);
+    }
+    g.__sqljsDb.run(`CREATE TABLE IF NOT EXISTS "OutletConfig" (
+      id TEXT PRIMARY KEY, code TEXT NOT NULL UNIQUE, "group" TEXT NOT NULL,
+      isActive INTEGER NOT NULL DEFAULT 1, createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL
+    )`);
+    g.__sqljsDb.run(`CREATE TABLE IF NOT EXISTS "PrinterConfig" (
+      id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, "group" TEXT NOT NULL,
+      isActive INTEGER NOT NULL DEFAULT 1, createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL
+    )`);
+    g.__sqljsDb.run(`CREATE TABLE IF NOT EXISTS "CategoryConfig" (
+      id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, department TEXT NOT NULL,
+      departmentCode INTEGER NOT NULL, categoryCode INTEGER NOT NULL,
+      isActive INTEGER NOT NULL DEFAULT 1, createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL
+    )`);
     fs.writeFileSync(dbPath, Buffer.from(g.__sqljsDb.export()));
   }
   return g.__sqljsDb;
@@ -909,6 +946,16 @@ export async function getNextPLUSequence(prefix: string, deptCode: string, catCo
   }
 }
 
+export async function deleteRequestBatch(id: string): Promise<boolean> {
+  return withWriteLock((db) => {
+    const existing = execFirst(db, 'SELECT id FROM "RequestBatch" WHERE id = ?', [id]);
+    if (!existing) return false;
+    db.run('DELETE FROM "RequestBatchItem" WHERE batchId = ?', [id]);
+    db.run('DELETE FROM "RequestBatch" WHERE id = ?', [id]);
+    return true;
+  });
+}
+
 export async function markRequestBatchDone(id: string): Promise<{ batch: DbRequestBatch; itemCount: number } | null> {
   return withWriteLock((db) => {
     const existing = execFirst(db, 'SELECT id, status FROM "RequestBatch" WHERE id = ?', [id]);
@@ -1262,5 +1309,309 @@ export async function bulkInsertGlossaryEntries(entries: {
          e.grp ?? null, (e.isSeeded ?? true) ? 1 : 0, now, now]);
     }
     return entries.length;
+  });
+}
+
+// ── DiscountRequest ───────────────────────────────────────────────────────────
+
+export interface DbDiscountRequest {
+  id: string;
+  status: string;
+  outletGroup: string;
+  cashierOutlet: string;
+  userId: string;
+  buttonName: string;
+  discountType: string;
+  discountValue: number;
+  discountValueType: string;
+  outlets: string;
+  applicableTo: string;
+  conditions: string | null;
+  remarks: string | null;
+  adminNote: string | null;
+  createdAt: string;
+  updatedAt: string;
+  doneAt: string | null;
+}
+
+export interface DbDiscountRequestWithUser extends DbDiscountRequest {
+  submittedBy: { id: string; name: string; email: string; outlet: string };
+}
+
+export interface DiscountRequestFilters {
+  status?: string;
+  outletGroup?: string;
+  userId?: string;
+  from?: string;
+  to?: string;
+}
+
+function rowToDiscountRequest(row: Record<string, unknown>): DbDiscountRequest {
+  return {
+    id: String(row.id),
+    status: String(row.status),
+    outletGroup: String(row.outletGroup),
+    cashierOutlet: String(row.cashierOutlet),
+    userId: String(row.userId),
+    buttonName: String(row.buttonName),
+    discountType: String(row.discountType),
+    discountValue: Number(row.discountValue),
+    discountValueType: String(row.discountValueType),
+    outlets: String(row.outlets ?? ''),
+    applicableTo: String(row.applicableTo),
+    conditions: normStr(row.conditions),
+    remarks: normStr(row.remarks),
+    adminNote: normStr(row.adminNote),
+    createdAt: String(row.createdAt),
+    updatedAt: String(row.updatedAt),
+    doneAt: normStr(row.doneAt),
+  };
+}
+
+function rowToDiscountRequestWithUser(row: Record<string, unknown>): DbDiscountRequestWithUser {
+  return {
+    ...rowToDiscountRequest(row),
+    submittedBy: {
+      id: String(row.u_id ?? row.userId),
+      name: String(row.u_name ?? ''),
+      email: String(row.u_email ?? ''),
+      outlet: String(row.u_outlet ?? ''),
+    },
+  };
+}
+
+export async function getDiscountRequests(filters: DiscountRequestFilters = {}): Promise<DbDiscountRequestWithUser[]> {
+  try {
+    const db = await getDb();
+    const conditions: string[] = [];
+    const params: unknown[] = [];
+    if (filters.status && filters.status !== 'ALL') { conditions.push('dr.status = ?'); params.push(filters.status); }
+    if (filters.outletGroup && filters.outletGroup !== 'ALL') { conditions.push('dr.outletGroup = ?'); params.push(filters.outletGroup); }
+    if (filters.userId) { conditions.push('dr.userId = ?'); params.push(filters.userId); }
+    if (filters.from) { conditions.push('dr.createdAt >= ?'); params.push(filters.from); }
+    if (filters.to) {
+      const d = new Date(filters.to); d.setHours(23, 59, 59, 999);
+      conditions.push('dr.createdAt <= ?'); params.push(d.toISOString());
+    }
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    const rows = execAll(db, `
+      SELECT dr.*, u.id as u_id, u.name as u_name, u.email as u_email, u.outlet as u_outlet
+      FROM "DiscountRequest" dr LEFT JOIN "User" u ON dr.userId = u.id
+      ${where} ORDER BY dr.createdAt DESC LIMIT 500
+    `, params);
+    return rows.map(rowToDiscountRequestWithUser);
+  } catch (err) {
+    console.error('[db] getDiscountRequests failed:', err);
+    return [];
+  }
+}
+
+export async function getDiscountRequestById(id: string): Promise<DbDiscountRequestWithUser | null> {
+  try {
+    const db = await getDb();
+    const row = execFirst(db, `
+      SELECT dr.*, u.id as u_id, u.name as u_name, u.email as u_email, u.outlet as u_outlet
+      FROM "DiscountRequest" dr LEFT JOIN "User" u ON dr.userId = u.id
+      WHERE dr.id = ? LIMIT 1
+    `, [id]);
+    return row ? rowToDiscountRequestWithUser(row) : null;
+  } catch (err) {
+    console.error('[db] getDiscountRequestById failed:', err);
+    return null;
+  }
+}
+
+export async function createDiscountRequest(data: {
+  outletGroup: string;
+  cashierOutlet: string;
+  userId: string;
+  buttonName: string;
+  discountType: string;
+  discountValue: number;
+  discountValueType: string;
+  applicableTo: string;
+  conditions?: string | null;
+  remarks?: string | null;
+  outlets: string;
+}): Promise<DbDiscountRequest> {
+  return withWriteLock((db) => {
+    const id = newId();
+    const now = nowIso();
+    db.run(`
+      INSERT INTO "DiscountRequest"
+        (id, status, outletGroup, cashierOutlet, userId, buttonName, discountType, discountValue,
+         discountValueType, outlets, applicableTo, conditions, remarks, adminNote, createdAt, updatedAt, doneAt)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,null,?,?,null)
+    `, [
+      id, 'PENDING', data.outletGroup, data.cashierOutlet, data.userId,
+      data.buttonName, data.discountType, data.discountValue,
+      data.discountValueType, data.outlets,
+      data.applicableTo, data.conditions ?? null, data.remarks ?? null, now, now,
+    ]);
+    const row = execFirst(db, 'SELECT * FROM "DiscountRequest" WHERE id = ?', [id]);
+    if (!row) throw new Error('DiscountRequest creation failed');
+    return rowToDiscountRequest(row);
+  });
+}
+
+export async function updateDiscountRequest(id: string, data: Partial<{
+  buttonName: string;
+  discountType: string;
+  discountValue: number;
+  discountValueType: string;
+  applicableTo: string;
+  conditions: string | null;
+  remarks: string | null;
+  adminNote: string | null;
+  status: string;
+  doneAt: string | null;
+  outlets: string;
+}>): Promise<DbDiscountRequest | null> {
+  return withWriteLock((db) => {
+    const sets: string[] = ['updatedAt = ?'];
+    const vals: unknown[] = [nowIso()];
+    const strFields = [
+      'buttonName', 'discountType', 'discountValueType', 'outlets', 'applicableTo',
+      'conditions', 'remarks', 'adminNote', 'status', 'doneAt',
+    ] as const;
+    for (const f of strFields) {
+      if (f in data) { sets.push(`${f} = ?`); vals.push((data as Record<string, unknown>)[f] ?? null); }
+    }
+    if ('discountValue' in data && data.discountValue !== undefined) { sets.push('discountValue = ?'); vals.push(data.discountValue); }
+    vals.push(id);
+    db.run(`UPDATE "DiscountRequest" SET ${sets.join(', ')} WHERE id = ?`, vals);
+    const row = execFirst(db, 'SELECT * FROM "DiscountRequest" WHERE id = ?', [id]);
+    return row ? rowToDiscountRequest(row) : null;
+  });
+}
+
+export async function deleteDiscountRequest(id: string): Promise<boolean> {
+  return withWriteLock((db) => {
+    const existing = execFirst(db, 'SELECT id FROM "DiscountRequest" WHERE id = ?', [id]);
+    if (!existing) return false;
+    db.run('DELETE FROM "DiscountRequest" WHERE id = ?', [id]);
+    return true;
+  });
+}
+
+// ── Config tables ─────────────────────────────────────────────────────────────
+
+export interface DbOutletConfig {
+  id: string; code: string; group: string; isActive: boolean; createdAt: string; updatedAt: string;
+}
+export interface DbPrinterConfig {
+  id: string; name: string; group: string; isActive: boolean; createdAt: string; updatedAt: string;
+}
+export interface DbCategoryConfig {
+  id: string; name: string; department: string; departmentCode: number; categoryCode: number;
+  isActive: boolean; createdAt: string; updatedAt: string;
+}
+
+function rowToOutletConfig(row: Record<string, unknown>): DbOutletConfig {
+  return { id: String(row.id), code: String(row.code), group: String(row.group),
+    isActive: normBool(row.isActive), createdAt: String(row.createdAt), updatedAt: String(row.updatedAt) };
+}
+function rowToPrinterConfig(row: Record<string, unknown>): DbPrinterConfig {
+  return { id: String(row.id), name: String(row.name), group: String(row.group),
+    isActive: normBool(row.isActive), createdAt: String(row.createdAt), updatedAt: String(row.updatedAt) };
+}
+function rowToCategoryConfig(row: Record<string, unknown>): DbCategoryConfig {
+  return { id: String(row.id), name: String(row.name), department: String(row.department),
+    departmentCode: Number(row.departmentCode), categoryCode: Number(row.categoryCode),
+    isActive: normBool(row.isActive), createdAt: String(row.createdAt), updatedAt: String(row.updatedAt) };
+}
+
+export async function getOutletConfigs(): Promise<DbOutletConfig[]> {
+  try {
+    const db = await getDb();
+    return execAll(db, 'SELECT * FROM "OutletConfig" ORDER BY "group" ASC, code ASC').map(rowToOutletConfig);
+  } catch (err) { console.error('[db] getOutletConfigs failed:', err); return []; }
+}
+
+export async function createOutletConfig(data: { code: string; group: string }): Promise<DbOutletConfig> {
+  return withWriteLock((db) => {
+    const id = newId(); const now = nowIso();
+    db.run('INSERT INTO "OutletConfig" (id,code,"group",isActive,createdAt,updatedAt) VALUES (?,?,?,1,?,?)',
+      [id, data.code, data.group, now, now]);
+    const row = execFirst(db, 'SELECT * FROM "OutletConfig" WHERE id = ?', [id]);
+    if (!row) throw new Error('OutletConfig creation failed');
+    return rowToOutletConfig(row);
+  });
+}
+
+export async function updateOutletConfig(id: string, data: Partial<{ code: string; group: string; isActive: boolean }>): Promise<DbOutletConfig | null> {
+  return withWriteLock((db) => {
+    const sets: string[] = ['updatedAt = ?']; const vals: unknown[] = [nowIso()];
+    if (data.code !== undefined) { sets.push('code = ?'); vals.push(data.code); }
+    if (data.group !== undefined) { sets.push('"group" = ?'); vals.push(data.group); }
+    if (data.isActive !== undefined) { sets.push('isActive = ?'); vals.push(data.isActive ? 1 : 0); }
+    vals.push(id);
+    db.run(`UPDATE "OutletConfig" SET ${sets.join(', ')} WHERE id = ?`, vals);
+    const row = execFirst(db, 'SELECT * FROM "OutletConfig" WHERE id = ?', [id]);
+    return row ? rowToOutletConfig(row) : null;
+  });
+}
+
+export async function getPrinterConfigs(): Promise<DbPrinterConfig[]> {
+  try {
+    const db = await getDb();
+    return execAll(db, 'SELECT * FROM "PrinterConfig" ORDER BY "group" ASC, name ASC').map(rowToPrinterConfig);
+  } catch (err) { console.error('[db] getPrinterConfigs failed:', err); return []; }
+}
+
+export async function createPrinterConfig(data: { name: string; group: string }): Promise<DbPrinterConfig> {
+  return withWriteLock((db) => {
+    const id = newId(); const now = nowIso();
+    db.run('INSERT INTO "PrinterConfig" (id,name,"group",isActive,createdAt,updatedAt) VALUES (?,?,?,1,?,?)',
+      [id, data.name, data.group, now, now]);
+    const row = execFirst(db, 'SELECT * FROM "PrinterConfig" WHERE id = ?', [id]);
+    if (!row) throw new Error('PrinterConfig creation failed');
+    return rowToPrinterConfig(row);
+  });
+}
+
+export async function updatePrinterConfig(id: string, data: Partial<{ name: string; group: string; isActive: boolean }>): Promise<DbPrinterConfig | null> {
+  return withWriteLock((db) => {
+    const sets: string[] = ['updatedAt = ?']; const vals: unknown[] = [nowIso()];
+    if (data.name !== undefined) { sets.push('name = ?'); vals.push(data.name); }
+    if (data.group !== undefined) { sets.push('"group" = ?'); vals.push(data.group); }
+    if (data.isActive !== undefined) { sets.push('isActive = ?'); vals.push(data.isActive ? 1 : 0); }
+    vals.push(id);
+    db.run(`UPDATE "PrinterConfig" SET ${sets.join(', ')} WHERE id = ?`, vals);
+    const row = execFirst(db, 'SELECT * FROM "PrinterConfig" WHERE id = ?', [id]);
+    return row ? rowToPrinterConfig(row) : null;
+  });
+}
+
+export async function getCategoryConfigs(): Promise<DbCategoryConfig[]> {
+  try {
+    const db = await getDb();
+    return execAll(db, 'SELECT * FROM "CategoryConfig" ORDER BY departmentCode ASC, categoryCode ASC').map(rowToCategoryConfig);
+  } catch (err) { console.error('[db] getCategoryConfigs failed:', err); return []; }
+}
+
+export async function createCategoryConfig(data: { name: string; department: string; departmentCode: number; categoryCode: number }): Promise<DbCategoryConfig> {
+  return withWriteLock((db) => {
+    const id = newId(); const now = nowIso();
+    db.run('INSERT INTO "CategoryConfig" (id,name,department,departmentCode,categoryCode,isActive,createdAt,updatedAt) VALUES (?,?,?,?,?,1,?,?)',
+      [id, data.name, data.department, data.departmentCode, data.categoryCode, now, now]);
+    const row = execFirst(db, 'SELECT * FROM "CategoryConfig" WHERE id = ?', [id]);
+    if (!row) throw new Error('CategoryConfig creation failed');
+    return rowToCategoryConfig(row);
+  });
+}
+
+export async function updateCategoryConfig(id: string, data: Partial<{ name: string; department: string; departmentCode: number; categoryCode: number; isActive: boolean }>): Promise<DbCategoryConfig | null> {
+  return withWriteLock((db) => {
+    const sets: string[] = ['updatedAt = ?']; const vals: unknown[] = [nowIso()];
+    if (data.name !== undefined) { sets.push('name = ?'); vals.push(data.name); }
+    if (data.department !== undefined) { sets.push('department = ?'); vals.push(data.department); }
+    if (data.departmentCode !== undefined) { sets.push('departmentCode = ?'); vals.push(data.departmentCode); }
+    if (data.categoryCode !== undefined) { sets.push('categoryCode = ?'); vals.push(data.categoryCode); }
+    if (data.isActive !== undefined) { sets.push('isActive = ?'); vals.push(data.isActive ? 1 : 0); }
+    vals.push(id);
+    db.run(`UPDATE "CategoryConfig" SET ${sets.join(', ')} WHERE id = ?`, vals);
+    const row = execFirst(db, 'SELECT * FROM "CategoryConfig" WHERE id = ?', [id]);
+    return row ? rowToCategoryConfig(row) : null;
   });
 }

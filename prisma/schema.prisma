@@ -12,16 +12,17 @@ datasource db {
 // status values: PENDING | DONE
 
 model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  password  String
-  name      String
-  role      String   @default("CASHIER")
-  outlet    String
-  active    Boolean  @default(true)
-  createdAt DateTime @default(now())
-  requests  PLURequest[]
-  batches   RequestBatch[]
+  id               String            @id @default(cuid())
+  email            String            @unique
+  password         String
+  name             String
+  role             String            @default("CASHIER")
+  outlet           String
+  active           Boolean           @default(true)
+  createdAt        DateTime          @default(now())
+  requests         PLURequest[]
+  batches          RequestBatch[]
+  discountRequests DiscountRequest[]
 }
 
 model RequestBatch {
@@ -112,6 +113,58 @@ model GlossaryEntry {
   isSeeded          Boolean  @default(false)
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
+}
+
+model DiscountRequest {
+  id                String                @id @default(cuid())
+  status            String                @default("PENDING")
+  outletGroup       String
+  cashierOutlet     String
+  userId            String
+  user              User                  @relation(fields: [userId], references: [id])
+
+  buttonName        String
+  discountType      String
+  discountValue     Float
+  discountValueType String
+  outlets           String                @default("")
+  applicableTo      String
+  conditions        String?
+  remarks           String?
+
+  adminNote         String?
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+  doneAt            DateTime?
+}
+
+model OutletConfig {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  group     String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model PrinterConfig {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  group     String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model CategoryConfig {
+  id             String   @id @default(cuid())
+  name           String   @unique
+  department     String
+  departmentCode Int
+  categoryCode   Int
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 }
 
 model PLURequest {

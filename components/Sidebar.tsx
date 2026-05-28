@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard, Download, Users, Plus, Layers, Menu, X,
-  BookOpen, Database, ScanBarcode, FileText, BookMarked, ChevronDown, ChevronRight,
+  BookOpen, Database, ScanBarcode, FileText, BookMarked, ChevronDown, ChevronRight, Tag, Settings,
 } from 'lucide-react';
 import { useSession } from 'next-auth/react';
 import { SignOutButton } from '@/components/SignOutButton';
@@ -22,8 +22,10 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Dashboard', href: '/cashier/dashboard', icon: <LayoutDashboard size={15} />, roles: ['CASHIER'] },
   { label: 'New Request', href: '/cashier/request/new', icon: <Plus size={15} />, roles: ['CASHIER'] },
   { label: 'New Batch Request', href: '/cashier/request/batch/new', icon: <Layers size={15} />, roles: ['CASHIER'] },
+  { label: 'Discount Request', href: '/cashier/discount/new', icon: <Tag size={15} />, roles: ['CASHIER'] },
   { label: 'Dashboard', href: '/admin/dashboard', icon: <LayoutDashboard size={15} />, roles: ['ADMIN'] },
   { label: 'Export', href: '/admin/export', icon: <Download size={15} />, roles: ['ADMIN'] },
+  { label: 'Discount', href: '/admin/discount', icon: <Tag size={15} />, roles: ['ADMIN'] },
   { label: 'Users', href: '/admin/users', icon: <Users size={15} />, roles: ['ADMIN'] },
 ];
 
@@ -100,6 +102,11 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
                 ))}
               </div>
             )}
+
+            <Link href="/admin/config" onClick={onClose} style={LINK_STYLE(pathname === '/admin/config')}>
+              <Settings size={15} />
+              Config
+            </Link>
           </>
         )}
       </nav>

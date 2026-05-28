@@ -35,6 +35,7 @@ interface ItemRow {
   tax2: boolean;
   noDiscount: boolean;
   hideReceipt: boolean;
+  salesDef: string;
   printers: string[];
   outlets: string[];
   errors: Partial<Record<string, string>>;
@@ -61,6 +62,7 @@ function makeDefaultRow(): ItemRow {
     _id: uid(), code: '', name: '', category: '', department: '',
     price: '', folder: '', barcode: '',
     serviceCharge: true, tax1: true, tax2: true, noDiscount: true, hideReceipt: false,
+    salesDef: 'SALES',
     printers: [], outlets: [], errors: {},
   };
 }
@@ -137,6 +139,7 @@ export default function BatchEditPage() {
           tax2: item.tax2,
           noDiscount: item.noDiscount,
           hideReceipt: item.hideReceipt,
+          salesDef: item.salesDef ?? 'SALES',
           printers: item.printers ? item.printers.split(';').filter(Boolean) : [],
           outlets: item.outlets ? item.outlets.split(';').filter(Boolean) : [],
           errors: {},
@@ -185,12 +188,12 @@ export default function BatchEditPage() {
 
   function validate(): boolean {
     let valid = true;
+    const errorRows: number[] = [];
     if (!title.trim()) { setTitleError('Batch title is required'); valid = false; }
-    const updatedItems = items.map((row) => {
+    const updatedItems = items.map((row, idx) => {
       const errors: Record<string, string> = {};
       if (requestType === 'NEW_ITEM') {
         if (!row.name.trim()) errors.name = 'Name required';
-        if (!row.price || Number(row.price) <= 0) errors.price = 'Price required';
         if (row.printers.length === 0) errors.printers = 'Select printer';
         if (row.outlets.length === 0) errors.outlets = 'Select outlet';
       } else if (requestType === 'UPDATE_PRICE') {
@@ -205,16 +208,27 @@ export default function BatchEditPage() {
       } else if (requestType === 'UPDATE_FULL') {
         if (!row.code.trim()) errors.code = 'Code required';
       }
-      if (Object.keys(errors).length > 0) valid = false;
+      if (Object.keys(errors).length > 0) {
+        valid = false;
+        errorRows.push(idx + 1);
+      }
       return { ...row, errors };
     });
     setItems(updatedItems);
+    if (!valid) {
+      if (errorRows.length > 0) {
+        toast.error(`Periksa baris: ${errorRows.join(', ')}`);
+      } else {
+        toast.error('Judul batch harus diisi');
+      }
+    }
     return valid;
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!validate()) { toast.error('Please fix the errors before saving'); return; }
+    if (items.length === 0) { toast.error('Tambahkan minimal 1 item sebelum submit'); return; }
+    if (!validate()) return;
     setSaving(true);
     try {
       const payload = {
@@ -225,7 +239,7 @@ export default function BatchEditPage() {
           name: row.name.trim(),
           category: row.category,
           department: row.department,
-          price: row.price ? parseInt(String(row.price).replace(/\./g, ''), 10) || undefined : undefined,
+          price: parseInt(row.price || '0', 10),
           folder: row.folder || undefined,
           serviceCharge: row.serviceCharge,
           tax1: row.tax1,
@@ -234,6 +248,7 @@ export default function BatchEditPage() {
           hideReceipt: row.hideReceipt,
           printers: row.printers,
           outlets: row.outlets,
+          salesDef: row.salesDef || 'SALES',
           barcode: row.department === 'WINE' ? row.barcode || undefined : undefined,
         })),
       };
@@ -341,6 +356,7 @@ export default function BatchEditPage() {
                   {showFolderCol && <th style={{ minWidth: '120px' }}>Folder</th>}
                   {showPrintersCol && <th style={{ minWidth: '155px' }}>Printers</th>}
                   {showOutletsCol && <th style={{ minWidth: '140px' }}>Outlets</th>}
+                  {showPOSCol && <th style={{ minWidth: '110px' }}>Sales Def</th>}
                   {showPOSCol && <th style={{ minWidth: '150px' }}>POS</th>}
                   <th style={{ width: '66px' }}></th>
                 </tr>
@@ -434,6 +450,20 @@ export default function BatchEditPage() {
                             placeholder="Outlets…"
                             error={row.errors.outlets}
                           />
+                        </td>
+                      )}
+
+                      {/* Sales Def */}
+                      {showPOSCol && (
+                        <td>
+                          <select
+                            value={row.salesDef}
+                            onChange={(e) => updateRow(idx, 'salesDef', e.target.value)}
+                            style={{ ...INPUT_STYLE }}
+                          >
+                            <option value="SALES">SALES</option>
+                            <option value="MODIFIER">MODIFIER</option>
+                          </select>
                         </td>
                       )}
 

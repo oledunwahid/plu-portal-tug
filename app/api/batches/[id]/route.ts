@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/session';
-import { getRequestBatchById, updateRequestBatch } from '@/lib/db';
+import { getRequestBatchById, updateRequestBatch, deleteRequestBatch } from '@/lib/db';
 import type { BatchItemInput } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
@@ -43,12 +43,13 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     const items: BatchItemInput[] = (Array.isArray(body.items) ? body.items : []).map(
       (item: unknown) => {
         const i = item as Record<string, unknown>;
+        const priceRaw = i.price != null ? parseInt(String(i.price).replace(/[.,]/g, ''), 10) : null;
         return {
           code: (i.code as string | null) ?? null,
           name: String(i.name ?? ''),
           category: String(i.category ?? ''),
           department: String(i.department ?? ''),
-          price: i.price != null ? parseInt(String(i.price).replace(/[.,]/g, ''), 10) || null : null,
+          price: priceRaw !== null && !isNaN(priceRaw) ? priceRaw : null,
           folder: (i.folder as string | null) ?? null,
           serviceCharge: i.serviceCharge !== false,
           tax1: i.tax1 !== false,
@@ -72,6 +73,27 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     return NextResponse.json(updated);
   } catch (error) {
     console.error('[PATCH /api/batches/:id]', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  }
+}
+
+export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
+  try {
+    const session = await getSession();
+    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+    const batch = await getRequestBatchById(params.id);
+    if (!batch) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+
+    if (session.user.role === 'CASHIER' && batch.userId !== session.user.id) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
+    const deleted = await deleteRequestBatch(params.id);
+    if (!deleted) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error('[DELETE /api/batches/:id]', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

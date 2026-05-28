@@ -7,6 +7,7 @@ export const OUTLET_TO_GROUP: Record<string, OutletGroup> = {
 
   CSPI: 'CNS', CSPP: 'CNS', CSSG: 'CNS',
   'CSPI-B': 'CNS', 'CSPP-B': 'CNS', 'CSSG-B': 'CNS',
+  BLCS: 'CNS',
 
   'LWY-OAK': 'FRENCH', 'LWY-OAK-B': 'FRENCH',
   'BAB-SEN': 'FRENCH', 'BAB-SEN-B': 'FRENCH',
@@ -20,7 +21,7 @@ export const OUTLET_TO_GROUP: Record<string, OutletGroup> = {
 
 export const OUTLETS_BY_GROUP: Record<OutletGroup, string[]> = {
   UNION: ['UTP','UPKW','UPS','USC','UCP','UGI','UPIM','UPIK','UMKG','USMS','UCP-B','UPS-B','USC-B','UPIK-B','UMKG-B'],
-  CNS:   ['CSPI','CSPP','CSSG','CSPI-B','CSPP-B','CSSG-B'],
+  CNS:   ['CSPI','CSPP','CSSG','CSPI-B','CSPP-B','CSSG-B','BLCS'],
   FRENCH: ['LWY-OAK','LWY-OAK-B','BAB-SEN','BAB-SEN-B','PIE-SNPT','PIE-SNPT-B'],
   IBR:   ['ROMSCBD','ROMPIM','BISSCBD','BISPIK','MILGI','MILPIK','BISSCBD-B'],
   IND:   ['IND1'],

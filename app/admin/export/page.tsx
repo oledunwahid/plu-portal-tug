@@ -123,7 +123,7 @@ export default function ExportPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
   const [downloadingFormat, setDownloadingFormat] = useState<'XLSX' | 'CSV' | null>(null);
-  const [sourceFilter, setSourceFilter] = useState<'SINGLE' | 'BATCH' | 'ALL'>('ALL');
+  const [sourceFilter, setSourceFilter] = useState<'SINGLE' | 'BATCH'>('SINGLE');
 
   const activeTab = TABS.find((t) => t.type === activeType)!;
   const columns = COLUMNS[activeType];
@@ -176,18 +176,7 @@ export default function ExportPage() {
       if (from) params.set('from', from);
       if (to) params.set('to', to);
 
-      if (sourceFilter === 'ALL') {
-        const [sRes, bRes] = await Promise.all([
-          fetch(`/api/admin/requests?${params}`),
-          fetch(`/api/admin/batches?${params}`),
-        ]);
-        const singles = sRes.ok ? await sRes.json() : [];
-        const batches = bRes.ok ? flattenBatches(await bRes.json()) : [];
-        const merged = [...singles, ...batches].sort(
-          (a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-        );
-        setRequests(merged as any);
-      } else if (sourceFilter === 'BATCH') {
+      if (sourceFilter === 'BATCH') {
         const res = await fetch(`/api/admin/batches?${params}`);
         if (!res.ok) throw new Error();
         setRequests(flattenBatches(await res.json()) as any);
@@ -230,7 +219,7 @@ export default function ExportPage() {
     const hasBatchItems = toDownload.some((id) => id.includes(':'));
     const hasSingleItems = toDownload.some((id) => !id.includes(':'));
     if (hasBatchItems && hasSingleItems) {
-      toast.error('Mixed selection detected — filter by Source (Single or Batch) before exporting.');
+      toast.error('Mixed selection: filter by Source (Single Items or Batch Items) before exporting.');
       return;
     }
 
@@ -294,7 +283,7 @@ export default function ExportPage() {
       {/* Source toggle */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
         <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontWeight: 500 }}>Request Source:</span>
-        {(['SINGLE', 'BATCH', 'ALL'] as const).map((s) => (
+        {(['SINGLE', 'BATCH'] as const).map((s) => (
           <button
             key={s}
             onClick={() => setSourceFilter(s)}
@@ -314,7 +303,6 @@ export default function ExportPage() {
           >
             {s === 'SINGLE' && 'Single Items'}
             {s === 'BATCH' && <><Layers size={11} />Batch Items</>}
-            {s === 'ALL' && 'All'}
           </button>
         ))}
       </div>

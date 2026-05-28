@@ -28,7 +28,11 @@
       "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\makka\\\\plu-portal-tug\\\\lib\" -File)",
       "Bash(Select-Object Name)",
       "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\makka\\\\plu-portal-tug\" -Directory)",
-      "Bash(npm list *)"
+      "Bash(npm list *)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\makka\\\\plu-portal-tug\" -Recurse -Force)",
+      "Bash(Out-String -Width 300)",
+      "Bash(find app/api/config app/admin/config prisma/seedConfig.ts -type f)",
+      "Bash(dir /s /b app\\\\api\\\\config app\\\\admin\\\\config prisma\\\\seedConfig.ts)"
     ]
   }
 }

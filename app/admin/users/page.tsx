@@ -87,7 +87,7 @@ export default function UsersPage() {
       .then((data: any) => {
         setPendingCount(typeof data.count === 'number' ? data.count : 0);
       })
-      .catch(() => {});
+      .catch(() => { });
   }
 
   async function saveEdit() {
@@ -162,7 +162,7 @@ export default function UsersPage() {
                   <th>Email</th>
                   <th>Role</th>
                   <th>Outlet</th>
-                  <th>Joined</th>
+                  <th>Created Date</th>
                   <th>Active</th>
                   <th style={{ width: '60px' }}></th>
                 </tr>

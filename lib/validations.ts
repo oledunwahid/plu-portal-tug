@@ -7,7 +7,7 @@ export const createRequestSchema = z.object({
   name: z.string(),
   category: z.string(),
   department: z.string(),
-  price: z.number().positive('Price must be a positive number').optional().nullable(),
+  price: z.number().min(0, 'Price must be 0 or greater').optional().nullable(),
   folder: z.string().optional(),
   serviceCharge: z.boolean().default(true),
   tax1: z.boolean().default(true),
@@ -17,13 +17,14 @@ export const createRequestSchema = z.object({
   printers: z.string(),
   outlets: z.string(),
   barcode: z.string().optional(),
+  salesDef: z.enum(['SALES', 'MODIFIER']).default('SALES'),
   remarks: z.string().optional(),
 }).superRefine((d, ctx) => {
   if (d.requestType !== 'NEW_ITEM' && !d.code) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'PLU code is required for update requests', path: ['code'] });
   }
-  if (['NEW_ITEM', 'UPDATE_PRICE'].includes(d.requestType) && (d.price == null || d.price <= 0)) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Price is required for this request type', path: ['price'] });
+  if (d.requestType === 'UPDATE_PRICE' && (d.price == null || d.price <= 0)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Harga baru harus diisi dan lebih dari 0', path: ['price'] });
   }
   if (d.requestType === 'NEW_ITEM' || d.requestType === 'UPDATE_NAME' || d.requestType === 'UPDATE_FULL') {
     if (!d.name.trim()) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Item name is required', path: ['name'] });

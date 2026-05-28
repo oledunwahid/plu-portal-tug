@@ -89,6 +89,8 @@ export default function AdminDashboard() {
   const [batches, setBatches] = useState<BatchRow[]>([]);
   const [expandedBatches, setExpandedBatches] = useState<Set<string>>(new Set());
   const [markingBatchId, setMarkingBatchId] = useState<string | null>(null);
+  const [deleteConfirmBatchId, setDeleteConfirmBatchId] = useState<string | null>(null);
+  const [deletingBatchId, setDeletingBatchId] = useState<string | null>(null);
 
   const [filters, setFilters] = useState({
     status: 'PENDING',
@@ -130,9 +132,9 @@ export default function AdminDashboard() {
         const bParams = new URLSearchParams(params);
         fetches.push(
           fetch(`/api/admin/batches?${bParams}`)
-            .then((r) => r.json())
+            .then(async (r) => { if (!r.ok) throw new Error(); return r.json(); })
             .then((data) => setBatches(Array.isArray(data) ? data : []))
-            .catch(() => {})
+            .catch(() => { toast.error('Failed to load batch requests'); })
         );
       } else {
         setBatches([]);
@@ -182,7 +184,8 @@ export default function AdminDashboard() {
       });
       if (!res.ok) throw new Error();
       const data = await res.json();
-      toast.success(`Marked ${data.updated} request${data.updated !== 1 ? 's' : ''} as done`);
+      const count = data.updated ?? selected.size;
+      toast.success(`Marked ${count} request${count !== 1 ? 's' : ''} as done`);
       fetchRequests();
     } catch {
       toast.error('Bulk action failed');
@@ -235,6 +238,21 @@ export default function AdminDashboard() {
       toast.error('Failed to mark batch done');
     } finally {
       setMarkingBatchId(null);
+    }
+  }
+
+  async function deleteBatch(id: string) {
+    setDeletingBatchId(id);
+    try {
+      const res = await fetch(`/api/batches/${id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error();
+      toast.success('Batch deleted');
+      setDeleteConfirmBatchId(null);
+      fetchRequests();
+    } catch {
+      toast.error('Failed to delete batch');
+    } finally {
+      setDeletingBatchId(null);
     }
   }
 
@@ -590,7 +608,7 @@ export default function AdminDashboard() {
                   <th>Type</th>
                   <th>Batch Title</th>
                   <th>Status</th>
-                  <th style={{ width: '80px' }}></th>
+                  <th style={{ width: '120px' }}></th>
                 </tr>
               </thead>
               <tbody>
@@ -624,15 +642,42 @@ export default function AdminDashboard() {
                       </td>
                       <td><StatusBadge status={batch.status} /></td>
                       <td>
-                        {batch.status === 'PENDING' && (
-                          <button
-                            onClick={() => markBatchDone(batch)}
-                            disabled={markingBatchId === batch.id}
-                            title="Mark all items done"
-                            style={{ padding: '0.25rem 0.5rem', background: 'rgba(61,90,62,0.1)', border: '1px solid rgba(61,90,62,0.3)', borderRadius: '3px', cursor: markingBatchId === batch.id ? 'not-allowed' : 'pointer', color: '#2D4A2E', display: 'inline-flex', alignItems: 'center' }}
-                          >
-                            <Check size={12} />
-                          </button>
+                        {deleteConfirmBatchId === batch.id ? (
+                          <div style={{ display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
+                            <button
+                              onClick={() => deleteBatch(batch.id)}
+                              disabled={deletingBatchId === batch.id}
+                              style={{ padding: '0.2rem 0.5rem', background: '#7A2E1F', color: 'white', border: 'none', borderRadius: '3px', fontSize: '0.7rem', cursor: 'pointer' }}
+                            >
+                              {deletingBatchId === batch.id ? '…' : 'Delete'}
+                            </button>
+                            <button
+                              onClick={() => setDeleteConfirmBatchId(null)}
+                              style={{ padding: '0.2rem 0.4rem', background: 'transparent', border: '1px solid var(--border)', borderRadius: '3px', fontSize: '0.7rem', cursor: 'pointer' }}
+                            >
+                              No
+                            </button>
+                          </div>
+                        ) : (
+                          <div style={{ display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
+                            {batch.status === 'PENDING' && (
+                              <button
+                                onClick={() => markBatchDone(batch)}
+                                disabled={markingBatchId === batch.id}
+                                title="Mark all items done"
+                                style={{ padding: '0.25rem 0.5rem', background: 'rgba(61,90,62,0.1)', border: '1px solid rgba(61,90,62,0.3)', borderRadius: '3px', cursor: markingBatchId === batch.id ? 'not-allowed' : 'pointer', color: '#2D4A2E', display: 'inline-flex', alignItems: 'center' }}
+                              >
+                                <Check size={12} />
+                              </button>
+                            )}
+                            <button
+                              onClick={() => setDeleteConfirmBatchId(batch.id)}
+                              title="Delete"
+                              style={{ padding: '0.25rem 0.5rem', background: 'transparent', border: '1px solid rgba(139,58,42,0.2)', borderRadius: '3px', cursor: 'pointer', color: '#7A2E1F', display: 'inline-flex', alignItems: 'center' }}
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          </div>
                         )}
                       </td>
                     </tr>,
