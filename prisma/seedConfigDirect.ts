@@ -1,6 +1,39 @@
-import { PrismaClient } from '@prisma/client';
+/**
+ * Direct sql.js seed for OutletConfig, PrinterConfig, CategoryConfig.
+ *
+ * Uses lib/db.ts (sql.js) for all writes — no Prisma, no WAL gap.
+ * After this script exits the binary .db file contains the seeded data.
+ * Restart the Next.js dev server once to pick up the changes.
+ *
+ * Usage:
+ *   npm run seed:config:direct
+ *
+ * DATABASE_URL is read from .env.local (then .env) if not already in the environment.
+ */
 
-const prisma = new PrismaClient();
+import fs from 'fs';
+import path from 'path';
+
+// Load DATABASE_URL from .env.local / .env before any db call.
+// lib/db.ts reads process.env.DATABASE_URL inside getDb() (not at import time),
+// so setting it here — before main() runs — is sufficient.
+function loadEnv(): void {
+  for (const name of ['.env.local', '.env']) {
+    const p = path.resolve(process.cwd(), name);
+    if (!fs.existsSync(p)) continue;
+    for (const line of fs.readFileSync(p, 'utf-8').split('\n')) {
+      const m = line.match(/^\s*([A-Za-z_]\w*)\s*=\s*(.*)/);
+      if (m && !process.env[m[1]]) {
+        process.env[m[1]] = m[2].trim().replace(/^["']|["']$/g, '');
+      }
+    }
+    return;
+  }
+}
+
+import { seedOutletConfigs, seedPrinterConfigs, seedCategoryConfigs } from '../lib/db';
+
+// ── Data ──────────────────────────────────────────────────────────────────────
 
 const OUTLETS: { code: string; group: string }[] = [
   // UNION
@@ -21,15 +54,15 @@ const OUTLETS: { code: string; group: string }[] = [
 
 const PRINTERS: { name: string; group: string }[] = [
   ...['KITCHEN1','KITCHEN2','KITCHEN3','KITCHEN4','KITCHEN5','KITCHEN6','CK KITCHEN','CK KITCHEN 2','PIZZA','PASTRY']
-    .map((name) => ({ name, group: 'Kitchen' })),
+    .map((name) => ({ name, group: 'ALL' })),
   ...['BAR','BAR2','BAR3','BAR4','BAR5','BAR6','CK BAR','WINE','WINE2']
-    .map((name) => ({ name, group: 'Bar' })),
+    .map((name) => ({ name, group: 'ALL' })),
   ...['BL','BILL','DESSERT','DESSERT2','DESSERT3']
-    .map((name) => ({ name, group: 'Service' })),
+    .map((name) => ({ name, group: 'ALL' })),
   ...['CIGAR','CIGAR2']
-    .map((name) => ({ name, group: 'Specialty' })),
+    .map((name) => ({ name, group: 'ALL' })),
   ...['EVENT','EVENT2','EVENT3']
-    .map((name) => ({ name, group: 'Event' })),
+    .map((name) => ({ name, group: 'ALL' })),
 ];
 
 const CATEGORIES: { name: string; department: string; departmentCode: number; categoryCode: number }[] = [
@@ -248,44 +281,24 @@ const CATEGORIES: { name: string; department: string; departmentCode: number; ca
   { department: 'MISCELLANEOUS', departmentCode: 90, name: 'MIL Retail', categoryCode: 912 },
 ];
 
-async function main() {
-  console.log('Seeding config tables...');
+// ── Entry point ───────────────────────────────────────────────────────────────
 
-  for (const outlet of OUTLETS) {
-    await prisma.outletConfig.upsert({
-      where: { code: outlet.code },
-      update: { group: outlet.group },
-      create: outlet,
-    });
-  }
+loadEnv();
+
+async function main() {
+  console.log('Seeding config tables through sql.js...');
+  console.log('DB path:', process.env.DATABASE_URL ?? 'file:./dev.db (default)');
+
+  await seedOutletConfigs(OUTLETS);
   console.log(`Upserted ${OUTLETS.length} outlets`);
 
-  for (const printer of PRINTERS) {
-    await prisma.printerConfig.upsert({
-      where: { name: printer.name },
-      update: { group: printer.group },
-      create: printer,
-    });
-  }
+  await seedPrinterConfigs(PRINTERS);
   console.log(`Upserted ${PRINTERS.length} printers`);
 
-  for (const cat of CATEGORIES) {
-    await prisma.categoryConfig.upsert({
-      where: { name: cat.name },
-      update: { department: cat.department, departmentCode: cat.departmentCode, categoryCode: cat.categoryCode },
-      create: cat,
-    });
-  }
+  await seedCategoryConfigs(CATEGORIES);
   console.log(`Upserted ${CATEGORIES.length} categories`);
 
-  // Force WAL checkpoint so sql.js can read the seeded data from the binary .db file.
-  // Without this, Prisma's writes stay in the WAL buffer and are invisible to sql.js
-  // which reads the raw binary via fs.readFileSync.
-  await prisma.$executeRawUnsafe('PRAGMA wal_checkpoint(TRUNCATE);');
-  console.log('WAL checkpoint complete.');
-  console.log('Done.');
+  console.log('Done. Restart the dev server once to pick up the changes.');
 }
 
-main()
-  .catch((e) => { console.error(e); process.exit(1); })
-  .finally(() => prisma.$disconnect());
+main().catch((e) => { console.error(e); process.exit(1); });

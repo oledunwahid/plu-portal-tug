@@ -5,22 +5,47 @@ import { getOutletConfigs, createOutletConfig } from '@/lib/db';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-export async function GET() {
-  const session = await getSession();
-  if (session?.user.role !== 'ADMIN') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-  const outlets = await getOutletConfigs();
-  return NextResponse.json(outlets);
+export async function GET(req: NextRequest) {
+  try {
+    const session = await getSession();
+    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+    const { searchParams } = new URL(req.url);
+    const activeOnlyParam = searchParams.get('activeOnly');
+    const group = searchParams.get('group') ?? '';
+
+    let outlets = await getOutletConfigs();
+
+    if (outlets.length === 0 && activeOnlyParam === null) {
+      // No filter applied, genuinely empty or db error — log for diagnostics
+      console.warn('[GET /api/config/outlets] returned 0 records (dbPath=%s)', process.env.DATABASE_URL);
+    }
+
+    if (activeOnlyParam === 'true') {
+      outlets = outlets.filter((o) => o.isActive);
+    } else if (activeOnlyParam === 'false') {
+      outlets = outlets.filter((o) => !o.isActive);
+    }
+    // activeOnlyParam === null → return all records, no filter
+
+    if (group) outlets = outlets.filter((o) => o.group === group);
+
+    return NextResponse.json(outlets);
+  } catch (error) {
+    console.error('[GET /api/config/outlets]', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  }
 }
 
 export async function POST(req: NextRequest) {
-  const session = await getSession();
-  if (session?.user.role !== 'ADMIN') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-  const body = await req.json();
-  const { code, group } = body;
-  if (!code?.trim() || !group?.trim()) {
-    return NextResponse.json({ error: 'Code and group are required' }, { status: 400 });
-  }
   try {
+    const session = await getSession();
+    if (session?.user.role !== 'ADMIN') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    const body = await req.json();
+    const { code, group } = body;
+    if (!code?.trim() || !group?.trim()) {
+      return NextResponse.json({ error: 'Code and group are required' }, { status: 400 });
+    }
     const outlet = await createOutletConfig({ code: code.trim().toUpperCase(), group: group.trim().toUpperCase() });
     return NextResponse.json(outlet, { status: 201 });
   } catch {

@@ -1,11 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import Link from 'next/link';
 import { Loader2, ChevronLeft, Eye, EyeOff } from 'lucide-react';
-import { ALL_OUTLETS } from '@/lib/outlets';
 
 interface FormState {
   email: string;
@@ -31,6 +30,16 @@ export default function NewUserPage() {
   const [errors, setErrors] = useState<Partial<Record<keyof FormState, string>>>({});
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [allOutlets, setAllOutlets] = useState<string[]>([]);
+
+  useEffect(() => {
+    fetch('/api/config/outlets?activeOnly=true')
+      .then((r) => r.ok ? r.json() : null)
+      .then((data: { code: string }[] | null) => {
+        if (data) setAllOutlets(data.map((o) => o.code).sort());
+      })
+      .catch(() => {});
+  }, []);
 
   function set<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((f) => ({ ...f, [key]: value }));
@@ -144,7 +153,7 @@ export default function NewUserPage() {
                   style={{ height: '40px', border: '1px solid var(--input-border)', borderRadius: '4px', background: 'var(--bg-card)', fontSize: '0.875rem', padding: '0 0.75rem', outline: 'none', color: 'var(--text-primary)', cursor: 'pointer' }}
                 >
                   <option value="">Select outlet…</option>
-                  {ALL_OUTLETS.sort().map((o) => (
+                  {allOutlets.map((o) => (
                     <option key={o} value={o}>{o}</option>
                   ))}
                 </select>

@@ -3,13 +3,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
-import { getCategoriesForOutlet, getDepartmentForCategory } from '@/lib/categories';
-import { PRINTERS_BY_GROUP, OUTLETS_BY_GROUP, OutletGroup, PRINTER_GROUPS } from '@/lib/outlets';
+import { CategoryCodeEntry } from '@/lib/pluCode';
 import { Combobox } from '@/components/ui/combobox';
 import { Switch } from '@/components/ui/switch';
 import { Checkbox } from '@/components/ui/checkbox';
 import { toast } from 'sonner';
-import { Loader2 } from 'lucide-react';
+import { Loader2, AlertTriangle } from 'lucide-react';
 import { SuccessModal } from '@/components/SuccessModal';
 import { PLUCodeSection } from '@/components/PLUCodeSection';
 
@@ -27,6 +26,13 @@ const REQUEST_TYPES = [
 ] as const;
 
 type RequestTypeValue = (typeof REQUEST_TYPES)[number]['value'];
+
+interface ConfigCategory {
+  id: string; name: string; department: string; departmentCode: number; categoryCode: number; isActive: boolean;
+}
+interface ConfigPrinter {
+  id: string; name: string; group: string; isActive: boolean;
+}
 
 interface FormState {
   requestType: RequestTypeValue;
@@ -80,6 +86,34 @@ function FieldGroup({ label, children, hint }: { label: string; children: React.
   );
 }
 
+function ConfigErrorBanner() {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.75rem', borderRadius: '0.375rem', background: 'rgba(122,46,31,0.07)', border: '1px solid rgba(122,46,31,0.2)' }}>
+      <AlertTriangle size={14} style={{ color: '#8B3A2A', flexShrink: 0 }} />
+      <span style={{ fontSize: '0.8rem', color: '#8B3A2A' }}>Gagal memuat data konfigurasi. Coba muat ulang halaman.</span>
+    </div>
+  );
+}
+
+function ConfigSkeleton() {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.75rem', borderRadius: '0.375rem', background: 'var(--bg-cream)', border: '1px solid var(--border)' }}>
+      <Loader2 size={14} style={{ animation: 'spin 1s linear infinite', color: 'var(--text-secondary)', flexShrink: 0 }} />
+      <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Memuat data konfigurasi…</span>
+    </div>
+  );
+}
+
+async function fetchWithRetry<T>(url: string): Promise<T> {
+  const doFetch = async () => {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json() as Promise<T>;
+  };
+  try { return await doFetch(); }
+  catch { return await doFetch(); }
+}
+
 export default function NewRequestPage() {
   const { data: session } = useSession();
   const router = useRouter();
@@ -89,18 +123,51 @@ export default function NewRequestPage() {
   const [successModal, setSuccessModal] = useState({ open: false, itemName: '' });
 
   const sessionUser = session?.user as any;
-  const outlet = sessionUser?.outlet ?? 'ROMSCBD';
-  const outletGroup = (sessionUser?.outletGroup as OutletGroup) ?? 'IBR';
+  const outlet = sessionUser?.outlet ?? '';
+  const outletGroup = sessionUser?.outletGroup ?? '';
 
-  const categories = getCategoriesForOutlet(outlet);
-  const availablePrinters = new Set(PRINTERS_BY_GROUP[outletGroup] ?? []);
-  const outlets = OUTLETS_BY_GROUP[outletGroup] ?? [];
+  // Config state
+  const [configCategories, setConfigCategories] = useState<ConfigCategory[]>([]);
+  const [configPrinters, setConfigPrinters] = useState<ConfigPrinter[]>([]);
+  const [configOutlets, setConfigOutlets] = useState<string[]>([]);
+  const [configLoading, setConfigLoading] = useState(true);
+  const [configError, setConfigError] = useState<string | null>(null);
 
-  const categoryOptions = categories.map((c) => ({
-    value: c.category,
-    label: c.category,
+  useEffect(() => {
+    if (!outletGroup) return;
+    setConfigLoading(true);
+    setConfigError(null);
+    Promise.all([
+      fetchWithRetry<ConfigCategory[]>(`/api/config/categories?activeOnly=true`),
+      fetchWithRetry<ConfigPrinter[]>(`/api/config/printers?group=${encodeURIComponent(outletGroup)}&activeOnly=true`),
+      fetchWithRetry<{ code: string }[]>(`/api/config/outlets?group=${encodeURIComponent(outletGroup)}&activeOnly=true`),
+    ])
+      .then(([cats, printers, outlets]) => {
+        setConfigCategories(cats);
+        setConfigPrinters(printers);
+        setConfigOutlets(outlets.map((o) => o.code));
+      })
+      .catch(() => {
+        setConfigError('Gagal memuat data konfigurasi. Coba muat ulang halaman.');
+      })
+      .finally(() => setConfigLoading(false));
+  }, [outletGroup]);
+
+  // Build derived data from fetched config
+  const categoryOptions = configCategories.map((c) => ({
+    value: c.name,
+    label: c.name,
     group: c.department,
   }));
+
+  const categoryCodeMap: CategoryCodeEntry[] = configCategories.map((c) => ({
+    department: c.department,
+    departmentCode: c.departmentCode,
+    category: c.name,
+    categoryCode: c.categoryCode,
+  }));
+
+  const printerNames = configPrinters.map((p) => p.name);
 
   const isUpdate = form.requestType !== 'NEW_ITEM';
   const showName = form.requestType === 'NEW_ITEM' || form.requestType === 'UPDATE_NAME' || form.requestType === 'UPDATE_FULL';
@@ -117,11 +184,11 @@ export default function NewRequestPage() {
   }, []);
 
   useEffect(() => {
-    if (form.category) {
-      const dept = getDepartmentForCategory(form.category);
+    if (form.category && configCategories.length > 0) {
+      const dept = configCategories.find((c) => c.name === form.category)?.department ?? '';
       setForm((f) => ({ ...f, department: dept, barcode: dept !== 'WINE' ? '' : f.barcode }));
     }
-  }, [form.category]);
+  }, [form.category, configCategories]);
 
   function set<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((f) => ({ ...f, [key]: value }));
@@ -163,6 +230,7 @@ export default function NewRequestPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (configLoading || configError) return;
     if (!validate()) return;
     setLoading(true);
     try {
@@ -281,13 +349,19 @@ export default function NewRequestPage() {
               <>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                   <FieldGroup label="Category">
-                    <Combobox
-                      options={categoryOptions}
-                      value={form.category}
-                      onChange={(v) => set('category', v)}
-                      placeholder="Select category..."
-                      searchPlaceholder="Search categories..."
-                    />
+                    {configLoading ? (
+                      <ConfigSkeleton />
+                    ) : configError ? (
+                      <ConfigErrorBanner />
+                    ) : (
+                      <Combobox
+                        options={categoryOptions}
+                        value={form.category}
+                        onChange={(v) => set('category', v)}
+                        placeholder="Select category..."
+                        searchPlaceholder="Search categories..."
+                      />
+                    )}
                     {errors.category && <p style={{ fontSize: '0.75rem', color: '#8B3A2A' }}>{errors.category}</p>}
                   </FieldGroup>
 
@@ -323,6 +397,7 @@ export default function NewRequestPage() {
                   cashierOutlet={outlet}
                   selectedOutlets={form.outlets}
                   onValueChange={handlePLUCodeChange}
+                  categoryCodeMap={categoryCodeMap}
                 />
                 {errors.code && <p style={{ fontSize: '0.75rem', color: '#8B3A2A', marginTop: '0.25rem' }}>{errors.code}</p>}
               </div>
@@ -372,41 +447,33 @@ export default function NewRequestPage() {
           </div>
         </div>
 
-        {/* Printers — grouped */}
+        {/* Printers */}
         {showPrintersCard && (
           <div className="card" style={{ padding: '1.5rem', marginBottom: '1rem' }}>
             <div className="section-title" style={{ marginBottom: '0.25rem' }}>Printers</div>
             <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
-              Select which kitchen/bar printers should receive this item's tickets.
+              Select which kitchen/bar printers should receive this item&apos;s tickets.
             </p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              {PRINTER_GROUPS.map((group) => {
-                const visible = group.printers.filter((p) => availablePrinters.has(p));
-                if (visible.length === 0) return null;
-                return (
-                  <div key={group.label}>
-                    <div style={{ fontSize: '0.62rem', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--text-secondary)', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                      <span>{group.label}</span>
-                      <div style={{ flex: 1, height: '1px', background: 'var(--border)' }} />
-                    </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.375rem 0.5rem' }}>
-                      {visible.map((p) => (
-                        <label
-                          key={p}
-                          style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer', fontSize: '0.8rem', color: 'var(--text-primary)' }}
-                        >
-                          <Checkbox
-                            checked={form.printers.includes(p)}
-                            onCheckedChange={() => toggleList('printers', p)}
-                          />
-                          {p}
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+            {configLoading ? (
+              <ConfigSkeleton />
+            ) : configError ? (
+              <ConfigErrorBanner />
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.375rem 0.5rem' }}>
+                {printerNames.map((p) => (
+                  <label
+                    key={p}
+                    style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer', fontSize: '0.8rem', color: 'var(--text-primary)' }}
+                  >
+                    <Checkbox
+                      checked={form.printers.includes(p)}
+                      onCheckedChange={() => toggleList('printers', p)}
+                    />
+                    {p}
+                  </label>
+                ))}
+              </div>
+            )}
             {errors.printers && (
               <p style={{ fontSize: '0.75rem', color: '#8B3A2A', marginTop: '0.5rem' }}>{errors.printers}</p>
             )}
@@ -420,20 +487,26 @@ export default function NewRequestPage() {
             <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
               Select which outlets this item applies to.
             </p>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.625rem' }}>
-              {outlets.map((o) => (
-                <label
-                  key={o}
-                  style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer', fontSize: '0.8rem', color: 'var(--text-primary)' }}
-                >
-                  <Checkbox
-                    checked={form.outlets.includes(o)}
-                    onCheckedChange={() => toggleList('outlets', o)}
-                  />
-                  {o}
-                </label>
-              ))}
-            </div>
+            {configLoading ? (
+              <ConfigSkeleton />
+            ) : configError ? (
+              <ConfigErrorBanner />
+            ) : (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.625rem' }}>
+                {configOutlets.map((o) => (
+                  <label
+                    key={o}
+                    style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer', fontSize: '0.8rem', color: 'var(--text-primary)' }}
+                  >
+                    <Checkbox
+                      checked={form.outlets.includes(o)}
+                      onCheckedChange={() => toggleList('outlets', o)}
+                    />
+                    {o}
+                  </label>
+                ))}
+              </div>
+            )}
             {errors.outlets && (
               <p style={{ fontSize: '0.75rem', color: '#8B3A2A', marginTop: '0.5rem' }}>{errors.outlets}</p>
             )}
@@ -485,14 +558,14 @@ export default function NewRequestPage() {
         <div style={{ display: 'flex', gap: '0.75rem' }}>
           <button
             type="submit"
-            disabled={loading}
+            disabled={loading || configLoading || !!configError}
             style={{
               display: 'inline-flex', alignItems: 'center', gap: '0.5rem',
               padding: '0.625rem 1.5rem',
-              background: loading ? 'rgba(26,16,8,0.5)' : 'var(--bg-dark)',
+              background: (loading || configLoading || configError) ? 'rgba(26,16,8,0.5)' : 'var(--bg-dark)',
               color: 'var(--accent-gold)', border: 'none', borderRadius: '0.375rem',
               fontSize: '0.875rem', fontWeight: 500,
-              cursor: loading ? 'not-allowed' : 'pointer', transition: 'all 200ms ease',
+              cursor: (loading || configLoading || configError) ? 'not-allowed' : 'pointer', transition: 'all 200ms ease',
             }}
           >
             {loading && <Loader2 size={15} style={{ animation: 'spin 1s linear infinite' }} />}

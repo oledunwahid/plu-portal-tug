@@ -10,7 +10,9 @@
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
     "db:seed": "ts-node --compiler-options {\"module\":\"CommonJS\"} prisma/seed.ts",
-    "seed:config": "ts-node --project tsconfig.seed.json prisma/seedConfig.ts"
+    "seed:config": "ts-node --project tsconfig.seed.json prisma/seedConfig.ts",
+    "seed:printers-all": "ts-node --project tsconfig.seed.json prisma/seedPrintersAll.ts",
+    "seed:config:direct": "ts-node --project tsconfig.seed.json prisma/seedConfigDirect.ts"
   },
   "prisma": {
     "seed": "ts-node --compiler-options {\"module\":\"CommonJS\"} prisma/seed.ts"

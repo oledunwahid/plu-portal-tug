@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/session';
 import { getPLURequests, createPLURequest, getMasterItemByCode } from '@/lib/db';
 import { createRequestSchema } from '@/lib/validations';
+import { loadOutletPrefixMap, loadCategoryCodeMap } from '@/lib/configLoader';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -31,6 +32,20 @@ export async function POST(request: NextRequest) {
     }
 
     const data = parsed.data;
+
+    if (data.requestType === 'NEW_ITEM') {
+      const [outletPrefixMap, categoryCodeMap] = await Promise.all([
+        loadOutletPrefixMap(),
+        loadCategoryCodeMap(),
+      ]);
+      if (Object.keys(outletPrefixMap).length === 0 || Object.keys(categoryCodeMap).length === 0) {
+        return NextResponse.json(
+          { error: 'Konfigurasi sistem tidak tersedia. Hubungi administrator.' },
+          { status: 500 }
+        );
+      }
+    }
+
     const pluRequest = await createPLURequest({
       requestType: data.requestType,
       code: data.code ?? null,

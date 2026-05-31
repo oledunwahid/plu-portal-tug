@@ -293,8 +293,9 @@ export function suggestPLUCode(
   cashierOutlet: string,
   selectedOutlets: string[],
   sequence?: number,
+  categoryCodeMap?: CategoryCodeEntry[],
 ): { code: string; prefix: string; reason: string; isTUG: boolean; deptCode: string; catCode: string } | null {
-  const entry = CATEGORY_CODE_MAP.find((e) => e.category === category)
+  const entry = (categoryCodeMap ?? CATEGORY_CODE_MAP).find((e) => e.category === category)
   if (!entry) return null
 
   const isMilOutlet = MIL_OUTLETS.has(cashierOutlet)

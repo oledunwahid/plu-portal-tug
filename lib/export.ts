@@ -29,6 +29,7 @@ interface RequestRow {
   printers: string;
   outlets: string;
   salesDef: string;
+  barcode?: string | null;
   remarks: string | null;
   cashierOutlet: string;
   outletGroup: string;
@@ -53,7 +54,7 @@ export function generateNewItemXLSX(requests: RequestRow[]): Buffer {
     SalesDef: r.salesDef || '',
     Price: r.price ?? '',
     PLU: '',
-    Barcode: '',
+    Barcode: r.barcode ?? '',
     UOM: '',
     Folder: r.folder ?? '',
     ServiceCharge: r.serviceCharge ? 1 : 0,
@@ -90,7 +91,7 @@ export function generateBatchXLSX(items: BatchItemRow[]): Buffer {
     SalesDef: r.salesDef || '',
     Price: r.price ?? '',
     PLU: '',
-    Barcode: '',
+    Barcode: r.barcode ?? '',
     UOM: '',
     Folder: r.folder || r.batchTitle,
     ServiceCharge: r.serviceCharge ? 1 : 0,
@@ -123,7 +124,9 @@ export function generateBatchCSV(items: BatchItemRow[]): string {
     r.department,
     r.salesDef || '',
     r.price != null ? String(r.price) : '',
-    '', '', '',
+    '',
+    r.barcode ?? '',
+    '',
     r.folder || r.batchTitle,
     r.serviceCharge ? '1' : '0',
     r.tax1 ? '1' : '0',
@@ -151,7 +154,9 @@ export function generateDoneCSV(requests: RequestRow[]): string {
     r.department,
     r.salesDef || '',
     r.price != null ? String(r.price) : '',
-    '', '', '',
+    '',
+    r.barcode ?? '',
+    '',
     r.folder ?? '',
     r.serviceCharge ? '1' : '0',
     r.tax1 ? '1' : '0',
@@ -181,7 +186,7 @@ export function generateDoneXLSX(requests: RequestRow[]): Buffer {
     SalesDef: r.salesDef || '',
     Price: r.price ?? '',
     PLU: '',
-    Barcode: '',
+    Barcode: r.barcode ?? '',
     UOM: '',
     Folder: r.folder ?? '',
     ServiceCharge: r.serviceCharge ? 1 : 0,
@@ -215,7 +220,7 @@ export function generateBatchDoneXLSX(items: BatchItemRow[]): Buffer {
     SalesDef: r.salesDef || '',
     Price: r.price ?? '',
     PLU: '',
-    Barcode: '',
+    Barcode: r.barcode ?? '',
     UOM: '',
     Folder: r.folder || r.batchTitle,
     ServiceCharge: r.serviceCharge ? 1 : 0,

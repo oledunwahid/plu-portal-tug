@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/session';
 import { getNextPLUSequence } from '@/lib/db';
+import { loadCategoryCodeMap } from '@/lib/configLoader';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -17,6 +18,14 @@ export async function GET(request: NextRequest) {
 
     if (!prefix || !deptCode || !catCode) {
       return NextResponse.json({ error: 'Missing required parameters: prefix, deptCode, catCode' }, { status: 400 });
+    }
+
+    const categoryCodeMap = await loadCategoryCodeMap();
+    if (Object.keys(categoryCodeMap).length === 0) {
+      return NextResponse.json(
+        { error: 'Konfigurasi sistem tidak tersedia. Hubungi administrator.' },
+        { status: 500 }
+      );
     }
 
     const sequence = await getNextPLUSequence(prefix, deptCode, catCode);

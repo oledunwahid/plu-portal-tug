@@ -5,7 +5,6 @@ import { toast } from 'sonner';
 import Link from 'next/link';
 import { UserPlus, Loader2, ToggleLeft, ToggleRight, Pencil, X, Eye, EyeOff } from 'lucide-react';
 import { formatTimestamp } from '@/lib/format';
-import { ALL_OUTLETS, OUTLETS_BY_GROUP, OutletGroup } from '@/lib/outlets';
 
 interface User {
   id: string;
@@ -26,17 +25,10 @@ interface EditForm {
   password: string;
 }
 
-const OUTLET_GROUPS: { label: string; key: OutletGroup }[] = [
-  { label: 'Union', key: 'UNION' },
-  { label: 'CNS', key: 'CNS' },
-  { label: 'French', key: 'FRENCH' },
-  { label: 'IBR', key: 'IBR' },
-  { label: 'IND', key: 'IND' },
-];
-
 export default function UsersPage() {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
+  const [outletsByGroup, setOutletsByGroup] = useState<Record<string, string[]>>({});
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [editUser, setEditUser] = useState<User | null>(null);
   const [editForm, setEditForm] = useState<EditForm>({ name: '', email: '', role: 'CASHIER', outlet: '', active: true, password: '' });
@@ -58,6 +50,21 @@ export default function UsersPage() {
   }
 
   useEffect(() => { fetchUsers(); }, []);
+
+  useEffect(() => {
+    fetch('/api/config/outlets?activeOnly=true')
+      .then((r) => r.ok ? r.json() : null)
+      .then((data: { code: string; group: string }[] | null) => {
+        if (!data) return;
+        const grouped: Record<string, string[]> = {};
+        for (const o of data) {
+          if (!grouped[o.group]) grouped[o.group] = [];
+          grouped[o.group].push(o.code);
+        }
+        setOutletsByGroup(grouped);
+      })
+      .catch(() => {});
+  }, []);
 
   async function toggleActive(user: User) {
     setTogglingId(user.id);
@@ -273,13 +280,17 @@ export default function UsersPage() {
                   onChange={(e) => setEditForm((f) => ({ ...f, outlet: e.target.value }))}
                   style={{ width: '100%', height: '40px', border: '1px solid var(--input-border)', borderRadius: '4px', background: 'var(--bg-card)', color: 'var(--text-primary)', fontSize: '0.875rem', padding: '0 0.75rem', outline: 'none' }}
                 >
-                  {OUTLET_GROUPS.map(({ label, key }) => (
-                    <optgroup key={key} label={label}>
-                      {OUTLETS_BY_GROUP[key].map((o) => (
-                        <option key={o} value={o}>{o}</option>
-                      ))}
-                    </optgroup>
-                  ))}
+                  {Object.keys(outletsByGroup).length > 0 ? (
+                    Object.entries(outletsByGroup).sort(([a], [b]) => a.localeCompare(b)).map(([group, outlets]) => (
+                      <optgroup key={group} label={group}>
+                        {outlets.map((o) => (
+                          <option key={o} value={o}>{o}</option>
+                        ))}
+                      </optgroup>
+                    ))
+                  ) : (
+                    editForm.outlet ? <option value={editForm.outlet}>{editForm.outlet}</option> : null
+                  )}
                 </select>
               </div>
 

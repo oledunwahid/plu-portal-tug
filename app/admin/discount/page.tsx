@@ -59,6 +59,8 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
+const FALLBACK_GROUPS = ['UNION', 'CNS', 'FRENCH', 'IBR', 'IND'];
+
 export default function AdminDiscountPage() {
   const [records, setRecords] = useState<DiscountRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -69,6 +71,7 @@ export default function AdminDiscountPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkLoading, setBulkLoading] = useState(false);
   const [filters, setFilters] = useState({ status: 'PENDING', outletGroup: 'ALL', from: '', to: '' });
+  const [outletGroups, setOutletGroups] = useState<string[]>(FALLBACK_GROUPS);
 
   const fetchRecords = useCallback(async () => {
     setLoading(true);
@@ -90,6 +93,17 @@ export default function AdminDiscountPage() {
   }, [filters]);
 
   useEffect(() => { fetchRecords(); }, [fetchRecords]);
+
+  useEffect(() => {
+    fetch('/api/config/outlets?activeOnly=true')
+      .then((r) => r.ok ? r.json() : null)
+      .then((data: { group: string }[] | null) => {
+        if (!data) return;
+        const groups = Array.from(new Set(data.map((o) => o.group))).sort();
+        if (groups.length > 0) setOutletGroups(groups);
+      })
+      .catch(() => {});
+  }, []);
 
   function openSlideOver(record: DiscountRecord) {
     setActiveRecord(record);
@@ -213,11 +227,9 @@ export default function AdminDiscountPage() {
         </select>
         <select value={filters.outletGroup} onChange={(e) => setFilters((f) => ({ ...f, outletGroup: e.target.value }))} style={SELECT_STYLE}>
           <option value="ALL">All Groups</option>
-          <option value="UNION">Union</option>
-          <option value="CNS">CNS</option>
-          <option value="FRENCH">French</option>
-          <option value="IBR">IBR</option>
-          <option value="IND">IND</option>
+          {outletGroups.map((g) => (
+            <option key={g} value={g}>{g}</option>
+          ))}
         </select>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
           <input type="date" value={filters.from} onChange={(e) => setFilters((f) => ({ ...f, from: e.target.value }))} style={DATE_INPUT_STYLE} />

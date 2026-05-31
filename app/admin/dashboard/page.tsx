@@ -72,9 +72,12 @@ const DATE_INPUT_STYLE = {
   outline: 'none',
 };
 
+const FALLBACK_GROUPS = ['UNION', 'CNS', 'FRENCH', 'IBR', 'IND'];
+
 export default function AdminDashboard() {
   const [requests, setRequests] = useState<Request[]>([]);
   const [loading, setLoading] = useState(true);
+  const [outletGroups, setOutletGroups] = useState<string[]>(FALLBACK_GROUPS);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkLoading, setBulkLoading] = useState(false);
   const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
@@ -149,6 +152,17 @@ export default function AdminDashboard() {
   }, [filters, sourceFilter]);
 
   useEffect(() => { fetchRequests(); }, [fetchRequests]);
+
+  useEffect(() => {
+    fetch('/api/config/outlets?activeOnly=true')
+      .then((r) => r.ok ? r.json() : null)
+      .then((data: { group: string }[] | null) => {
+        if (!data) return;
+        const groups = Array.from(new Set(data.map((o) => o.group))).sort();
+        if (groups.length > 0) setOutletGroups(groups);
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     async function fetchMetrics() {
@@ -369,11 +383,9 @@ export default function AdminDashboard() {
 
         <select value={filters.outletGroup} onChange={(e) => setFilters((f) => ({ ...f, outletGroup: e.target.value }))} style={SELECT_STYLE}>
           <option value="ALL">All Groups</option>
-          <option value="UNION">Union</option>
-          <option value="CNS">CNS</option>
-          <option value="FRENCH">French</option>
-          <option value="IBR">IBR</option>
-          <option value="IND">IND</option>
+          {outletGroups.map((g) => (
+            <option key={g} value={g}>{g}</option>
+          ))}
         </select>
 
         <select value={filters.requestType} onChange={(e) => setFilters((f) => ({ ...f, requestType: e.target.value }))} style={SELECT_STYLE}>

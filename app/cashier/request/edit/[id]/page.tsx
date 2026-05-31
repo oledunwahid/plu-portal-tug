@@ -3,8 +3,6 @@
 import { useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter, useParams } from 'next/navigation';
-import { getCategoriesForOutlet, getDepartmentForCategory } from '@/lib/categories';
-import { PRINTERS_BY_GROUP, OUTLETS_BY_GROUP, OutletGroup, PRINTER_GROUPS } from '@/lib/outlets';
 import { Combobox } from '@/components/ui/combobox';
 import { Switch } from '@/components/ui/switch';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -16,6 +14,13 @@ import Link from 'next/link';
 function formatIDR(value: number): string {
   if (!value || value === 0) return 'Rp 0';
   return 'Rp ' + value.toLocaleString('id-ID');
+}
+
+interface ConfigCategory {
+  id: string; name: string; department: string; departmentCode: number; categoryCode: number; isActive: boolean;
+}
+interface ConfigPrinter {
+  id: string; name: string; group: string; isActive: boolean;
 }
 
 interface FormState {
@@ -46,6 +51,34 @@ function FieldGroup({ label, children, hint }: { label: string; children: React.
   );
 }
 
+function ConfigErrorBanner() {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.75rem', borderRadius: '0.375rem', background: 'rgba(122,46,31,0.07)', border: '1px solid rgba(122,46,31,0.2)' }}>
+      <AlertTriangle size={14} style={{ color: '#8B3A2A', flexShrink: 0 }} />
+      <span style={{ fontSize: '0.8rem', color: '#8B3A2A' }}>Gagal memuat data konfigurasi. Coba muat ulang halaman.</span>
+    </div>
+  );
+}
+
+function ConfigSkeleton() {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.75rem', borderRadius: '0.375rem', background: 'var(--bg-cream)', border: '1px solid var(--border)' }}>
+      <Loader2 size={14} style={{ animation: 'spin 1s linear infinite', color: 'var(--text-secondary)', flexShrink: 0 }} />
+      <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Memuat data konfigurasi…</span>
+    </div>
+  );
+}
+
+async function fetchWithRetry<T>(url: string): Promise<T> {
+  const doFetch = async () => {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json() as Promise<T>;
+  };
+  try { return await doFetch(); }
+  catch { return await doFetch(); }
+}
+
 export default function EditRequestPage() {
   const { data: session } = useSession();
   const router = useRouter();
@@ -60,18 +93,38 @@ export default function EditRequestPage() {
   const [successModal, setSuccessModal] = useState({ open: false, itemName: '' });
 
   const sessionUser = session?.user as any;
-  const outlet = sessionUser?.outlet ?? 'ROMSCBD';
-  const outletGroup = (sessionUser?.outletGroup as OutletGroup) ?? 'IBR';
+  const outletGroup = sessionUser?.outletGroup ?? '';
 
-  const categories = getCategoriesForOutlet(outlet);
-  const availablePrinters = new Set(PRINTERS_BY_GROUP[outletGroup] ?? []);
-  const outlets = OUTLETS_BY_GROUP[outletGroup] ?? [];
+  // Config state
+  const [configCategories, setConfigCategories] = useState<ConfigCategory[]>([]);
+  const [configPrinters, setConfigPrinters] = useState<ConfigPrinter[]>([]);
+  const [configOutlets, setConfigOutlets] = useState<string[]>([]);
+  const [configLoading, setConfigLoading] = useState(true);
+  const [configError, setConfigError] = useState<string | null>(null);
 
-  const categoryOptions = categories.map((c) => ({
-    value: c.category,
-    label: c.category,
-    group: c.department,
+  useEffect(() => {
+    if (!outletGroup) return;
+    setConfigLoading(true);
+    setConfigError(null);
+    Promise.all([
+      fetchWithRetry<ConfigCategory[]>(`/api/config/categories?activeOnly=true`),
+      fetchWithRetry<ConfigPrinter[]>(`/api/config/printers?group=${encodeURIComponent(outletGroup)}&activeOnly=true`),
+      fetchWithRetry<{ code: string }[]>(`/api/config/outlets?group=${encodeURIComponent(outletGroup)}&activeOnly=true`),
+    ])
+      .then(([cats, printers, outlets]) => {
+        setConfigCategories(cats);
+        setConfigPrinters(printers);
+        setConfigOutlets(outlets.map((o) => o.code));
+      })
+      .catch(() => setConfigError('Gagal memuat data konfigurasi. Coba muat ulang halaman.'))
+      .finally(() => setConfigLoading(false));
+  }, [outletGroup]);
+
+  const categoryOptions = configCategories.map((c) => ({
+    value: c.name, label: c.name, group: c.department,
   }));
+
+  const printerNames = configPrinters.map((p) => p.name);
 
   const showName = requestType === 'NEW_ITEM' || requestType === 'UPDATE_NAME' || requestType === 'UPDATE_FULL';
   const showCategoryDept = requestType === 'NEW_ITEM' || requestType === 'UPDATE_FULL';
@@ -122,11 +175,11 @@ export default function EditRequestPage() {
   }, [id, router]);
 
   useEffect(() => {
-    if (form?.category) {
-      const dept = getDepartmentForCategory(form.category);
-      setForm((f) => f ? { ...f, department: dept, barcode: dept !== 'WINE' ? '' : f.barcode } : f);
+    if (form?.category && configCategories.length > 0) {
+      const dept = configCategories.find((c) => c.name === form.category)?.department ?? '';
+      if (dept) setForm((f) => f ? { ...f, department: dept, barcode: dept !== 'WINE' ? '' : f.barcode } : f);
     }
-  }, [form?.category]);
+  }, [form?.category, configCategories]);
 
   function set<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((f) => f ? { ...f, [key]: value } : f);
@@ -262,13 +315,19 @@ export default function EditRequestPage() {
                 <>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                     <FieldGroup label="Category">
-                      <Combobox
-                        options={categoryOptions}
-                        value={form.category}
-                        onChange={(v) => set('category', v)}
-                        placeholder="Select category..."
-                        searchPlaceholder="Search categories..."
-                      />
+                      {configLoading ? (
+                        <ConfigSkeleton />
+                      ) : configError ? (
+                        <ConfigErrorBanner />
+                      ) : (
+                        <Combobox
+                          options={categoryOptions}
+                          value={form.category}
+                          onChange={(v) => set('category', v)}
+                          placeholder="Select category..."
+                          searchPlaceholder="Search categories..."
+                        />
+                      )}
                       {errors.category && <p style={{ fontSize: '0.75rem', color: '#8B3A2A' }}>{errors.category}</p>}
                     </FieldGroup>
                     <FieldGroup label="Department" hint="Auto-filled from category">
@@ -340,35 +399,27 @@ export default function EditRequestPage() {
           </div>
         )}
 
-        {/* Printers — grouped */}
+        {/* Printers */}
         {showPrintersCard && (
           <div className="card" style={{ padding: '1.5rem', marginBottom: '1rem' }}>
             <div className="section-title" style={{ marginBottom: '0.25rem' }}>Printers</div>
             <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
-              Select which kitchen/bar printers should receive this item's tickets.
+              Select which kitchen/bar printers should receive this item&apos;s tickets.
             </p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              {PRINTER_GROUPS.map((group) => {
-                const visible = group.printers.filter((p) => availablePrinters.has(p));
-                if (visible.length === 0) return null;
-                return (
-                  <div key={group.label}>
-                    <div style={{ fontSize: '0.62rem', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--text-secondary)', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                      <span>{group.label}</span>
-                      <div style={{ flex: 1, height: '1px', background: 'var(--border)' }} />
-                    </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.375rem 0.5rem' }}>
-                      {visible.map((p) => (
-                        <label key={p} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer', fontSize: '0.8rem', color: 'var(--text-primary)' }}>
-                          <Checkbox checked={form.printers.includes(p)} onCheckedChange={() => toggleList('printers', p)} />
-                          {p}
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+            {configLoading ? (
+              <ConfigSkeleton />
+            ) : configError ? (
+              <ConfigErrorBanner />
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.375rem 0.5rem' }}>
+                {printerNames.map((p) => (
+                  <label key={p} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer', fontSize: '0.8rem', color: 'var(--text-primary)' }}>
+                    <Checkbox checked={form.printers.includes(p)} onCheckedChange={() => toggleList('printers', p)} />
+                    {p}
+                  </label>
+                ))}
+              </div>
+            )}
             {errors.printers && <p style={{ fontSize: '0.75rem', color: '#8B3A2A', marginTop: '0.5rem' }}>{errors.printers}</p>}
           </div>
         )}
@@ -377,14 +428,20 @@ export default function EditRequestPage() {
         {showOutletsCard && (
           <div className="card" style={{ padding: '1.5rem', marginBottom: '1rem' }}>
             <div className="section-title" style={{ marginBottom: '0.25rem' }}>Outlets</div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.625rem' }}>
-              {outlets.map((o) => (
-                <label key={o} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer', fontSize: '0.8rem', color: 'var(--text-primary)' }}>
-                  <Checkbox checked={form.outlets.includes(o)} onCheckedChange={() => toggleList('outlets', o)} />
-                  {o}
-                </label>
-              ))}
-            </div>
+            {configLoading ? (
+              <ConfigSkeleton />
+            ) : configError ? (
+              <ConfigErrorBanner />
+            ) : (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.625rem' }}>
+                {configOutlets.map((o) => (
+                  <label key={o} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer', fontSize: '0.8rem', color: 'var(--text-primary)' }}>
+                    <Checkbox checked={form.outlets.includes(o)} onCheckedChange={() => toggleList('outlets', o)} />
+                    {o}
+                  </label>
+                ))}
+              </div>
+            )}
             {errors.outlets && <p style={{ fontSize: '0.75rem', color: '#8B3A2A', marginTop: '0.5rem' }}>{errors.outlets}</p>}
           </div>
         )}

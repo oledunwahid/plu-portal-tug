@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/session';
 import { getRequestBatches, createRequestBatch, getMasterItemByCode } from '@/lib/db';
 import { OUTLET_TO_GROUP } from '@/lib/outlets';
+import { loadOutletPrefixMap, loadCategoryCodeMap } from '@/lib/configLoader';
 import type { BatchItemInput } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
@@ -36,6 +37,20 @@ export async function POST(req: NextRequest) {
 
     const validTypes = ['NEW_ITEM', 'UPDATE_PRICE', 'UPDATE_NAME', 'UPDATE_PRINTER', 'UPDATE_FULL'];
     const requestType = validTypes.includes(body.requestType) ? body.requestType : 'NEW_ITEM';
+
+    if (requestType === 'NEW_ITEM') {
+      const [outletPrefixMap, categoryCodeMap] = await Promise.all([
+        loadOutletPrefixMap(),
+        loadCategoryCodeMap(),
+      ]);
+      if (Object.keys(outletPrefixMap).length === 0 || Object.keys(categoryCodeMap).length === 0) {
+        return NextResponse.json(
+          { error: 'Konfigurasi sistem tidak tersedia. Hubungi administrator.' },
+          { status: 500 }
+        );
+      }
+    }
+
     const outletGroup = OUTLET_TO_GROUP[session.user.outlet] ?? 'UNION';
 
     const items: BatchItemInput[] = (body.items as unknown[]).map((item: unknown) => {

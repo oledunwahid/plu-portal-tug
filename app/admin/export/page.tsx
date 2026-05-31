@@ -112,9 +112,12 @@ const COLUMNS: Record<RequestType, ColumnDef[]> = {
   ],
 };
 
+const FALLBACK_GROUPS = ['UNION', 'CNS', 'FRENCH', 'IBR', 'IND'];
+
 export default function ExportPage() {
   const [activeType, setActiveType] = useState<RequestType>('NEW_ITEM');
   const [group, setGroup] = useState('ALL');
+  const [outletGroups, setOutletGroups] = useState<string[]>(FALLBACK_GROUPS);
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [statusFilter, setStatusFilter] = useState('PENDING');
@@ -193,6 +196,17 @@ export default function ExportPage() {
   }, [activeType, group, statusFilter, from, to, sourceFilter, flattenBatches]);
 
   useEffect(() => { fetchRequests(); }, [fetchRequests]);
+
+  useEffect(() => {
+    fetch('/api/config/outlets?activeOnly=true')
+      .then((r) => r.ok ? r.json() : null)
+      .then((data: { group: string }[] | null) => {
+        if (!data) return;
+        const groups = Array.from(new Set(data.map((o) => o.group))).sort();
+        if (groups.length > 0) setOutletGroups(groups);
+      })
+      .catch(() => {});
+  }, []);
 
   function switchTab(type: RequestType) {
     const tab = TABS.find((t) => t.type === type)!;
@@ -311,11 +325,9 @@ export default function ExportPage() {
       <div className="card" style={{ padding: '0.75rem 1.25rem', marginBottom: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.625rem', flexWrap: 'wrap' }}>
         <select value={group} onChange={(e) => setGroup(e.target.value)} style={SELECT_STYLE}>
           <option value="ALL">All Groups</option>
-          <option value="UNION">Union</option>
-          <option value="CNS">CNS</option>
-          <option value="FRENCH">French</option>
-          <option value="IBR">IBR</option>
-          <option value="IND">IND</option>
+          {outletGroups.map((g) => (
+            <option key={g} value={g}>{g}</option>
+          ))}
         </select>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
           <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={DATE_STYLE} />

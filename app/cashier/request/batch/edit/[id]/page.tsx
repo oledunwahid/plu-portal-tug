@@ -3,12 +3,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter, useParams } from 'next/navigation';
-import { getCategoriesForOutlet, getDepartmentForCategory } from '@/lib/categories';
-import { PRINTERS_BY_GROUP, OUTLETS_BY_GROUP, OutletGroup } from '@/lib/outlets';
 import { Combobox } from '@/components/ui/combobox';
 import { MultiSelect } from '@/components/ui/multi-select';
 import { toast } from 'sonner';
-import { Loader2, Plus, Trash2, Copy, ChevronLeft } from 'lucide-react';
+import { Loader2, Plus, Trash2, Copy, ChevronLeft, AlertTriangle } from 'lucide-react';
 import Link from 'next/link';
 
 const REQUEST_TYPES = [
@@ -20,6 +18,13 @@ const REQUEST_TYPES = [
 ] as const;
 
 type RequestTypeValue = (typeof REQUEST_TYPES)[number]['value'];
+
+interface ConfigCategory {
+  id: string; name: string; department: string; departmentCode: number; categoryCode: number; isActive: boolean;
+}
+interface ConfigPrinter {
+  id: string; name: string; group: string; isActive: boolean;
+}
 
 interface ItemRow {
   _id: string;
@@ -73,6 +78,16 @@ const INPUT_STYLE: React.CSSProperties = {
   padding: '0 0.625rem', fontSize: '0.8rem', outline: 'none', boxSizing: 'border-box',
 };
 
+async function fetchWithRetry<T>(url: string): Promise<T> {
+  const doFetch = async () => {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json() as Promise<T>;
+  };
+  try { return await doFetch(); }
+  catch { return await doFetch(); }
+}
+
 export default function BatchEditPage() {
   const { data: session } = useSession();
   const router = useRouter();
@@ -80,13 +95,35 @@ export default function BatchEditPage() {
   const batchId = params.id as string;
 
   const sessionUser = session?.user as any;
-  const outlet = sessionUser?.outlet ?? 'ROMSCBD';
-  const outletGroup = (sessionUser?.outletGroup as OutletGroup) ?? 'IBR';
+  const outletGroup = sessionUser?.outletGroup ?? '';
 
-  const categories = getCategoriesForOutlet(outlet);
-  const availablePrinters = PRINTERS_BY_GROUP[outletGroup] ?? [];
-  const availableOutlets = OUTLETS_BY_GROUP[outletGroup] ?? [];
-  const categoryOptions = categories.map((c) => ({ value: c.category, label: c.category, group: c.department }));
+  // Config state
+  const [configCategories, setConfigCategories] = useState<ConfigCategory[]>([]);
+  const [configPrinters, setConfigPrinters] = useState<ConfigPrinter[]>([]);
+  const [configOutlets, setConfigOutlets] = useState<string[]>([]);
+  const [configLoading, setConfigLoading] = useState(true);
+  const [configError, setConfigError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!outletGroup) return;
+    setConfigLoading(true);
+    setConfigError(null);
+    Promise.all([
+      fetchWithRetry<ConfigCategory[]>(`/api/config/categories?activeOnly=true`),
+      fetchWithRetry<ConfigPrinter[]>(`/api/config/printers?group=${encodeURIComponent(outletGroup)}&activeOnly=true`),
+      fetchWithRetry<{ code: string }[]>(`/api/config/outlets?group=${encodeURIComponent(outletGroup)}&activeOnly=true`),
+    ])
+      .then(([cats, printers, outlets]) => {
+        setConfigCategories(cats);
+        setConfigPrinters(printers);
+        setConfigOutlets(outlets.map((o) => o.code));
+      })
+      .catch(() => setConfigError('Gagal memuat data konfigurasi. Coba muat ulang halaman.'))
+      .finally(() => setConfigLoading(false));
+  }, [outletGroup]);
+
+  const categoryOptions = configCategories.map((c) => ({ value: c.name, label: c.name, group: c.department }));
+  const availablePrinters = configPrinters.map((p) => p.name);
 
   const [pageLoading, setPageLoading] = useState(true);
   const [title, setTitle] = useState('');
@@ -179,7 +216,7 @@ export default function BatchEditPage() {
       if (i !== idx) return row;
       const updated = { ...row, [key]: value, errors: { ...row.errors, [key]: undefined } };
       if (key === 'category') {
-        updated.department = getDepartmentForCategory(value as string);
+        updated.department = configCategories.find((c) => c.name === (value as string))?.department ?? '';
         if (updated.department !== 'WINE') updated.barcode = '';
       }
       return updated;
@@ -279,6 +316,18 @@ export default function BatchEditPage() {
     );
   }
 
+  const configBanner = configLoading ? (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem 0.75rem', borderRadius: '0.375rem', background: 'var(--bg-cream)', border: '1px solid var(--border)', marginBottom: '0.75rem' }}>
+      <Loader2 size={13} style={{ animation: 'spin 1s linear infinite', color: 'var(--text-secondary)' }} />
+      <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>Memuat data konfigurasi…</span>
+    </div>
+  ) : configError ? (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem 0.75rem', borderRadius: '0.375rem', background: 'rgba(122,46,31,0.07)', border: '1px solid rgba(122,46,31,0.2)', marginBottom: '0.75rem' }}>
+      <AlertTriangle size={13} style={{ color: '#8B3A2A' }} />
+      <span style={{ fontSize: '0.78rem', color: '#8B3A2A' }}>Gagal memuat data konfigurasi. Coba muat ulang halaman.</span>
+    </div>
+  ) : null;
+
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.375rem' }}>
@@ -290,6 +339,8 @@ export default function BatchEditPage() {
       <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginBottom: '1.75rem' }}>
         Edit your pending batch. Changes replace all existing items.
       </p>
+
+      {configBanner}
 
       <form onSubmit={handleSubmit}>
 
@@ -427,7 +478,6 @@ export default function BatchEditPage() {
                         </td>
                       )}
 
-                      {/* Printers */}
                       {showPrintersCol && (
                         <td>
                           <MultiSelect
@@ -440,11 +490,10 @@ export default function BatchEditPage() {
                         </td>
                       )}
 
-                      {/* Outlets */}
                       {showOutletsCol && (
                         <td>
                           <MultiSelect
-                            options={availableOutlets}
+                            options={configOutlets}
                             value={row.outlets}
                             onChange={(v) => updateRow(idx, 'outlets', v)}
                             placeholder="Outlets…"
@@ -453,7 +502,6 @@ export default function BatchEditPage() {
                         </td>
                       )}
 
-                      {/* Sales Def */}
                       {showPOSCol && (
                         <td>
                           <select
@@ -467,7 +515,6 @@ export default function BatchEditPage() {
                         </td>
                       )}
 
-                      {/* POS Settings */}
                       {showPOSCol && (
                         <td>
                           <MultiSelect
@@ -486,7 +533,6 @@ export default function BatchEditPage() {
                         </td>
                       )}
 
-                      {/* Actions */}
                       <td style={{ paddingTop: '0.5rem' }}>
                         <div style={{ display: 'flex', gap: '0.25rem', justifyContent: 'center' }}>
                           <button type="button" onClick={() => duplicateRow(idx)} title="Duplicate row"

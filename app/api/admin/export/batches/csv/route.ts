@@ -41,6 +41,7 @@ export async function GET(request: NextRequest) {
       serviceCharge: item.serviceCharge, tax1: item.tax1, tax2: item.tax2,
       noDiscount: item.noDiscount, hideReceipt: item.hideReceipt,
       printers: item.printers, outlets: item.outlets, salesDef: item.salesDef,
+      barcode: item.barcode,
     })));
 
     if (items.length === 0) return NextResponse.json({ error: 'No batch items found' }, { status: 404 });

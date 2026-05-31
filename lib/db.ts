@@ -154,8 +154,7 @@ function resolveDbPath(): string {
   const url = process.env.DATABASE_URL ?? 'file:./dev.db';
   const filePart = url.replace(/^file:/, '');
   if (path.isAbsolute(filePart)) return filePart;
-  const normalized = filePart.replace(/^\.\//, '');
-  return path.resolve(process.cwd(), 'prisma', normalized);
+  return path.resolve(process.cwd(), filePart);
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -238,6 +237,7 @@ async function getDb() {
   }
   return g.__sqljsDb;
 }
+
 
 // Write lock — chains writes sequentially so concurrent requests don't race.
 let writeQueue: Promise<unknown> = Promise.resolve();
@@ -1613,5 +1613,61 @@ export async function updateCategoryConfig(id: string, data: Partial<{ name: str
     db.run(`UPDATE "CategoryConfig" SET ${sets.join(', ')} WHERE id = ?`, vals);
     const row = execFirst(db, 'SELECT * FROM "CategoryConfig" WHERE id = ?', [id]);
     return row ? rowToCategoryConfig(row) : null;
+  });
+}
+
+// ── Bulk upsert helpers for the direct seed script ───────────────────────────
+// These write through sql.js (withWriteLock) so the data lands in the same
+// in-memory instance the application reads from — no WAL gap.
+
+export async function seedOutletConfigs(items: { code: string; group: string }[]): Promise<void> {
+  return withWriteLock((db) => {
+    const now = nowIso();
+    for (const item of items) {
+      const existing = execFirst(db, 'SELECT id FROM "OutletConfig" WHERE code = ?', [item.code]);
+      if (existing) {
+        db.run('UPDATE "OutletConfig" SET "group" = ?, updatedAt = ? WHERE code = ?', [item.group, now, item.code]);
+      } else {
+        db.run('INSERT INTO "OutletConfig" (id,code,"group",isActive,createdAt,updatedAt) VALUES (?,?,?,1,?,?)',
+          [newId(), item.code, item.group, now, now]);
+      }
+    }
+  });
+}
+
+export async function seedPrinterConfigs(items: { name: string; group: string }[]): Promise<void> {
+  return withWriteLock((db) => {
+    const now = nowIso();
+    for (const item of items) {
+      const existing = execFirst(db, 'SELECT id FROM "PrinterConfig" WHERE name = ?', [item.name]);
+      if (existing) {
+        db.run('UPDATE "PrinterConfig" SET "group" = ?, updatedAt = ? WHERE name = ?', [item.group, now, item.name]);
+      } else {
+        db.run('INSERT INTO "PrinterConfig" (id,name,"group",isActive,createdAt,updatedAt) VALUES (?,?,?,1,?,?)',
+          [newId(), item.name, item.group, now, now]);
+      }
+    }
+  });
+}
+
+export async function seedCategoryConfigs(
+  items: { name: string; department: string; departmentCode: number; categoryCode: number }[]
+): Promise<void> {
+  return withWriteLock((db) => {
+    const now = nowIso();
+    for (const item of items) {
+      const existing = execFirst(db, 'SELECT id FROM "CategoryConfig" WHERE name = ?', [item.name]);
+      if (existing) {
+        db.run(
+          'UPDATE "CategoryConfig" SET department = ?, departmentCode = ?, categoryCode = ?, updatedAt = ? WHERE name = ?',
+          [item.department, item.departmentCode, item.categoryCode, now, item.name]
+        );
+      } else {
+        db.run(
+          'INSERT INTO "CategoryConfig" (id,name,department,departmentCode,categoryCode,isActive,createdAt,updatedAt) VALUES (?,?,?,?,?,1,?,?)',
+          [newId(), item.name, item.department, item.departmentCode, item.categoryCode, now, now]
+        );
+      }
+    }
   });
 }

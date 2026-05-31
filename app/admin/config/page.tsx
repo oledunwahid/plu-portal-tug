@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { toast } from 'sonner';
-import { Plus, Pencil, Loader2, X, AlertTriangle } from 'lucide-react';
+import { Plus, Pencil, Loader2, X, CheckCircle } from 'lucide-react';
 
 type Tab = 'outlets' | 'printers' | 'categories';
 
@@ -11,7 +11,7 @@ interface PrinterConfig { id: string; name: string; group: string; isActive: boo
 interface CategoryConfig { id: string; name: string; department: string; departmentCode: number; categoryCode: number; isActive: boolean; }
 
 const OUTLET_GROUPS = ['UNION', 'CNS', 'FRENCH', 'IBR', 'IND'];
-const PRINTER_GROUPS = ['Kitchen', 'Bar', 'Service', 'Specialty', 'Event'];
+const PRINTER_GROUPS = ['ALL', 'UNION', 'CNS', 'FRENCH', 'IBR', 'IND'];
 
 // ── Shared ────────────────────────────────────────────────────────────────────
 
@@ -238,7 +238,7 @@ function PrintersTab() {
   const [groupFilter, setGroupFilter] = useState('ALL');
   const [slideOpen, setSlideOpen] = useState(false);
   const [editing, setEditing] = useState<PrinterConfig | null>(null);
-  const [form, setForm] = useState({ name: '', group: 'Kitchen' });
+  const [form, setForm] = useState({ name: '', group: 'ALL' });
   const [errors, setErrors] = useState<{ name?: string; group?: string }>({});
   const [saving, setSaving] = useState(false);
 
@@ -572,13 +572,12 @@ export default function ConfigPage() {
 
       <div style={{
         display: 'flex', alignItems: 'flex-start', gap: '0.75rem', padding: '0.875rem 1rem',
-        background: 'rgba(201,168,76,0.06)', border: '1px solid rgba(201,168,76,0.2)',
+        background: 'rgba(61,90,62,0.08)', border: '1px solid rgba(61,90,62,0.25)',
         borderRadius: '0.5rem', marginBottom: '1.5rem',
       }}>
-        <AlertTriangle size={15} style={{ color: 'var(--accent-gold)', flexShrink: 0, marginTop: '2px' }} />
-        <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.6 }}>
-          Perubahan pada halaman ini belum diterapkan ke form kasir. Sistem masih menggunakan konfigurasi bawaan.
-          Hubungi tim teknis untuk mengaktifkan fase berikutnya.
+        <CheckCircle size={15} style={{ color: '#3D5A3E', flexShrink: 0, marginTop: '2px' }} />
+        <p style={{ fontSize: '0.8rem', color: '#2D4A2E', margin: 0, lineHeight: 1.6 }}>
+          Konfigurasi aktif. Perubahan pada halaman ini langsung berlaku di form kasir.
         </p>
       </div>
 
