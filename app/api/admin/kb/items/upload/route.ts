@@ -24,6 +24,11 @@ function parseBool(v: string | undefined): boolean {
   return s !== '0' && s !== 'false' && s !== 'no' && s !== '';
 }
 
+function parseSemiList(v: string): string | null {
+  const parts = v.split(';').map(s => s.trim()).filter(s => s !== '');
+  return parts.length > 0 ? parts.join(';') : null;
+}
+
 export async function POST(req: NextRequest) {
   try {
     const session = await getSession();
@@ -82,8 +87,8 @@ export async function POST(req: NextRequest) {
         tax2: parseBool(row['Tax2'] ?? row['tax2'] ?? '1'),
         noDiscount: parseBool(row['NoDiscount'] ?? row['noDiscount'] ?? '1'),
         hideReceipt: parseBool(row['HideReceipt'] ?? row['hideReceipt'] ?? '0') ? false : false,
-        printers: (row['Printers'] ?? row['printers'] ?? '').trim() || null,
-        outlets: (row['Outlets'] ?? row['outlets'] ?? '').trim() || null,
+        printers: parseSemiList(row['Printers'] ?? row['printers'] ?? ''),
+        outlets: parseSemiList(row['Outlets'] ?? row['outlets'] ?? ''),
         outletGroup: deriveOutletGroup(code),
       });
     }
