@@ -44,11 +44,14 @@ export async function POST(req: NextRequest) {
     }
 
     const arrayBuffer = await file.arrayBuffer();
-    const data = new Uint8Array(arrayBuffer);
+    // Decode as UTF-8 text and strip BOM so XLSX sees clean text with an
+    // explicit comma separator — prevents XLSX auto-detecting ';' as the
+    // delimiter when PriceLevels or Outlets cells contain many semicolons.
+    const rawText = Buffer.from(arrayBuffer).toString('utf-8').replace(/^﻿/, '');
 
     let rows: Record<string, string>[];
     try {
-      const wb = XLSX.read(data, { type: 'array' });
+      const wb = XLSX.read(rawText, { type: 'string', FS: ',' });
       const ws = wb.Sheets[wb.SheetNames[0]];
       rows = XLSX.utils.sheet_to_json<Record<string, string>>(ws, { raw: false, defval: '' });
     } catch {
@@ -59,13 +62,25 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'The uploaded file is empty or unreadable.' }, { status: 400 });
     }
 
+    // --- DIAGNOSTIC (remove after confirmed) ---
+    for (let di = 0; di < Math.min(3, rows.length); di++) {
+      const r = rows[di];
+      console.log(`[IMPORT DIAG] row ${di + 1} keys:`, JSON.stringify(Object.keys(r)));
+      console.log(`[IMPORT DIAG] row ${di + 1} Code=${JSON.stringify(r['Code'] ?? r['code'])} Name=${JSON.stringify(r['Name'] ?? r['name'])}`);
+    }
+    // --- END DIAGNOSTIC ---
+
     const validItems: MasterItemUpsertInput[] = [];
     let skipped = 0;
 
     for (const row of rows) {
       const code = (row['Code'] ?? row['code'] ?? '').trim();
       const name = (row['Name'] ?? row['name'] ?? '').trim();
-      if (!code || !name) { skipped++; continue; }
+      if (!code || !name) {
+        console.log('[IMPORT DIAG] SKIP: code=', JSON.stringify(code), 'name=', JSON.stringify(name), 'keys:', JSON.stringify(Object.keys(row).slice(0, 4)));
+        skipped++;
+        continue;
+      }
 
       const priceStr = (row['Price'] ?? row['price'] ?? '').trim();
       const price = priceStr ? parseFloat(priceStr.replace(/[^0-9.-]/g, '')) : null;
