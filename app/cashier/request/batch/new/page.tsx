@@ -55,7 +55,7 @@ interface ItemRow {
 interface ParsedIssue {
   field: string;
   message: string;
-  severity?: 'error'; // 'error' = red, undefined = amber
+  severity?: 'error';
 }
 
 interface ParsedRow {
@@ -260,6 +260,9 @@ export default function BatchNewPage() {
   const [loading, setLoading] = useState(false);
   const [successModal, setSuccessModal] = useState({ open: false, title: '', count: 0 });
   const [titleError, setTitleError] = useState('');
+  const [globalOutlets, setGlobalOutlets] = useState<string[]>([]);
+  const [globalPrinters, setGlobalPrinters] = useState<string[]>([]);
+  const [applyHighlight, setApplyHighlight] = useState(false);
 
   // Import state
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -271,6 +274,35 @@ export default function BatchNewPage() {
   const seqOffsetMap = useRef<Record<string, number>>({});
   const seqFetchPromises = useRef<Record<string, Promise<number>>>({});
   const processingRef = useRef<Set<string>>(new Set());
+
+  // Standalone PLU generation — used by confirmImport to generate codes serially per group
+  async function generatePluForRow(rowData: { category: string; outlets: string[] }): Promise<string> {
+    if (!rowData.category) return '';
+    const s = suggestPLUCode(rowData.category, outlet, rowData.outlets, 4000, categoryCodeMap);
+    if (!s) return '';
+    const { prefix, deptCode, catCode } = s;
+    const key = `${prefix}${deptCode}${catCode}`;
+    if (seqBaseCache.current[key] == null) {
+      if (!seqFetchPromises.current[key]) {
+        seqFetchPromises.current[key] = fetch(
+          `/api/plu/next-sequence?prefix=${encodeURIComponent(prefix)}&deptCode=${encodeURIComponent(deptCode)}&catCode=${encodeURIComponent(catCode)}`
+        ).then(async (res) => {
+          if (!res.ok) throw new Error();
+          const data = await res.json();
+          if (typeof data.sequence !== 'number') throw new Error();
+          seqBaseCache.current[key] = data.sequence;
+          if (seqOffsetMap.current[key] == null) seqOffsetMap.current[key] = 0;
+          return data.sequence;
+        });
+      }
+      try { await seqFetchPromises.current[key]; }
+      catch { delete seqFetchPromises.current[key]; return ''; }
+    }
+    const base = seqBaseCache.current[key];
+    const offset = seqOffsetMap.current[key] ?? 0;
+    seqOffsetMap.current[key] = offset + 1;
+    return assemblePLUCode(prefix, deptCode, catCode, base + offset);
+  }
 
   useEffect(() => {
     if (configLoading || categoryCodeMap.length === 0) return;
@@ -348,6 +380,10 @@ export default function BatchNewPage() {
   const showPrintersCol = requestType === 'NEW_ITEM' || requestType === 'UPDATE_PRINTER';
   const showOutletsCol = requestType === 'NEW_ITEM';
   const showPOSCol = requestType === 'NEW_ITEM';
+  const showApplyCard = showOutletsCol || showPrintersCol;
+  const showApplyHighlight = applyHighlight && items.some(
+    (r) => (showOutletsCol && r.outlets.length === 0) || (showPrintersCol && r.printers.length === 0)
+  );
 
   const addRow = useCallback(() => {
     setItems((prev) => {
@@ -419,8 +455,7 @@ export default function BatchNewPage() {
       const errors: Record<string, string> = {};
       if (requestType === 'NEW_ITEM') {
         if (!row.name.trim()) errors.name = 'Name required';
-        if (row.printers.length === 0) errors.printers = 'Select printer';
-        if (row.outlets.length === 0) errors.outlets = 'Select outlet';
+        // outlets/printers validated globally below
       } else if (requestType === 'UPDATE_PRICE') {
         if (!row.code.trim()) errors.code = 'Code required';
         if (!row.price || Number(row.price) <= 0) errors.price = 'Price required';
@@ -429,7 +464,7 @@ export default function BatchNewPage() {
         if (!row.name.trim()) errors.name = 'Name required';
       } else if (requestType === 'UPDATE_PRINTER') {
         if (!row.code.trim()) errors.code = 'Code required';
-        if (row.printers.length === 0) errors.printers = 'Select printer';
+        // printers validated globally below
       } else if (requestType === 'REMOVE_PLU') {
         if (!row.code.trim()) errors.code = 'Code required';
         if (!row.remarks.trim()) errors.remarks = 'Alasan penghapusan harus diisi';
@@ -441,8 +476,17 @@ export default function BatchNewPage() {
     if (!valid) {
       if (errorRows.length > 0) toast.error(`Periksa baris: ${errorRows.join(', ')}`);
       else toast.error('Judul batch harus diisi');
+      return false;
     }
-    return valid;
+    if (requestType === 'NEW_ITEM' && items.some((r) => r.outlets.length === 0 || r.printers.length === 0)) {
+      toast.error('Gunakan tombol Terapkan ke Semua Baris untuk mengisi outlet dan printer sebelum submit.');
+      return false;
+    }
+    if (requestType === 'UPDATE_PRINTER' && items.some((r) => r.printers.length === 0)) {
+      toast.error('Gunakan tombol Terapkan ke Semua Baris untuk mengisi outlet dan printer sebelum submit.');
+      return false;
+    }
+    return true;
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -549,12 +593,55 @@ export default function BatchNewPage() {
     if (file) handleFile(file);
   }
 
-  function confirmImport() {
+  async function confirmImport() {
     const okRows = importModal.rows.filter((r) => r.status === 'OK');
     const newItems = okRows.map((r) => parsedRowToItemRow(r, requestType, configCategories));
-    setItems(newItems.length > 0 ? newItems : [makeDefaultRow()]);
+    const finalItems = newItems.length > 0 ? newItems : [makeDefaultRow()];
+    setItems(finalItems);
     setImportModal({ open: false, rows: [] });
     toast.success(`${okRows.length} baris berhasil diimport`);
+
+    // Highlight global apply card if any row is missing outlets or printers
+    if (requestType === 'NEW_ITEM' || requestType === 'UPDATE_PRINTER') {
+      const needsHighlight = finalItems.some(
+        (r) => (showOutletsCol && r.outlets.length === 0) || (showPrintersCol && r.printers.length === 0)
+      );
+      if (needsHighlight) setApplyHighlight(true);
+    }
+
+    // Auto-generate PLU codes for NEW_ITEM rows with category+department but no code
+    if (requestType !== 'NEW_ITEM') return;
+
+    const rowsForGen = finalItems.filter(
+      (r) => r.codeIsAutoGenerated && r.category && r.department && !r.code
+    );
+    if (rowsForGen.length === 0) return;
+
+    // Group by prefix+dept+cat to prevent sequence collisions — process each group serially
+    const groups = new Map<string, { row: ItemRow; prefix: string; deptCode: string; catCode: string }[]>();
+    for (const row of rowsForGen) {
+      const s = suggestPLUCode(row.category, outlet, row.outlets, 4000, categoryCodeMap);
+      if (!s) continue;
+      const key = `${s.prefix}${s.deptCode}${s.catCode}`;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push({ row, prefix: s.prefix, deptCode: s.deptCode, catCode: s.catCode });
+    }
+
+    // Different groups run in parallel; rows within a group run serially
+    await Promise.allSettled(
+      Array.from(groups.values()).map(async (entries) => {
+        for (const { row } of entries) {
+          try {
+            const code = await generatePluForRow({ category: row.category, outlets: row.outlets });
+            if (code) {
+              setItems((prev) => prev.map((r) => r._id === row._id ? { ...r, code } : r));
+            }
+          } catch {
+            // leave code as '—'
+          }
+        }
+      })
+    );
   }
 
   async function downloadTemplate() {
@@ -730,7 +817,8 @@ export default function BatchNewPage() {
               <div className="label-caps" style={{ marginBottom: '0.75rem' }}>Request Type</div>
               <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                 {REQUEST_TYPES.map((t) => (
-                  <button key={t.value} type="button" onClick={() => { setRequestType(t.value); setItems([makeDefaultRow()]); }}
+                  <button key={t.value} type="button"
+                    onClick={() => { setRequestType(t.value); setItems([makeDefaultRow()]); setApplyHighlight(false); }}
                     style={{ padding: '0.5rem 1rem', borderRadius: '0.375rem', border: `1px solid ${requestType === t.value ? 'var(--bg-dark)' : 'var(--border)'}`, background: requestType === t.value ? 'var(--bg-dark)' : 'transparent', color: requestType === t.value ? 'var(--accent-gold)' : 'var(--text-secondary)', fontSize: '0.8rem', fontWeight: requestType === t.value ? 500 : 400, cursor: 'pointer', transition: 'all 200ms ease' }}>
                     {t.label}
                   </button>
@@ -770,6 +858,56 @@ export default function BatchNewPage() {
             </p>
           </div>
         </div>
+
+        {/* Global Apply card */}
+        {showApplyCard && (
+          <div className="card" style={{ padding: '1.5rem', marginBottom: '1rem', ...(showApplyHighlight ? { border: '2px solid #C9A84C' } : {}) }}>
+            <div style={{ marginBottom: '1rem' }}>
+              <div className="section-title">Terapkan ke Semua Baris</div>
+              <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.25rem', marginBottom: 0 }}>
+                Pilih outlet dan printer yang akan diterapkan ke seluruh baris sekaligus.
+              </p>
+              {showApplyHighlight && (
+                <p style={{ fontSize: '0.8rem', color: '#92400E', marginTop: '0.375rem', marginBottom: 0, fontWeight: 500 }}>
+                  Outlet dan printer belum diisi. Gunakan bagian ini untuk mengisi semua baris sekaligus.
+                </p>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
+              {showOutletsCol && (
+                <div style={{ flex: 1, minWidth: '200px' }}>
+                  <div className="label-caps" style={{ marginBottom: '0.4rem' }}>Outlets</div>
+                  <MultiSelect options={configOutlets} value={globalOutlets} onChange={setGlobalOutlets} placeholder="Pilih outlet..." />
+                </div>
+              )}
+              {showPrintersCol && (
+                <div style={{ flex: 1, minWidth: '200px' }}>
+                  <div className="label-caps" style={{ marginBottom: '0.4rem' }}>Printers</div>
+                  <MultiSelect options={availablePrinters} value={globalPrinters} onChange={setGlobalPrinters} placeholder="Pilih printer..." />
+                </div>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                onClick={() => {
+                  const n = items.length;
+                  setItems((prev) => prev.map((r) => ({
+                    ...r,
+                    ...(showOutletsCol ? { outlets: globalOutlets } : {}),
+                    ...(showPrintersCol ? { printers: globalPrinters } : {}),
+                  })));
+                  toast.success(`Diterapkan ke ${n} baris`);
+                }}
+                style={{ padding: '0.5rem 1.25rem', background: 'var(--bg-dark)', color: 'var(--accent-gold)', border: 'none', borderRadius: '0.375rem', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' }}
+              >
+                Terapkan ke Semua Baris
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Items Table */}
         <div className="card" style={{ marginBottom: '1rem', overflow: 'hidden' }}>

@@ -131,6 +131,8 @@ export default function BatchEditPage() {
   const [items, setItems] = useState<ItemRow[]>([makeDefaultRow()]);
   const [saving, setSaving] = useState(false);
   const [titleError, setTitleError] = useState('');
+  const [globalOutlets, setGlobalOutlets] = useState<string[]>([]);
+  const [globalPrinters, setGlobalPrinters] = useState<string[]>([]);
 
   const isRemovePLU = requestType === 'REMOVE_PLU';
   const isUpdate = requestType !== 'NEW_ITEM';
@@ -142,6 +144,7 @@ export default function BatchEditPage() {
   const showPrintersCol = requestType === 'NEW_ITEM' || requestType === 'UPDATE_PRINTER' || requestType === 'UPDATE_FULL';
   const showOutletsCol = requestType === 'NEW_ITEM' || requestType === 'UPDATE_FULL';
   const showPOSCol = requestType === 'NEW_ITEM' || requestType === 'UPDATE_FULL';
+  const showApplyCard = showOutletsCol || showPrintersCol;
 
   useEffect(() => {
     if (!batchId) return;
@@ -184,6 +187,11 @@ export default function BatchEditPage() {
           errors: {},
         }));
         setItems(loaded.length > 0 ? loaded : [makeDefaultRow()]);
+        // Pre-populate global selectors from first row as a convenience default
+        if (loaded.length > 0) {
+          setGlobalOutlets(loaded[0].outlets);
+          setGlobalPrinters(loaded[0].printers);
+        }
         setPageLoading(false);
       })
       .catch(() => {
@@ -249,8 +257,7 @@ export default function BatchEditPage() {
       const errors: Record<string, string> = {};
       if (requestType === 'NEW_ITEM') {
         if (!row.name.trim()) errors.name = 'Name required';
-        if (row.printers.length === 0) errors.printers = 'Select printer';
-        if (row.outlets.length === 0) errors.outlets = 'Select outlet';
+        // outlets/printers validated globally below
       } else if (requestType === 'UPDATE_PRICE') {
         if (!row.code.trim()) errors.code = 'Code required';
         if (!row.price || Number(row.price) <= 0) errors.price = 'Price required';
@@ -259,7 +266,7 @@ export default function BatchEditPage() {
         if (!row.name.trim()) errors.name = 'Name required';
       } else if (requestType === 'UPDATE_PRINTER') {
         if (!row.code.trim()) errors.code = 'Code required';
-        if (row.printers.length === 0) errors.printers = 'Select printer';
+        // printers validated globally below
       } else if (requestType === 'UPDATE_FULL') {
         if (!row.code.trim()) errors.code = 'Code required';
       } else if (requestType === 'REMOVE_PLU') {
@@ -273,8 +280,17 @@ export default function BatchEditPage() {
     if (!valid) {
       if (errorRows.length > 0) toast.error(`Periksa baris: ${errorRows.join(', ')}`);
       else toast.error('Judul batch harus diisi');
+      return false;
     }
-    return valid;
+    if (requestType === 'NEW_ITEM' && items.some((r) => r.outlets.length === 0 || r.printers.length === 0)) {
+      toast.error('Gunakan tombol Terapkan ke Semua Baris untuk mengisi outlet dan printer sebelum submit.');
+      return false;
+    }
+    if (requestType === 'UPDATE_PRINTER' && items.some((r) => r.printers.length === 0)) {
+      toast.error('Gunakan tombol Terapkan ke Semua Baris untuk mengisi outlet dan printer sebelum submit.');
+      return false;
+    }
+    return true;
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -378,6 +394,51 @@ export default function BatchEditPage() {
             </div>
           </div>
         </div>
+
+        {/* Global Apply card */}
+        {showApplyCard && (
+          <div className="card" style={{ padding: '1.5rem', marginBottom: '1rem' }}>
+            <div style={{ marginBottom: '1rem' }}>
+              <div className="section-title">Terapkan ke Semua Baris</div>
+              <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.25rem', marginBottom: 0 }}>
+                Pilih outlet dan printer yang akan diterapkan ke seluruh baris sekaligus.
+              </p>
+            </div>
+
+            <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
+              {showOutletsCol && (
+                <div style={{ flex: 1, minWidth: '200px' }}>
+                  <div className="label-caps" style={{ marginBottom: '0.4rem' }}>Outlets</div>
+                  <MultiSelect options={configOutlets} value={globalOutlets} onChange={setGlobalOutlets} placeholder="Pilih outlet..." />
+                </div>
+              )}
+              {showPrintersCol && (
+                <div style={{ flex: 1, minWidth: '200px' }}>
+                  <div className="label-caps" style={{ marginBottom: '0.4rem' }}>Printers</div>
+                  <MultiSelect options={availablePrinters} value={globalPrinters} onChange={setGlobalPrinters} placeholder="Pilih printer..." />
+                </div>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                onClick={() => {
+                  const n = items.length;
+                  setItems((prev) => prev.map((r) => ({
+                    ...r,
+                    ...(showOutletsCol ? { outlets: globalOutlets } : {}),
+                    ...(showPrintersCol ? { printers: globalPrinters } : {}),
+                  })));
+                  toast.success(`Diterapkan ke ${n} baris`);
+                }}
+                style={{ padding: '0.5rem 1.25rem', background: 'var(--bg-dark)', color: 'var(--accent-gold)', border: 'none', borderRadius: '0.375rem', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' }}
+              >
+                Terapkan ke Semua Baris
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Items Table */}
         <div className="card" style={{ marginBottom: '1rem', overflow: 'hidden' }}>
