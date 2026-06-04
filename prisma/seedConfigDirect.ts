@@ -37,7 +37,7 @@ import { seedOutletConfigs, seedPrinterConfigs, seedCategoryConfigs } from '../l
 
 const OUTLETS: { code: string; group: string }[] = [
   // UNION
-  ...['UTP','UPKW','UPS','USC','UCP','UGI','UPIM','UPIK','UMKG','USMS','UCP-B','UPS-B','USC-B','UPIK-B','UMKG-B']
+  ...['UTP','UPKW','UPS','USC','UCP','UGI','UPIM','UPIK','UMKG','USMS','UMPI','UCP-B','UPS-B','USC-B','UPIK-B','UMKG-B','UMPI-B']
     .map((code) => ({ code, group: 'UNION' })),
   // CNS
   ...['CSPI','CSPP','CSSG','CSPI-B','CSPP-B','CSSG-B','BLCS']

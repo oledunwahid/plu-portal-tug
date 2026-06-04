@@ -45,7 +45,7 @@ const OUTLET_ENTRIES = [
   { term: 'BISPIK', definition: 'Bistecca PIK — IBR Group', grp: 'IBR' },
   { term: 'MILGI', definition: 'Milano Grand Indonesia — IBR Group (MIL prefix)', grp: 'IBR' },
   { term: 'MILPIK', definition: 'Milano PIK — IBR Group (MIL prefix)', grp: 'IBR' },
-  { term: 'UTP', definition: 'Union Thamrin Plaza — Union Group', grp: 'UNION' },
+  { term: 'UTP', definition: 'Union Tunjungan Plaza — Union Group', grp: 'UNION' },
   { term: 'UPKW', definition: 'Union Pakuwon — Union Group', grp: 'UNION' },
   { term: 'UPS', definition: 'Union Pondok Indah — Union Group', grp: 'UNION' },
   { term: 'USC', definition: 'Union Senayan City — Union Group', grp: 'UNION' },

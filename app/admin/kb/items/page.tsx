@@ -115,12 +115,22 @@ export default function MasterItemsPage() {
   const [outletGroup, setOutletGroup] = useState('ALL');
   const [department, setDepartment] = useState('ALL');
   const [activeFilter, setActiveFilter] = useState('ALL');
+  const [outlet, setOutlet] = useState('ALL');
+  const [allOutletCodes, setAllOutletCodes] = useState<string[]>([]);
 
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const totalPages = Math.ceil(total / 50);
+
+  // Load all outlet codes for the outlet filter
+  useEffect(() => {
+    fetch('/api/config/outlets?activeOnly=true')
+      .then((r) => r.ok ? r.json() : [])
+      .then((data: { code: string }[]) => setAllOutletCodes(data.map((o) => o.code).sort()))
+      .catch(() => {});
+  }, []);
 
   const fetchItems = useCallback(async (p = page) => {
     setLoading(true);
@@ -129,6 +139,7 @@ export default function MasterItemsPage() {
       if (search) params.set('search', search);
       if (outletGroup !== 'ALL') params.set('outletGroup', outletGroup);
       if (department !== 'ALL') params.set('department', department);
+      if (outlet !== 'ALL') params.set('outlet', outlet);
       if (activeFilter === 'ACTIVE') params.set('active', '1');
       else if (activeFilter === 'INACTIVE') params.set('active', '0');
 
@@ -143,9 +154,9 @@ export default function MasterItemsPage() {
     } finally {
       setLoading(false);
     }
-  }, [search, outletGroup, department, activeFilter, page]);
+  }, [search, outletGroup, department, outlet, activeFilter, page]);
 
-  useEffect(() => { fetchItems(1); setPage(1); }, [search, outletGroup, department, activeFilter]);
+  useEffect(() => { fetchItems(1); setPage(1); }, [search, outletGroup, department, outlet, activeFilter]);
   useEffect(() => { fetchItems(page); }, [page]);
 
   async function handleUpload(file: File) {
@@ -161,7 +172,7 @@ export default function MasterItemsPage() {
       const data = await res.json();
       if (!res.ok) { toast.error(data.error ?? 'Upload failed'); return; }
       const { inserted, updated, skipped } = data;
-      let msg = `Registry updated — ${inserted} item${inserted !== 1 ? 's' : ''} imported, ${updated} updated`;
+      let msg = `Registry updated: ${inserted} item${inserted !== 1 ? 's' : ''} imported, ${updated} updated`;
       if (skipped > 0) msg += `, ${skipped} skipped (malformed)`;
       toast.success(msg);
       fetchItems(1);
@@ -252,6 +263,10 @@ export default function MasterItemsPage() {
         <select value={department} onChange={(e) => setDepartment(e.target.value)} style={SELECT_STYLE}>
           <option value="ALL">All Departments</option>
           {departments.map((d) => <option key={d} value={d}>{d}</option>)}
+        </select>
+        <select value={outlet} onChange={(e) => setOutlet(e.target.value)} style={SELECT_STYLE}>
+          <option value="ALL">All Outlets</option>
+          {allOutletCodes.map((o) => <option key={o} value={o}>{o}</option>)}
         </select>
         <select value={activeFilter} onChange={(e) => setActiveFilter(e.target.value)} style={SELECT_STYLE}>
           <option value="ALL">All Status</option>

@@ -243,11 +243,13 @@ export const OUTLET_TO_PREFIX: Record<string, string> = {
   UPIK:   'UNI',
   UMKG:   'UNI',
   USMS:   'UNI',
+  UMPI:   'UNI',
   'UCP-B':  'UNI',
   'UPS-B':  'UNI',
   'USC-B':  'UNI',
   'UPIK-B': 'UNI',
   'UMKG-B': 'UNI',
+  'UMPI-B': 'UNI',
   // CNS Group
   CSPI:     'CNS',
   CSPP:     'CNS',

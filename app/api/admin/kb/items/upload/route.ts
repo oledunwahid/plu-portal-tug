@@ -101,7 +101,7 @@ export async function POST(req: NextRequest) {
         tax1: parseBool(row['Tax1'] ?? row['tax1'] ?? '1'),
         tax2: parseBool(row['Tax2'] ?? row['tax2'] ?? '1'),
         noDiscount: parseBool(row['NoDiscount'] ?? row['noDiscount'] ?? '1'),
-        hideReceipt: parseBool(row['HideReceipt'] ?? row['hideReceipt'] ?? '0') ? false : false,
+        hideReceipt: parseBool(row['HideReceipt'] ?? row['hideReceipt'] ?? '0'),
         printers: parseSemiList(row['Printers'] ?? row['printers'] ?? ''),
         outlets: parseSemiList(row['Outlets'] ?? row['outlets'] ?? ''),
         outletGroup: deriveOutletGroup(code),

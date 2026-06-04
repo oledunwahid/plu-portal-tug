@@ -60,6 +60,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
           outlets: Array.isArray(i.outlets) ? (i.outlets as string[]).join(';') : String(i.outlets ?? ''),
           salesDef: (i.salesDef as string | undefined) ?? 'SALES',
           barcode: (i.barcode as string | null) ?? null,
+          remarks: (i.remarks as string | null) ?? null,
         };
       }
     );

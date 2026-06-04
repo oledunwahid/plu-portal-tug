@@ -16,6 +16,7 @@ const TYPE_LABELS: Record<string, string> = {
   UPDATE_NAME: 'Update Name',
   UPDATE_PRINTER: 'Change Printer',
   UPDATE_FULL: 'Full Update',
+  REMOVE_PLU: 'Remove PLU',
 };
 
 interface DiscountRequest {

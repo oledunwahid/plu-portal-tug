@@ -8,8 +8,9 @@ datasource db {
 }
 
 // role values: CASHIER | ADMIN
-// requestType values: NEW_ITEM | UPDATE_PRICE | UPDATE_NAME | UPDATE_PRINTER | UPDATE_FULL
+// requestType values: NEW_ITEM | UPDATE_PRICE | UPDATE_NAME | UPDATE_PRINTER | UPDATE_FULL | REMOVE_PLU
 // status values: PENDING | DONE
+// Note: UPDATE_FULL kept for backward compatibility with existing records; REMOVE_PLU added for item removal requests
 
 model User {
   id               String            @id @default(cuid())
@@ -63,6 +64,7 @@ model RequestBatchItem {
   outlets       String
   salesDef      String       @default("SALES")
   barcode       String?
+  remarks       String?
   sortOrder     Int          @default(0)
 }
 

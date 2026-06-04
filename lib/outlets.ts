@@ -2,8 +2,8 @@ export type OutletGroup = 'UNION' | 'CNS' | 'FRENCH' | 'IBR' | 'IND';
 
 export const OUTLET_TO_GROUP: Record<string, OutletGroup> = {
   UTP: 'UNION', UPKW: 'UNION', UPS: 'UNION', USC: 'UNION', UCP: 'UNION',
-  UGI: 'UNION', UPIM: 'UNION', UPIK: 'UNION', UMKG: 'UNION', USMS: 'UNION',
-  'UCP-B': 'UNION', 'UPS-B': 'UNION', 'USC-B': 'UNION', 'UPIK-B': 'UNION', 'UMKG-B': 'UNION',
+  UGI: 'UNION', UPIM: 'UNION', UPIK: 'UNION', UMKG: 'UNION', USMS: 'UNION', UMPI: 'UNION',
+  'UCP-B': 'UNION', 'UPS-B': 'UNION', 'USC-B': 'UNION', 'UPIK-B': 'UNION', 'UMKG-B': 'UNION', 'UMPI-B': 'UNION',
 
   CSPI: 'CNS', CSPP: 'CNS', CSSG: 'CNS',
   'CSPI-B': 'CNS', 'CSPP-B': 'CNS', 'CSSG-B': 'CNS',
@@ -20,7 +20,7 @@ export const OUTLET_TO_GROUP: Record<string, OutletGroup> = {
 };
 
 export const OUTLETS_BY_GROUP: Record<OutletGroup, string[]> = {
-  UNION: ['UTP','UPKW','UPS','USC','UCP','UGI','UPIM','UPIK','UMKG','USMS','UCP-B','UPS-B','USC-B','UPIK-B','UMKG-B'],
+  UNION: ['UTP','UPKW','UPS','USC','UCP','UGI','UPIM','UPIK','UMKG','USMS','UMPI','UCP-B','UPS-B','USC-B','UPIK-B','UMKG-B','UMPI-B'],
   CNS:   ['CSPI','CSPP','CSSG','CSPI-B','CSPP-B','CSSG-B','BLCS'],
   FRENCH: ['LWY-OAK','LWY-OAK-B','BAB-SEN','BAB-SEN-B','PIE-SNPT','PIE-SNPT-B'],
   IBR:   ['ROMSCBD','ROMPIM','BISSCBD','BISPIK','MILGI','MILPIK','BISSCBD-B'],

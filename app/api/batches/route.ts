@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'At least one item is required' }, { status: 400 });
     }
 
-    const validTypes = ['NEW_ITEM', 'UPDATE_PRICE', 'UPDATE_NAME', 'UPDATE_PRINTER', 'UPDATE_FULL'];
+    const validTypes = ['NEW_ITEM', 'UPDATE_PRICE', 'UPDATE_NAME', 'UPDATE_PRINTER', 'UPDATE_FULL', 'REMOVE_PLU'];
     const requestType = validTypes.includes(body.requestType) ? body.requestType : 'NEW_ITEM';
 
     if (requestType === 'NEW_ITEM') {
@@ -73,6 +73,7 @@ export async function POST(req: NextRequest) {
         outlets: Array.isArray(i.outlets) ? (i.outlets as string[]).join(';') : String(i.outlets ?? ''),
         salesDef: (i.salesDef as string | undefined) ?? 'SALES',
         barcode: (i.barcode as string | null) ?? null,
+        remarks: (i.remarks as string | null) ?? null,
       };
     });
 

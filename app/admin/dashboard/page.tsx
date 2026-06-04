@@ -246,7 +246,7 @@ export default function AdminDashboard() {
     try {
       const res = await fetch(`/api/admin/batches/${batch.id}/done`, { method: 'POST' });
       if (!res.ok) throw new Error();
-      toast.success(`Batch marked as done — ${batch.items.length} item${batch.items.length !== 1 ? 's' : ''}`);
+      toast.success(`Batch marked as done: ${batch.items.length} item${batch.items.length !== 1 ? 's' : ''}`);
       fetchRequests();
     } catch {
       toast.error('Failed to mark batch done');
@@ -395,6 +395,7 @@ export default function AdminDashboard() {
           <option value="UPDATE_NAME">Update Name</option>
           <option value="UPDATE_PRINTER">Chg Printer</option>
           <option value="UPDATE_FULL">Full Update</option>
+          <option value="REMOVE_PLU">Remove PLU</option>
         </select>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>

@@ -9,6 +9,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { toast } from 'sonner';
 import { Loader2, ChevronLeft, AlertTriangle } from 'lucide-react';
 import { SuccessModal } from '@/components/SuccessModal';
+import { PLUCodeSearch } from '@/components/PLUCodeSearch';
 import Link from 'next/link';
 
 function formatIDR(value: number): string {
@@ -87,6 +88,7 @@ export default function EditRequestPage() {
 
   const [form, setForm] = useState<FormState | null>(null);
   const [requestType, setRequestType] = useState('');
+  const [requestCode, setRequestCode] = useState<string | null>(null);
   const [errors, setErrors] = useState<Partial<Record<keyof FormState, string>>>({});
   const [loading, setLoading] = useState(false);
   const [fetching, setFetching] = useState(true);
@@ -95,7 +97,6 @@ export default function EditRequestPage() {
   const sessionUser = session?.user as any;
   const outletGroup = sessionUser?.outletGroup ?? '';
 
-  // Config state
   const [configCategories, setConfigCategories] = useState<ConfigCategory[]>([]);
   const [configPrinters, setConfigPrinters] = useState<ConfigPrinter[]>([]);
   const [configOutlets, setConfigOutlets] = useState<string[]>([]);
@@ -120,21 +121,19 @@ export default function EditRequestPage() {
       .finally(() => setConfigLoading(false));
   }, [outletGroup]);
 
-  const categoryOptions = configCategories.map((c) => ({
-    value: c.name, label: c.name, group: c.department,
-  }));
-
+  const categoryOptions = configCategories.map((c) => ({ value: c.name, label: c.name, group: c.department }));
   const printerNames = configPrinters.map((p) => p.name);
 
-  const showName = requestType === 'NEW_ITEM' || requestType === 'UPDATE_NAME' || requestType === 'UPDATE_FULL';
-  const showCategoryDept = requestType === 'NEW_ITEM' || requestType === 'UPDATE_FULL';
-  const showPrice = requestType === 'NEW_ITEM' || requestType === 'UPDATE_PRICE' || requestType === 'UPDATE_FULL';
-  const showFolder = requestType === 'NEW_ITEM' || requestType === 'UPDATE_FULL';
-  const showPrintersCard = requestType === 'NEW_ITEM' || requestType === 'UPDATE_PRINTER' || requestType === 'UPDATE_FULL';
-  const showOutletsCard = true;
-  const showPOSCard = requestType === 'NEW_ITEM' || requestType === 'UPDATE_FULL';
-  const showSalesDef = requestType === 'NEW_ITEM' || requestType === 'UPDATE_FULL';
-  const showItemDetailsCard = showName || showCategoryDept || showPrice || showFolder;
+  const isRemovePLU = requestType === 'REMOVE_PLU';
+  const showName = requestType === 'NEW_ITEM' || requestType === 'UPDATE_NAME';
+  const showCategoryDept = requestType === 'NEW_ITEM';
+  const showPrice = requestType === 'NEW_ITEM' || requestType === 'UPDATE_PRICE';
+  const showFolder = requestType === 'NEW_ITEM';
+  const showPrintersCard = requestType === 'NEW_ITEM' || requestType === 'UPDATE_PRINTER';
+  const showOutletsCard = requestType === 'NEW_ITEM';
+  const showPOSCard = requestType === 'NEW_ITEM';
+  const showSalesDef = requestType === 'NEW_ITEM';
+  const showItemDetailsCard = showName || showCategoryDept || showPrice || showFolder || requestType === 'UPDATE_PRICE';
 
   useEffect(() => {
     async function load() {
@@ -147,6 +146,7 @@ export default function EditRequestPage() {
         const data = await res.json();
         if (data.status === 'DONE') { router.replace('/cashier/dashboard'); return; }
         setRequestType(data.requestType);
+        setRequestCode(data.code ?? null);
         setForm({
           name: data.name,
           category: data.category,
@@ -210,6 +210,8 @@ export default function EditRequestPage() {
       if (!form.name.trim()) errs.name = 'Item name is required';
     } else if (requestType === 'UPDATE_PRINTER') {
       if (form.printers.length === 0) errs.printers = 'Select at least one printer';
+    } else if (requestType === 'REMOVE_PLU') {
+      if (!form.remarks.trim()) errs.remarks = 'Alasan penghapusan harus diisi';
     }
     setErrors(errs);
     return Object.keys(errs).length === 0;
@@ -221,7 +223,7 @@ export default function EditRequestPage() {
     setLoading(true);
     try {
       const body = {
-        name: form.name.trim(),
+        name: form.name.trim() || '',
         category: form.category,
         department: form.department,
         price: form.price !== '' ? Number(form.price) : 0,
@@ -247,7 +249,7 @@ export default function EditRequestPage() {
         throw new Error(data.error ?? 'Update failed');
       }
       const data = await res.json();
-      setSuccessModal({ open: true, itemName: data.name });
+      setSuccessModal({ open: true, itemName: data.name || requestCode || 'item' });
     } catch (err: any) {
       toast.error(err.message ?? 'Something went wrong');
     } finally {
@@ -283,6 +285,7 @@ export default function EditRequestPage() {
       <h1 className="page-title" style={{ marginBottom: '0.375rem' }}>Edit Request</h1>
       <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
         Request type: <strong>{requestType.replace(/_/g, ' ')}</strong>
+        {requestCode && <> &middot; Code: <span style={{ fontFamily: 'monospace', color: '#C9A84C' }}>{requestCode}</span></>}
       </p>
 
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', padding: '0.75rem 1rem', background: 'rgba(184,134,11,0.06)', border: '1px solid rgba(184,134,11,0.2)', borderRadius: '6px', marginBottom: '1.5rem', maxWidth: '680px', margin: '0 auto 1.5rem' }}>
@@ -293,20 +296,68 @@ export default function EditRequestPage() {
       </div>
 
       <form onSubmit={handleSubmit} style={{ maxWidth: '680px', margin: '0 auto' }}>
-        {/* Item Details */}
-        {showItemDetailsCard && (
+
+        {/* REMOVE_PLU layout */}
+        {isRemovePLU && (
+          <div className="card" style={{ padding: '1.5rem', marginBottom: '1rem' }}>
+            <div className="section-title" style={{ marginBottom: '1.25rem' }}>Item to Remove</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              {requestCode && (
+                <FieldGroup label="PLU Code">
+                  <div style={{ padding: '0.5rem 0.75rem', background: 'var(--bg-cream)', borderRadius: '0.375rem', border: '1px solid var(--border)', fontFamily: 'monospace', fontSize: '0.875rem', color: '#C9A84C', fontWeight: 600 }}>
+                    {requestCode}
+                  </div>
+                </FieldGroup>
+              )}
+              {form.name && (
+                <FieldGroup label="Item Name">
+                  <div style={{ padding: '0.5rem 0.75rem', background: 'var(--bg-cream)', borderRadius: '0.375rem', border: '1px solid var(--border)', fontSize: '0.875rem', color: 'var(--text-primary)' }}>
+                    {form.name}
+                  </div>
+                </FieldGroup>
+              )}
+              {form.folder && (
+                <FieldGroup label="Folder">
+                  <div style={{ padding: '0.5rem 0.75rem', background: 'var(--bg-cream)', borderRadius: '0.375rem', border: '1px solid var(--border)', fontSize: '0.875rem', color: 'var(--text-primary)' }}>
+                    {form.folder}
+                  </div>
+                </FieldGroup>
+              )}
+              <FieldGroup label="Alasan Penghapusan">
+                <textarea
+                  value={form.remarks} onChange={(e) => set('remarks', e.target.value)}
+                  placeholder="Jelaskan alasan penghapusan item ini..." rows={3}
+                  className={`flex min-h-[80px] w-full rounded-md border bg-u-card px-3 py-2 text-sm text-u-primary placeholder:text-u-secondary/60 focus:outline-none focus:ring-2 focus:ring-u-gold/40 focus:border-u-gold transition-all duration-200 resize-y ${errors.remarks ? 'border-red-400' : 'border-u-input'}`}
+                />
+                {errors.remarks && <p style={{ fontSize: '0.75rem', color: '#8B3A2A' }}>{errors.remarks}</p>}
+              </FieldGroup>
+            </div>
+          </div>
+        )}
+
+        {/* Item Details for non-REMOVE_PLU */}
+        {!isRemovePLU && showItemDetailsCard && (
           <div className="card" style={{ padding: '1.5rem', marginBottom: '1rem' }}>
             <div className="section-title" style={{ marginBottom: '1.25rem' }}>Item Details</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+
+              {/* PLU Code search for update types */}
+              {requestType !== 'NEW_ITEM' && requestCode && (
+                <FieldGroup label="PLU Code">
+                  <PLUCodeSearch
+                    value={requestCode}
+                    onChange={() => {}}
+                    disabled
+                    placeholder="PLU code"
+                  />
+                  <p style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', margin: 0 }}>PLU code cannot be changed after creation.</p>
+                </FieldGroup>
+              )}
+
               {showName && (
                 <FieldGroup label="Item Name">
-                  <input
-                    type="text"
-                    value={form.name}
-                    onChange={(e) => set('name', e.target.value)}
-                    placeholder="e.g. Chix Poppers"
-                    className={`flex h-10 w-full rounded-md border bg-u-card px-3 py-2 text-sm text-u-primary placeholder:text-u-secondary/60 focus:outline-none focus:ring-2 focus:ring-u-gold/40 focus:border-u-gold transition-all duration-200 ${errors.name ? 'border-red-400' : 'border-u-input'}`}
-                  />
+                  <input type="text" value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="e.g. Chix Poppers"
+                    className={`flex h-10 w-full rounded-md border bg-u-card px-3 py-2 text-sm text-u-primary placeholder:text-u-secondary/60 focus:outline-none focus:ring-2 focus:ring-u-gold/40 focus:border-u-gold transition-all duration-200 ${errors.name ? 'border-red-400' : 'border-u-input'}`} />
                   {errors.name && <p style={{ fontSize: '0.75rem', color: '#8B3A2A' }}>{errors.name}</p>}
                 </FieldGroup>
               )}
@@ -315,40 +366,18 @@ export default function EditRequestPage() {
                 <>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                     <FieldGroup label="Category">
-                      {configLoading ? (
-                        <ConfigSkeleton />
-                      ) : configError ? (
-                        <ConfigErrorBanner />
-                      ) : (
-                        <Combobox
-                          options={categoryOptions}
-                          value={form.category}
-                          onChange={(v) => set('category', v)}
-                          placeholder="Select category..."
-                          searchPlaceholder="Search categories..."
-                        />
+                      {configLoading ? <ConfigSkeleton /> : configError ? <ConfigErrorBanner /> : (
+                        <Combobox options={categoryOptions} value={form.category} onChange={(v) => set('category', v)} placeholder="Select category..." searchPlaceholder="Search categories..." />
                       )}
                       {errors.category && <p style={{ fontSize: '0.75rem', color: '#8B3A2A' }}>{errors.category}</p>}
                     </FieldGroup>
                     <FieldGroup label="Department" hint="Auto-filled from category">
-                      <input
-                        type="text"
-                        value={form.department}
-                        onChange={(e) => set('department', e.target.value)}
-                        className="flex h-10 w-full rounded-md border border-u-input bg-u-cream px-3 py-2 text-sm text-u-primary placeholder:text-u-secondary/60 focus:outline-none focus:ring-2 focus:ring-u-gold/40 focus:border-u-gold transition-all duration-200"
-                      />
+                      <input type="text" value={form.department} onChange={(e) => set('department', e.target.value)} className="flex h-10 w-full rounded-md border border-u-input bg-u-cream px-3 py-2 text-sm text-u-primary placeholder:text-u-secondary/60 focus:outline-none focus:ring-2 focus:ring-u-gold/40 focus:border-u-gold transition-all duration-200" />
                     </FieldGroup>
                   </div>
-
                   {form.department === 'WINE' && (
                     <FieldGroup label="Barcode">
-                      <input
-                        type="text"
-                        value={form.barcode}
-                        onChange={(e) => set('barcode', e.target.value)}
-                        placeholder="Enter barcode"
-                        className="flex h-10 w-full rounded-md border border-u-input bg-u-card px-3 py-2 text-sm text-u-primary placeholder:text-u-secondary/60 focus:outline-none focus:ring-2 focus:ring-u-gold/40 focus:border-u-gold transition-all duration-200"
-                      />
+                      <input type="text" value={form.barcode} onChange={(e) => set('barcode', e.target.value)} placeholder="Enter barcode" className="flex h-10 w-full rounded-md border border-u-input bg-u-card px-3 py-2 text-sm text-u-primary placeholder:text-u-secondary/60 focus:outline-none focus:ring-2 focus:ring-u-gold/40 focus:border-u-gold transition-all duration-200" />
                     </FieldGroup>
                   )}
                 </>
@@ -358,26 +387,15 @@ export default function EditRequestPage() {
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                   {showPrice && (
                     <FieldGroup label="Price (IDR)">
-                      <input
-                        type="number"
-                        value={form.price}
-                        onChange={(e) => set('price', e.target.value)}
-                        placeholder="95000"
-                        className={`flex h-10 w-full rounded-md border bg-u-card px-3 py-2 text-sm text-u-primary placeholder:text-u-secondary/60 focus:outline-none focus:ring-2 focus:ring-u-gold/40 focus:border-u-gold transition-all duration-200 ${errors.price ? 'border-red-400' : 'border-u-input'}`}
-                      />
+                      <input type="number" value={form.price} onChange={(e) => set('price', e.target.value)} placeholder="95000"
+                        className={`flex h-10 w-full rounded-md border bg-u-card px-3 py-2 text-sm text-u-primary placeholder:text-u-secondary/60 focus:outline-none focus:ring-2 focus:ring-u-gold/40 focus:border-u-gold transition-all duration-200 ${errors.price ? 'border-red-400' : 'border-u-input'}`} />
                       <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>{formatIDR(Number(form.price))}</p>
                       {errors.price && <p style={{ fontSize: '0.75rem', color: '#8B3A2A' }}>{errors.price}</p>}
                     </FieldGroup>
                   )}
                   {showFolder && (
                     <FieldGroup label="Folder / Menu Section">
-                      <input
-                        type="text"
-                        value={form.folder}
-                        onChange={(e) => set('folder', e.target.value)}
-                        placeholder="e.g. CINCO DE MAYO"
-                        className="flex h-10 w-full rounded-md border border-u-input bg-u-card px-3 py-2 text-sm text-u-primary placeholder:text-u-secondary/60 focus:outline-none focus:ring-2 focus:ring-u-gold/40 focus:border-u-gold transition-all duration-200"
-                      />
+                      <input type="text" value={form.folder} onChange={(e) => set('folder', e.target.value)} placeholder="e.g. CINCO DE MAYO" className="flex h-10 w-full rounded-md border border-u-input bg-u-card px-3 py-2 text-sm text-u-primary placeholder:text-u-secondary/60 focus:outline-none focus:ring-2 focus:ring-u-gold/40 focus:border-u-gold transition-all duration-200" />
                     </FieldGroup>
                   )}
                 </div>
@@ -385,11 +403,7 @@ export default function EditRequestPage() {
 
               {showSalesDef && (
                 <FieldGroup label="SALES DEF">
-                  <select
-                    value={form.salesDef}
-                    onChange={(e) => set('salesDef', e.target.value)}
-                    className="flex h-10 w-full rounded-md border border-u-input bg-u-card px-3 py-2 text-sm text-u-primary focus:outline-none focus:ring-2 focus:ring-u-gold/40 focus:border-u-gold transition-all duration-200"
-                  >
+                  <select value={form.salesDef} onChange={(e) => set('salesDef', e.target.value)} className="flex h-10 w-full rounded-md border border-u-input bg-u-card px-3 py-2 text-sm text-u-primary focus:outline-none focus:ring-2 focus:ring-u-gold/40 focus:border-u-gold transition-all duration-200">
                     <option value="SALES">SALES</option>
                     <option value="MODIFIER">MODIFIER</option>
                   </select>
@@ -403,14 +417,8 @@ export default function EditRequestPage() {
         {showPrintersCard && (
           <div className="card" style={{ padding: '1.5rem', marginBottom: '1rem' }}>
             <div className="section-title" style={{ marginBottom: '0.25rem' }}>Printers</div>
-            <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
-              Select which kitchen/bar printers should receive this item&apos;s tickets.
-            </p>
-            {configLoading ? (
-              <ConfigSkeleton />
-            ) : configError ? (
-              <ConfigErrorBanner />
-            ) : (
+            <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>Select which kitchen/bar printers should receive this item&apos;s tickets.</p>
+            {configLoading ? <ConfigSkeleton /> : configError ? <ConfigErrorBanner /> : (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.375rem 0.5rem' }}>
                 {printerNames.map((p) => (
                   <label key={p} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer', fontSize: '0.8rem', color: 'var(--text-primary)' }}>
@@ -428,11 +436,7 @@ export default function EditRequestPage() {
         {showOutletsCard && (
           <div className="card" style={{ padding: '1.5rem', marginBottom: '1rem' }}>
             <div className="section-title" style={{ marginBottom: '0.25rem' }}>Outlets</div>
-            {configLoading ? (
-              <ConfigSkeleton />
-            ) : configError ? (
-              <ConfigErrorBanner />
-            ) : (
+            {configLoading ? <ConfigSkeleton /> : configError ? <ConfigErrorBanner /> : (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.625rem' }}>
                 {configOutlets.map((o) => (
                   <label key={o} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer', fontSize: '0.8rem', color: 'var(--text-primary)' }}>
@@ -451,15 +455,13 @@ export default function EditRequestPage() {
           <div className="card" style={{ padding: '1.5rem', marginBottom: '1rem' }}>
             <div className="section-title" style={{ marginBottom: '1.25rem' }}>POS Settings</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.875rem' }}>
-              {(
-                [
-                  { key: 'serviceCharge', label: 'Service Charge' },
-                  { key: 'tax1', label: 'Tax 1' },
-                  { key: 'tax2', label: 'Tax 2' },
-                  { key: 'noDiscount', label: 'No Discount' },
-                  { key: 'hideReceipt', label: 'Hide on Receipt' },
-                ] as { key: keyof FormState; label: string }[]
-              ).map(({ key, label }) => (
+              {([
+                { key: 'serviceCharge', label: 'Service Charge' },
+                { key: 'tax1', label: 'Tax 1' },
+                { key: 'tax2', label: 'Tax 2' },
+                { key: 'noDiscount', label: 'No Discount' },
+                { key: 'hideReceipt', label: 'Hide on Receipt' },
+              ] as { key: keyof FormState; label: string }[]).map(({ key, label }) => (
                 <label key={key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', fontSize: '0.875rem', color: 'var(--text-primary)' }}>
                   {label}
                   <Switch checked={form[key] as boolean} onCheckedChange={(v) => set(key, v as FormState[typeof key])} />
@@ -470,29 +472,21 @@ export default function EditRequestPage() {
         )}
 
         {/* Remarks */}
-        <div className="card" style={{ padding: '1.5rem', marginBottom: '1.5rem' }}>
-          <FieldGroup label="Remarks" hint="Optional additional context for the admin.">
-            <textarea
-              value={form.remarks}
-              onChange={(e) => set('remarks', e.target.value)}
-              rows={3}
-              className="flex min-h-[80px] w-full rounded-md border border-u-input bg-u-card px-3 py-2 text-sm text-u-primary placeholder:text-u-secondary/60 focus:outline-none focus:ring-2 focus:ring-u-gold/40 focus:border-u-gold transition-all duration-200 resize-y"
-            />
-          </FieldGroup>
-        </div>
+        {!isRemovePLU && (
+          <div className="card" style={{ padding: '1.5rem', marginBottom: '1.5rem' }}>
+            <FieldGroup label="Remarks" hint="Optional additional context for the admin.">
+              <textarea value={form.remarks} onChange={(e) => set('remarks', e.target.value)} rows={3}
+                className="flex min-h-[80px] w-full rounded-md border border-u-input bg-u-card px-3 py-2 text-sm text-u-primary placeholder:text-u-secondary/60 focus:outline-none focus:ring-2 focus:ring-u-gold/40 focus:border-u-gold transition-all duration-200 resize-y"
+              />
+            </FieldGroup>
+          </div>
+        )}
+
+        {isRemovePLU && <div style={{ marginBottom: '1.5rem' }} />}
 
         <div style={{ display: 'flex', gap: '0.75rem' }}>
-          <button
-            type="submit"
-            disabled={loading}
-            style={{
-              display: 'inline-flex', alignItems: 'center', gap: '0.5rem',
-              padding: '0.625rem 1.5rem',
-              background: loading ? 'rgba(26,16,8,0.5)' : 'var(--bg-dark)',
-              color: 'var(--accent-gold)', border: 'none', borderRadius: '0.375rem',
-              fontSize: '0.875rem', fontWeight: 500, cursor: loading ? 'not-allowed' : 'pointer',
-            }}
-          >
+          <button type="submit" disabled={loading}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', padding: '0.625rem 1.5rem', background: loading ? 'rgba(26,16,8,0.5)' : 'var(--bg-dark)', color: 'var(--accent-gold)', border: 'none', borderRadius: '0.375rem', fontSize: '0.875rem', fontWeight: 500, cursor: loading ? 'not-allowed' : 'pointer' }}>
             {loading && <Loader2 size={15} style={{ animation: 'spin 1s linear infinite' }} />}
             {loading ? 'Saving…' : 'Save Changes'}
           </button>

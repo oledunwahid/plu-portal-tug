@@ -142,7 +142,7 @@ export default function BarcodeLookupPage() {
 
         {total > 10 && (
           <div style={{ textAlign: 'center', fontSize: '0.8rem', color: 'var(--text-secondary)', padding: '0.5rem' }}>
-            Showing 10 of {total.toLocaleString()} results — refine your search.
+            Showing 10 of {total.toLocaleString()} results. Refine your search for more precise matches.
           </div>
         )}
       </div>

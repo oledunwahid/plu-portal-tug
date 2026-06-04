@@ -274,9 +274,9 @@ export default function ExportPage() {
 
       const plural = toDownload.length !== 1 ? 's' : '';
       if (format === 'XLSX' && activeType === 'NEW_ITEM') {
-        toast.success(`XLSX downloaded — ${toDownload.length} item${plural}. Assign codes in Quinos, then mark as Done.`);
+        toast.success(`XLSX downloaded: ${toDownload.length} item${plural}. Assign codes in Quinos, then mark as Done.`);
       } else {
-        toast.success(`${format} downloaded — ${toDownload.length} item${plural}.`);
+        toast.success(`${format} downloaded: ${toDownload.length} item${plural}.`);
       }
       fetchRequests();
     } catch (err: any) {

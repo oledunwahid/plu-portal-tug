@@ -55,7 +55,10 @@ export default function NewDiscountPage() {
 
   const sessionUser = session?.user as any;
   const outletGroup = (sessionUser?.outletGroup as OutletGroup) ?? 'IBR';
-  const outlets = OUTLETS_BY_GROUP[outletGroup] ?? [];
+  const baseOutlets = OUTLETS_BY_GROUP[outletGroup] ?? [];
+  const outlets = outletGroup === 'CNS' && !baseOutlets.includes('IND1')
+    ? [...baseOutlets, 'IND1']
+    : baseOutlets;
 
   function set<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((f) => ({ ...f, [key]: value }));

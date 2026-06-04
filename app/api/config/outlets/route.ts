@@ -17,7 +17,6 @@ export async function GET(req: NextRequest) {
     let outlets = await getOutletConfigs();
 
     if (outlets.length === 0 && activeOnlyParam === null) {
-      // No filter applied, genuinely empty or db error — log for diagnostics
       console.warn('[GET /api/config/outlets] returned 0 records (dbPath=%s)', process.env.DATABASE_URL);
     }
 
@@ -26,9 +25,21 @@ export async function GET(req: NextRequest) {
     } else if (activeOnlyParam === 'false') {
       outlets = outlets.filter((o) => !o.isActive);
     }
-    // activeOnlyParam === null → return all records, no filter
 
-    if (group) outlets = outlets.filter((o) => o.group === group);
+    if (group) {
+      const groupOutlets = outlets.filter((o) => o.group === group);
+      // CNS cashiers also see IND1 in outlet lists (form visibility only, not group reassignment)
+      if (group === 'CNS') {
+        const ind1 = outlets.find((o) => o.code === 'IND1');
+        if (ind1 && !groupOutlets.find((o) => o.code === 'IND1')) {
+          outlets = [...groupOutlets, ind1];
+        } else {
+          outlets = groupOutlets;
+        }
+      } else {
+        outlets = groupOutlets;
+      }
+    }
 
     return NextResponse.json(outlets);
   } catch (error) {
