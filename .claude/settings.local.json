@@ -36,7 +36,8 @@
       "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\makka\\\\plu-portal-tug\" -Recurse)",
       "Bash(ConvertTo-Csv -NoTypeInformation)",
       "Bash(Out-String)",
-      "PowerShell(head *)"
+      "PowerShell(head *)",
+      "Bash(echo \"EXIT: $?\")"
     ]
   }
 }

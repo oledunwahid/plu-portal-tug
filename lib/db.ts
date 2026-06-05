@@ -1066,6 +1066,27 @@ export async function getMasterItemByCode(code: string): Promise<DbMasterItem | 
   }
 }
 
+export async function getMasterItemsByCodes(codes: string[]): Promise<DbMasterItem[]> {
+  try {
+    const unique = Array.from(new Set(codes.filter((c) => typeof c === 'string' && c.trim()).map((c) => c.trim())));
+    if (unique.length === 0) return [];
+    const db = await getDb();
+    const out: DbMasterItem[] = [];
+    // Chunk to stay well under SQLite's bound-variable limit for very large batches (100+ codes)
+    const CHUNK = 400;
+    for (let i = 0; i < unique.length; i += CHUNK) {
+      const slice = unique.slice(i, i + CHUNK);
+      const placeholders = slice.map(() => '?').join(',');
+      const rows = execAll(db, `SELECT * FROM "MasterItem" WHERE code IN (${placeholders})`, slice);
+      for (const row of rows) out.push(rowToMasterItem(row));
+    }
+    return out;
+  } catch (err) {
+    console.error('[db] getMasterItemsByCodes failed:', err);
+    return [];
+  }
+}
+
 export async function searchMasterItems(q: string, limit = 10): Promise<DbMasterItem[]> {
   try {
     const db = await getDb();

@@ -93,6 +93,8 @@ export default function EditRequestPage() {
   const [loading, setLoading] = useState(false);
   const [fetching, setFetching] = useState(true);
   const [successModal, setSuccessModal] = useState({ open: false, itemName: '' });
+  // Reference fields (current name / current price) for UPDATE_PRICE & UPDATE_NAME — display only, not submitted
+  const [refItem, setRefItem] = useState<{ name: string; price: number | null } | null>(null);
 
   const sessionUser = session?.user as any;
   const outletGroup = sessionUser?.outletGroup ?? '';
@@ -147,6 +149,13 @@ export default function EditRequestPage() {
         if (data.status === 'DONE') { router.replace('/cashier/dashboard'); return; }
         setRequestType(data.requestType);
         setRequestCode(data.code ?? null);
+        // For UPDATE_PRICE / UPDATE_NAME, pull current name & price from the master item registry for reference display
+        if ((data.requestType === 'UPDATE_PRICE' || data.requestType === 'UPDATE_NAME') && data.code) {
+          fetch(`/api/admin/kb/items/${encodeURIComponent(data.code)}`)
+            .then((r) => (r.ok ? r.json() : null))
+            .then((mi) => { if (mi) setRefItem({ name: mi.name ?? '', price: mi.price ?? null }); })
+            .catch(() => {});
+        }
         setForm({
           name: data.name,
           category: data.category,
@@ -354,8 +363,24 @@ export default function EditRequestPage() {
                 </FieldGroup>
               )}
 
+              {/* Reference fields — current name & price from master item registry, display only */}
+              {(requestType === 'UPDATE_PRICE' || requestType === 'UPDATE_NAME') && (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                  <FieldGroup label="Current Name" hint="From master item registry">
+                    <div style={{ padding: '0.5rem 0.75rem', background: 'var(--bg-cream)', borderRadius: '0.375rem', border: '1px solid var(--border)', fontSize: '0.875rem', color: refItem?.name ? 'var(--text-primary)' : 'var(--text-secondary)', minHeight: '40px', display: 'flex', alignItems: 'center' }}>
+                      {refItem?.name || '—'}
+                    </div>
+                  </FieldGroup>
+                  <FieldGroup label="Current Price" hint="From master item registry">
+                    <div style={{ padding: '0.5rem 0.75rem', background: 'var(--bg-cream)', borderRadius: '0.375rem', border: '1px solid var(--border)', fontSize: '0.875rem', color: refItem?.price != null ? 'var(--text-primary)' : 'var(--text-secondary)', minHeight: '40px', display: 'flex', alignItems: 'center' }}>
+                      {refItem?.price != null ? formatIDR(refItem.price) : '—'}
+                    </div>
+                  </FieldGroup>
+                </div>
+              )}
+
               {showName && (
-                <FieldGroup label="Item Name">
+                <FieldGroup label={requestType === 'UPDATE_NAME' ? 'New Name' : 'Item Name'}>
                   <input type="text" value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="e.g. Chix Poppers"
                     className={`flex h-10 w-full rounded-md border bg-u-card px-3 py-2 text-sm text-u-primary placeholder:text-u-secondary/60 focus:outline-none focus:ring-2 focus:ring-u-gold/40 focus:border-u-gold transition-all duration-200 ${errors.name ? 'border-red-400' : 'border-u-input'}`} />
                   {errors.name && <p style={{ fontSize: '0.75rem', color: '#8B3A2A' }}>{errors.name}</p>}
@@ -386,7 +411,7 @@ export default function EditRequestPage() {
               {(showPrice || showFolder) && (
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                   {showPrice && (
-                    <FieldGroup label="Price (IDR)">
+                    <FieldGroup label={requestType === 'UPDATE_PRICE' ? 'New Price (IDR)' : 'Price (IDR)'}>
                       <input type="number" value={form.price} onChange={(e) => set('price', e.target.value)} placeholder="95000"
                         className={`flex h-10 w-full rounded-md border bg-u-card px-3 py-2 text-sm text-u-primary placeholder:text-u-secondary/60 focus:outline-none focus:ring-2 focus:ring-u-gold/40 focus:border-u-gold transition-all duration-200 ${errors.price ? 'border-red-400' : 'border-u-input'}`} />
                       <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>{formatIDR(Number(form.price))}</p>

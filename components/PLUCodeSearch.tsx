@@ -7,6 +7,7 @@ export interface PLUSearchResult {
   name: string;
   category: string;
   folder: string | null;
+  price: number | null;
 }
 
 interface PLUCodeSearchProps {
@@ -48,6 +49,7 @@ export function PLUCodeSearch({
         name: item.name,
         category: item.category,
         folder: item.folder ?? null,
+        price: item.price ?? null,
       }));
       setResults(items);
       setOpen(items.length > 0);
