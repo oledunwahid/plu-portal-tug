@@ -146,11 +146,14 @@ export default function BatchEditPage() {
   const showBarcodeColumn = showCategoryCol && items.some((r) => r.department === 'WINE');
   const showPrintersCol = requestType === 'NEW_ITEM' || requestType === 'UPDATE_PRINTER' || requestType === 'UPDATE_FULL';
   const showOutletsCol = requestType === 'NEW_ITEM' || requestType === 'UPDATE_FULL';
+  // Update/remove types without an inline outlets column get a dedicated optional one after Remarks.
+  const showUpdateOutletsCol = requestType !== 'NEW_ITEM' && requestType !== 'UPDATE_FULL';
+  const showAnyOutlets = showOutletsCol || showUpdateOutletsCol; // outlets apply to every request type
   const showPOSCol = requestType === 'NEW_ITEM' || requestType === 'UPDATE_FULL';
   const showCurrentRefCols = requestType === 'UPDATE_PRICE' || requestType === 'UPDATE_NAME';
   const showRemarksCol = requestType === 'NEW_ITEM' || requestType === 'UPDATE_PRICE' || requestType === 'UPDATE_NAME' || requestType === 'UPDATE_FULL';
   const showGlobalRemarks = requestType === 'NEW_ITEM' || requestType === 'UPDATE_PRICE' || requestType === 'UPDATE_NAME' || requestType === 'UPDATE_FULL';
-  const showApplyCard = showOutletsCol || showPrintersCol || showGlobalRemarks;
+  const showApplyCard = showAnyOutlets || showPrintersCol || showGlobalRemarks;
 
   useEffect(() => {
     if (!batchId) return;
@@ -269,12 +272,16 @@ export default function BatchEditPage() {
   }
 
   function handleCodeSearchChange(idx: number, code: string) {
+    // Manual typing keeps the linked current name/price — only a dropdown selection re-syncs them.
     setItems((prev) => prev.map((r, i) => {
       if (i !== idx) return r;
-      // Clear stale current name/price reference when the code is edited manually (until a master item is re-selected)
-      const cleared = (requestType === 'UPDATE_PRICE' || requestType === 'UPDATE_NAME') ? { currentName: '', currentPrice: '' } : {};
-      return { ...r, code, ...cleared, errors: { ...r.errors, code: undefined } };
+      return { ...r, code, errors: { ...r.errors, code: undefined } };
     }));
+  }
+
+  // UPDATE_PRICE / UPDATE_NAME item-name search box — manual typing keeps the PLU code untouched
+  function handleNameSearchChange(idx: number, name: string) {
+    setItems((prev) => prev.map((r, i) => (i === idx ? { ...r, currentName: name } : r)));
   }
 
   function handleCodeItemSelect(idx: number, item: PLUSearchResult) {
@@ -445,16 +452,16 @@ export default function BatchEditPage() {
             <div style={{ marginBottom: '1rem' }}>
               <div className="section-title">Terapkan ke Semua Baris</div>
               <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.25rem', marginBottom: 0 }}>
-                {(showOutletsCol || showPrintersCol)
+                {(showAnyOutlets || showPrintersCol)
                   ? 'Pilih outlet, printer, atau remarks yang akan diterapkan ke seluruh baris sekaligus.'
                   : 'Isi remarks yang akan diterapkan ke seluruh baris sekaligus.'}
               </p>
             </div>
 
-            {(showOutletsCol || showPrintersCol) && (
+            {(showAnyOutlets || showPrintersCol) && (
               <>
                 <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
-                  {showOutletsCol && (
+                  {showAnyOutlets && (
                     <div style={{ flex: 1, minWidth: '200px' }}>
                       <div className="label-caps" style={{ marginBottom: '0.4rem' }}>Outlets</div>
                       <MultiSelect options={configOutlets} value={globalOutlets} onChange={setGlobalOutlets} placeholder="Pilih outlet..." />
@@ -475,7 +482,7 @@ export default function BatchEditPage() {
                       const n = items.length;
                       setItems((prev) => prev.map((r) => ({
                         ...r,
-                        ...(showOutletsCol ? { outlets: globalOutlets } : {}),
+                        ...(showAnyOutlets ? { outlets: globalOutlets } : {}),
                         ...(showPrintersCol ? { printers: globalPrinters } : {}),
                       })));
                       toast.success(`Diterapkan ke ${n} baris`);
@@ -489,7 +496,7 @@ export default function BatchEditPage() {
             )}
 
             {showGlobalRemarks && (
-              <div style={{ marginTop: (showOutletsCol || showPrintersCol) ? '1.25rem' : 0, paddingTop: (showOutletsCol || showPrintersCol) ? '1.25rem' : 0, borderTop: (showOutletsCol || showPrintersCol) ? '1px solid var(--border)' : undefined }}>
+              <div style={{ marginTop: (showAnyOutlets || showPrintersCol) ? '1.25rem' : 0, paddingTop: (showAnyOutlets || showPrintersCol) ? '1.25rem' : 0, borderTop: (showAnyOutlets || showPrintersCol) ? '1px solid var(--border)' : undefined }}>
                 <div className="label-caps" style={{ marginBottom: '0.4rem' }}>REMARKS (opsional)</div>
                 <input
                   type="text" value={globalRemarks} onChange={(e) => setGlobalRemarks(e.target.value)}
@@ -557,6 +564,7 @@ export default function BatchEditPage() {
                   {!isRemovePLU && showPOSCol && <th style={{ minWidth: '110px' }}>Sales Def</th>}
                   {!isRemovePLU && showPOSCol && <th style={{ minWidth: '150px' }}>POS</th>}
                   {!isRemovePLU && showRemarksCol && <th style={{ minWidth: '200px' }}>Remarks</th>}
+                  {showUpdateOutletsCol && <th style={{ minWidth: '140px' }}>Outlets</th>}
                   <th style={{ width: '66px' }}></th>
                 </tr>
               </thead>
@@ -596,8 +604,13 @@ export default function BatchEditPage() {
 
                       {!isRemovePLU && showCurrentRefCols && (
                         <td>
-                          <input type="text" value={row.currentName} readOnly placeholder="—"
-                            style={{ ...INPUT_STYLE, background: 'var(--bg-cream)', color: row.currentName ? 'var(--text-primary)' : 'var(--text-secondary)', fontSize: '0.75rem' }} />
+                          <PLUCodeSearch
+                            mode="name"
+                            value={row.currentName}
+                            onChange={(name) => handleNameSearchChange(idx, name)}
+                            onItemSelect={(item) => handleCodeItemSelect(idx, item)}
+                            placeholder="Search item name..."
+                          />
                         </td>
                       )}
 
@@ -676,6 +689,12 @@ export default function BatchEditPage() {
                         <td>
                           <input type="text" value={row.remarks} onChange={(e) => updateRow(idx, 'remarks', e.target.value)}
                             placeholder="Catatan..." style={INPUT_STYLE} />
+                        </td>
+                      )}
+
+                      {showUpdateOutletsCol && (
+                        <td>
+                          <MultiSelect options={configOutlets} value={row.outlets} onChange={(v) => updateRow(idx, 'outlets', v)} placeholder="Outlets…" />
                         </td>
                       )}
 

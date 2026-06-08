@@ -132,7 +132,8 @@ export default function EditRequestPage() {
   const showPrice = requestType === 'NEW_ITEM' || requestType === 'UPDATE_PRICE';
   const showFolder = requestType === 'NEW_ITEM';
   const showPrintersCard = requestType === 'NEW_ITEM' || requestType === 'UPDATE_PRINTER';
-  const showOutletsCard = requestType === 'NEW_ITEM';
+  // Outlets render for every request type. Required only for NEW_ITEM (see validate); optional for update types.
+  const showOutletsCard = true;
   const showPOSCard = requestType === 'NEW_ITEM';
   const showSalesDef = requestType === 'NEW_ITEM';
   const showItemDetailsCard = showName || showCategoryDept || showPrice || showFolder || requestType === 'UPDATE_PRICE';

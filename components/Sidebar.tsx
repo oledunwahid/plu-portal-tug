@@ -122,9 +122,11 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
             <div style={{ fontSize: '0.75rem', color: '#fff', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {sessionUser?.name}
             </div>
-            <div style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.35)' }}>
-              {role === 'ADMIN' ? 'ADMIN · HEAD OFFICE' : `${role}${sessionUser?.outlet ? ` · ${sessionUser.outlet}` : ''}`}
-            </div>
+            {role === 'ADMIN' && (
+              <div style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.35)' }}>
+                ADMIN · HEAD OFFICE
+              </div>
+            )}
           </div>
         </div>
         <SignOutButton />

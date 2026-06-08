@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/session';
-import { getPLURequests, countPLURequests } from '@/lib/db';
+import { getPLURequests, countPLURequests, getMasterMapByCodes } from '@/lib/db';
+
+// Update types whose rows don't store the existing item's name/category — enriched from the registry.
+const ENRICH_TYPES = new Set(['UPDATE_PRICE', 'UPDATE_NAME']);
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -28,7 +31,17 @@ export async function GET(request: NextRequest) {
     }
 
     const requests = await getPLURequests({ ...filters, limit: 500 });
-    return NextResponse.json(requests);
+
+    // Enrich UPDATE_PRICE / UPDATE_NAME rows with the registry name & category for display/export.
+    const masterMap = await getMasterMapByCodes(
+      requests.filter((r) => ENRICH_TYPES.has(r.requestType)).map((r) => r.code),
+    );
+    const enriched = requests.map((r) => {
+      const m = ENRICH_TYPES.has(r.requestType) && r.code ? masterMap.get(r.code) : undefined;
+      return { ...r, masterName: m?.name ?? '', masterCategory: m?.category ?? '' };
+    });
+
+    return NextResponse.json(enriched);
   } catch (error) {
     console.error('[GET /api/admin/requests]', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

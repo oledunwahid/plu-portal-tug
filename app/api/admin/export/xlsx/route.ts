@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/session';
-import { getPLURequestsRaw } from '@/lib/db';
-import { generateNewItemXLSX, generateDoneXLSX } from '@/lib/export';
+import { getPLURequestsRaw, getPLURequests, getMasterMapByCodes } from '@/lib/db';
+import { generateNewItemXLSX, generateDoneXLSX, generateUpdatePriceXLSX, generateUpdateNameXLSX, type UpdateExportRow } from '@/lib/export';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -34,12 +34,30 @@ export async function GET(request: NextRequest) {
       if (to)   filters.to   = to;
     }
 
-    const requests = await getPLURequestsRaw(filters);
-    if (requests.length === 0) return NextResponse.json({ error: 'No requests found' }, { status: 404 });
-
-    const buffer   = type === 'NEW_ITEM' ? generateNewItemXLSX(requests) : generateDoneXLSX(requests);
-    const dateStr  = new Date().toISOString().slice(0, 10);
     const group    = searchParams.get('group') ?? searchParams.get('outletGroup') ?? 'all';
+    const dateStr  = new Date().toISOString().slice(0, 10);
+
+    let buffer: Buffer;
+    if (type === 'UPDATE_PRICE' || type === 'UPDATE_NAME') {
+      // Enriched human-readable report (name & category from the registry).
+      const requests = await getPLURequests(filters);
+      if (requests.length === 0) return NextResponse.json({ error: 'No requests found' }, { status: 404 });
+      const masterMap = await getMasterMapByCodes(requests.map((r) => r.code));
+      const rows: UpdateExportRow[] = requests.map((r) => {
+        const m = r.code ? masterMap.get(r.code) : undefined;
+        return {
+          code: r.code, masterName: m?.name ?? '', masterCategory: m?.category ?? '',
+          newName: r.name, price: r.price, outlets: r.outlets, remarks: r.remarks,
+          by: r.submittedBy?.name ?? '', createdAt: r.createdAt, status: r.status,
+        };
+      });
+      buffer = type === 'UPDATE_PRICE' ? generateUpdatePriceXLSX(rows) : generateUpdateNameXLSX(rows);
+    } else {
+      const requests = await getPLURequestsRaw(filters);
+      if (requests.length === 0) return NextResponse.json({ error: 'No requests found' }, { status: 404 });
+      buffer = type === 'NEW_ITEM' ? generateNewItemXLSX(requests) : generateDoneXLSX(requests);
+    }
+
     const typeLabel = type === 'NEW_ITEM' ? 'new-items' : type.toLowerCase().replace(/_/g, '-');
     const filename = `${typeLabel}-${group.toLowerCase()}-${dateStr}.xlsx`;
 

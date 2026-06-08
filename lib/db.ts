@@ -490,7 +490,7 @@ export async function getPLURequests(filters: PLURequestFilters = {}): Promise<D
     const db = await getDb();
     const { conditions, params } = buildPLUConditions(filters, 'pr');
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
-    const limit = Math.min(filters.limit ?? 500, 500);
+    const limit = Math.min(filters.limit ?? 500, 2000);
     const order = filters.orderAsc ? 'ASC' : 'DESC';
     const rows = execAll(db, `
       SELECT pr.*, u.id as u_id, u.name as u_name, u.email as u_email, u.outlet as u_outlet
@@ -1087,6 +1087,20 @@ export async function getMasterItemsByCodes(codes: string[]): Promise<DbMasterIt
   }
 }
 
+/**
+ * Build a code -> MasterItem map for the given (possibly null/duplicate) codes.
+ * Used to enrich UPDATE_PRICE / UPDATE_NAME requests with the registry name & category,
+ * since those request rows do not store the existing item's name/category themselves.
+ */
+export async function getMasterMapByCodes(
+  codes: (string | null | undefined)[],
+): Promise<Map<string, DbMasterItem>> {
+  const valid = codes.filter((c): c is string => typeof c === 'string' && c.trim() !== '');
+  if (valid.length === 0) return new Map();
+  const items = await getMasterItemsByCodes(valid);
+  return new Map(items.map((m) => [m.code, m]));
+}
+
 export async function searchMasterItems(q: string, limit = 10): Promise<DbMasterItem[]> {
   try {
     const db = await getDb();
@@ -1165,6 +1179,82 @@ export async function upsertMasterItems(items: MasterItemUpsertInput[]): Promise
       }
     }
     return { inserted, updated, skipped: 0 };
+  });
+}
+
+export interface MasterItemUpdateInput {
+  active?: boolean;
+  name?: string;
+  category?: string;
+  department?: string;
+  salesDef?: string;
+  price?: number | null;
+  plu?: string | null;
+  barcode?: string | null;
+  uom?: string | null;
+  folder?: string | null;
+  serviceCharge?: boolean;
+  tax1?: boolean;
+  tax2?: boolean;
+  noDiscount?: boolean;
+  hideReceipt?: boolean;
+  printers?: string | null;
+  outlets?: string | null;
+  outletGroup?: string | null;
+}
+
+export async function getMasterItemById(id: string): Promise<DbMasterItem | null> {
+  try {
+    const db = await getDb();
+    const row = execFirst(db, 'SELECT * FROM "MasterItem" WHERE id = ? LIMIT 1', [id]);
+    return row ? rowToMasterItem(row) : null;
+  } catch (err) {
+    console.error('[db] getMasterItemById failed:', err);
+    return null;
+  }
+}
+
+/**
+ * Partial update of a MasterItem by id. Only the provided fields are written.
+ * `code` is intentionally not updatable (it is the import key / immutable identifier).
+ * Returns the updated row, or null if no item with that id exists.
+ */
+export async function updateMasterItem(id: string, fields: MasterItemUpdateInput): Promise<DbMasterItem | null> {
+  return withWriteLock((db) => {
+    const existing = execFirst(db, 'SELECT id FROM "MasterItem" WHERE id = ?', [id]);
+    if (!existing) return null;
+
+    const BOOL_COLS = new Set(['active', 'serviceCharge', 'tax1', 'tax2', 'noDiscount', 'hideReceipt']);
+    const ALLOWED = [
+      'active', 'name', 'category', 'department', 'salesDef', 'price', 'plu', 'barcode',
+      'uom', 'folder', 'serviceCharge', 'tax1', 'tax2', 'noDiscount', 'hideReceipt',
+      'printers', 'outlets', 'outletGroup',
+    ] as const;
+
+    const sets: string[] = [];
+    const params: unknown[] = [];
+    for (const col of ALLOWED) {
+      if (!(col in fields)) continue;
+      const val = (fields as Record<string, unknown>)[col];
+      sets.push(`${col}=?`);
+      if (BOOL_COLS.has(col)) params.push(val ? 1 : 0);
+      else params.push(val ?? null);
+    }
+    sets.push('updatedAt=?');
+    params.push(nowIso(), id);
+    db.run(`UPDATE "MasterItem" SET ${sets.join(',')} WHERE id=?`, params);
+
+    const row = execFirst(db, 'SELECT * FROM "MasterItem" WHERE id = ?', [id]);
+    return row ? rowToMasterItem(row) : null;
+  });
+}
+
+export async function deleteMasterItem(id: string): Promise<boolean> {
+  return withWriteLock((db) => {
+    const existing = execFirst(db, 'SELECT id FROM "MasterItem" WHERE id = ?', [id]);
+    if (!existing) return false;
+    db.run('DELETE FROM "MasterItem" WHERE id = ?', [id]);
+    return true;
   });
 }
 

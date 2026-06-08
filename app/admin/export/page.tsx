@@ -26,6 +26,9 @@ interface PLURequest {
   outletGroup: string;
   createdAt: string;
   submittedBy: { name: string; outlet: string };
+  // Enriched from the master item registry for UPDATE_PRICE / UPDATE_NAME (empty string if not found).
+  masterName?: string;
+  masterCategory?: string;
 }
 
 interface TabConfig {
@@ -85,7 +88,8 @@ const COLUMNS: Record<RequestType, ColumnDef[]> = {
   ],
   UPDATE_PRICE: [
     { key: 'code', label: 'Code', render: (r) => <span style={{ fontFamily: 'monospace', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{r.code ?? '—'}</span> },
-    { key: 'name', label: 'Item Name', render: (r) => <span style={{ fontWeight: 500 }}>{r.name}</span> },
+    { key: 'name', label: 'Item Name', render: (r) => <span style={{ fontWeight: 500 }}>{r.masterName || '—'}</span> },
+    { key: 'category', label: 'Category', render: (r) => <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{r.masterCategory || '—'}</span> },
     { key: 'price', label: 'New Price', render: (r) => <span style={{ fontSize: '0.875rem', fontWeight: 500 }}>{r.price ? formatPrice(r.price) : '—'}</span> },
     { key: 'outlet', label: 'Outlet', render: (r) => <span style={{ fontSize: '0.8rem' }}>{r.cashierOutlet}</span> },
     { key: 'by', label: 'By', render: (r) => <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{r.submittedBy.name}</span> },
@@ -94,8 +98,8 @@ const COLUMNS: Record<RequestType, ColumnDef[]> = {
   ],
   UPDATE_NAME: [
     { key: 'code', label: 'Code', render: (r) => <span style={{ fontFamily: 'monospace', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{r.code ?? '—'}</span> },
-    { key: 'name', label: 'New Name', render: (r) => <span style={{ fontWeight: 500 }}>{r.name}</span> },
-    { key: 'category', label: 'Category', render: (r) => <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{r.category}</span> },
+    { key: 'currentName', label: 'Current Name', render: (r) => <span style={{ color: 'var(--text-secondary)' }}>{r.masterName || '—'}</span> },
+    { key: 'name', label: 'New Name', render: (r) => <span style={{ fontWeight: 500 }}>{r.name || '—'}</span> },
     { key: 'outlet', label: 'Outlet', render: (r) => <span style={{ fontSize: '0.8rem' }}>{r.cashierOutlet}</span> },
     { key: 'by', label: 'By', render: (r) => <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{r.submittedBy.name}</span> },
     { key: 'date', label: 'Date', render: (r) => <div style={{ minWidth: '130px' }}><div style={{ fontSize: '0.8rem', color: 'var(--text-primary)' }}>{formatTimestamp(r.createdAt).split(', ')[0]}</div><div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontVariantNumeric: 'tabular-nums' }}>{formatTimestamp(r.createdAt).split(', ')[1]}</div></div> },

@@ -2,9 +2,22 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { toast } from 'sonner';
-import { Upload, X, ChevronLeft, ChevronRight, Database } from 'lucide-react';
+import { Upload, X, ChevronLeft, ChevronRight, Database, Pencil, Trash2, Download, Loader2 } from 'lucide-react';
 import { formatPrice } from '@/lib/utils';
+import { Switch } from '@/components/ui/switch';
 import TableSkeleton from '@/components/skeletons/TableSkeleton';
+
+const EXPORT_HEADERS = [
+  'Active', 'Code', 'Name', 'Category', 'Department', 'SalesDef', 'Price', 'PLU',
+  'Barcode', 'UOM', 'Folder', 'ServiceCharge', 'Tax1', 'Tax2', 'NoDiscount',
+  'HideReceipt', 'Printers', 'Outlets',
+] as const;
+
+const INPUT_STYLE: React.CSSProperties = {
+  width: '100%', height: '36px', border: '1px solid var(--input-border)', borderRadius: '4px',
+  background: 'var(--bg-card)', color: 'var(--text-primary)', padding: '0 0.625rem',
+  fontSize: '0.8rem', outline: 'none', boxSizing: 'border-box',
+};
 
 interface MasterItem {
   id: string; active: boolean; code: string; name: string;
@@ -96,6 +109,202 @@ function ItemSlideOver({ item, onClose }: { item: MasterItem; onClose: () => voi
   );
 }
 
+function formatPriceInput(raw: string): string {
+  if (!raw) return '';
+  const n = parseInt(raw, 10);
+  return isNaN(n) ? '' : n.toLocaleString('id-ID');
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+      <label className="label-caps" style={{ fontSize: '0.62rem' }}>{label}</label>
+      {children}
+      {hint && <span style={{ fontSize: '0.68rem', color: 'var(--text-secondary)' }}>{hint}</span>}
+    </div>
+  );
+}
+
+interface EditForm {
+  active: boolean; name: string; category: string; department: string; salesDef: string;
+  price: string; plu: string; barcode: string; uom: string; folder: string;
+  serviceCharge: boolean; tax1: boolean; tax2: boolean; noDiscount: boolean; hideReceipt: boolean;
+  printers: string; outlets: string;
+}
+
+function EditItemSlideOver({ item, onClose, onSaved }: { item: MasterItem; onClose: () => void; onSaved: (updated: MasterItem) => void }) {
+  const [form, setForm] = useState<EditForm>({
+    active: item.active,
+    name: item.name,
+    category: item.category,
+    department: item.department,
+    salesDef: item.salesDef === 'MODIFIER' ? 'MODIFIER' : 'SALES',
+    price: item.price != null ? String(item.price) : '',
+    plu: item.plu ?? '',
+    barcode: item.barcode ?? '',
+    uom: item.uom ?? '',
+    folder: item.folder ?? '',
+    serviceCharge: item.serviceCharge,
+    tax1: item.tax1,
+    tax2: item.tax2,
+    noDiscount: item.noDiscount,
+    hideReceipt: item.hideReceipt,
+    printers: item.printers ?? '',
+    outlets: item.outlets ?? '',
+  });
+  const [saving, setSaving] = useState(false);
+
+  function set<K extends keyof EditForm>(key: K, value: EditForm[K]) {
+    setForm((f) => ({ ...f, [key]: value }));
+  }
+
+  async function handleSave() {
+    if (!form.name.trim()) { toast.error('Nama item harus diisi'); return; }
+    setSaving(true);
+    try {
+      const body = {
+        active: form.active,
+        name: form.name.trim(),
+        category: form.category.trim(),
+        department: form.department.trim(),
+        salesDef: form.salesDef,
+        price: form.price === '' ? null : Number(form.price),
+        plu: form.plu.trim() || null,
+        barcode: form.barcode.trim() || null,
+        uom: form.uom.trim() || null,
+        folder: form.folder.trim() || null,
+        serviceCharge: form.serviceCharge,
+        tax1: form.tax1,
+        tax2: form.tax2,
+        noDiscount: form.noDiscount,
+        hideReceipt: form.hideReceipt,
+        printers: form.printers.trim() || null,
+        outlets: form.outlets.trim() || null,
+      };
+      const res = await fetch(`/api/admin/kb/items/${item.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error ?? 'Gagal menyimpan'); }
+      const updated = await res.json();
+      onSaved(updated);
+      toast.success('Item berhasil diperbarui');
+      onClose();
+    } catch (e: any) {
+      toast.error(e.message ?? 'Gagal menyimpan perubahan');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const TOGGLES: { key: keyof EditForm; label: string }[] = [
+    { key: 'serviceCharge', label: 'Service Charge' },
+    { key: 'tax1', label: 'Tax 1' },
+    { key: 'tax2', label: 'Tax 2' },
+    { key: 'noDiscount', label: 'No Discount' },
+    { key: 'hideReceipt', label: 'Hide on Receipt' },
+  ];
+
+  return (
+    <>
+      <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.3)', zIndex: 40 }} />
+      <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, width: '440px', maxWidth: '92vw', background: 'var(--bg-card)', zIndex: 50, borderLeft: '1px solid var(--border)', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+          <div>
+            <h2 style={{ fontSize: '1rem', fontWeight: 600, fontFamily: 'var(--font-display)', color: 'var(--text-primary)', margin: 0 }}>Edit Item</h2>
+            <div style={{ fontFamily: 'monospace', fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>{item.code}</div>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)' }}><X size={16} /></button>
+        </div>
+
+        <div style={{ flex: 1, overflowY: 'auto', padding: '1.25rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
+          <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.85rem', fontWeight: 500, color: 'var(--text-primary)' }}>
+            Status Aktif
+            <Switch checked={form.active} onCheckedChange={(v) => set('active', v)} />
+          </label>
+
+          <Field label="Name"><input style={INPUT_STYLE} value={form.name} onChange={(e) => set('name', e.target.value)} /></Field>
+          <Field label="Category"><input style={INPUT_STYLE} value={form.category} onChange={(e) => set('category', e.target.value)} /></Field>
+          <Field label="Department"><input style={INPUT_STYLE} value={form.department} onChange={(e) => set('department', e.target.value)} /></Field>
+          <Field label="Sales Def">
+            <select style={INPUT_STYLE} value={form.salesDef} onChange={(e) => set('salesDef', e.target.value)}>
+              <option value="SALES">SALES</option>
+              <option value="MODIFIER">MODIFIER</option>
+            </select>
+          </Field>
+          <Field label="Price">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
+              <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Rp</span>
+              <input style={INPUT_STYLE} inputMode="numeric" value={formatPriceInput(form.price)} onChange={(e) => set('price', e.target.value.replace(/\D/g, ''))} />
+            </div>
+          </Field>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+            <Field label="PLU"><input style={INPUT_STYLE} value={form.plu} onChange={(e) => set('plu', e.target.value)} /></Field>
+            <Field label="Barcode"><input style={INPUT_STYLE} value={form.barcode} onChange={(e) => set('barcode', e.target.value)} /></Field>
+            <Field label="UOM"><input style={INPUT_STYLE} value={form.uom} onChange={(e) => set('uom', e.target.value)} /></Field>
+            <Field label="Folder"><input style={INPUT_STYLE} value={form.folder} onChange={(e) => set('folder', e.target.value)} /></Field>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', paddingTop: '0.25rem' }}>
+            {TOGGLES.map(({ key, label }) => (
+              <label key={key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.8rem', color: 'var(--text-primary)' }}>
+                {label}
+                <Switch checked={form[key] as boolean} onCheckedChange={(v) => set(key, v as EditForm[typeof key])} />
+              </label>
+            ))}
+          </div>
+
+          <Field label="Printers" hint="Semicolon-separated, e.g. KITCHEN;BAR"><input style={INPUT_STYLE} value={form.printers} onChange={(e) => set('printers', e.target.value)} /></Field>
+          <Field label="Outlets" hint="Semicolon-separated, e.g. CSPI;CSPP"><input style={INPUT_STYLE} value={form.outlets} onChange={(e) => set('outlets', e.target.value)} /></Field>
+        </div>
+
+        <div style={{ padding: '1rem 1.5rem', borderTop: '1px solid var(--border)' }}>
+          <button onClick={handleSave} disabled={saving}
+            style={{ width: '100%', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', padding: '0.625rem', background: saving ? 'rgba(26,16,8,0.5)' : 'var(--bg-dark)', color: 'var(--accent-gold)', border: 'none', borderRadius: '0.375rem', fontSize: '0.875rem', fontWeight: 600, cursor: saving ? 'not-allowed' : 'pointer' }}>
+            {saving && <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} />}
+            {saving ? 'Menyimpan…' : 'Simpan Perubahan'}
+          </button>
+        </div>
+      </div>
+    </>
+  );
+}
+
+function DeleteConfirmDialog({ item, deleting, onCancel, onConfirm }: { item: MasterItem; deleting: boolean; onCancel: () => void; onConfirm: () => void }) {
+  return (
+    <>
+      <div onClick={deleting ? undefined : onCancel} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 60 }} />
+      <div style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: 'min(420px, 92vw)', background: 'var(--bg-card)', borderRadius: '0.5rem', boxShadow: '0 8px 40px rgba(0,0,0,0.2)', zIndex: 70, padding: '1.5rem' }}>
+        <h3 style={{ fontSize: '1rem', fontWeight: 600, fontFamily: 'var(--font-display)', color: 'var(--text-primary)', margin: '0 0 0.5rem' }}>Hapus Item</h3>
+        <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.5, margin: '0 0 1.25rem' }}>
+          Hapus item <strong style={{ color: 'var(--text-primary)' }}>{item.name}</strong>? Tindakan ini tidak dapat dibatalkan.
+        </p>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
+          <button onClick={onCancel} disabled={deleting}
+            style={{ padding: '0.5rem 1rem', background: 'transparent', border: '1px solid var(--border)', borderRadius: '0.375rem', fontSize: '0.8rem', color: 'var(--text-secondary)', cursor: deleting ? 'not-allowed' : 'pointer' }}>
+            Batal
+          </button>
+          <button onClick={onConfirm} disabled={deleting}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', padding: '0.5rem 1.125rem', background: '#7A2E1F', border: 'none', borderRadius: '0.375rem', fontSize: '0.8rem', fontWeight: 600, color: '#fff', cursor: deleting ? 'not-allowed' : 'pointer', opacity: deleting ? 0.7 : 1 }}>
+            {deleting && <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} />}
+            {deleting ? 'Menghapus…' : 'Hapus'}
+          </button>
+        </div>
+      </div>
+    </>
+  );
+}
+
 const SELECT_STYLE: React.CSSProperties = {
   height: '34px', borderRadius: '0.375rem', border: '1px solid var(--input-border)',
   background: 'var(--bg-card)', color: 'var(--text-primary)',
@@ -121,6 +330,12 @@ export default function MasterItemsPage() {
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [editItem, setEditItem] = useState<MasterItem | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<MasterItem | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [togglingId, setTogglingId] = useState<string | null>(null);
+  const [downloadingFormat, setDownloadingFormat] = useState<'CSV' | 'XLSX' | null>(null);
 
   const totalPages = Math.ceil(total / 50);
 
@@ -182,6 +397,117 @@ export default function MasterItemsPage() {
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  }
+
+  // Build the Quinos-format export rows (same column order as the import CSV).
+  function buildExportRows(rows: MasterItem[]): Record<string, string | number>[] {
+    const b = (v: boolean) => (v ? 1 : 0);
+    return rows.map((r) => ({
+      Active: b(r.active),
+      Code: r.code,
+      Name: r.name,
+      Category: r.category,
+      Department: r.department,
+      SalesDef: r.salesDef ?? '',
+      Price: r.price ?? '',
+      PLU: r.plu ?? '',
+      Barcode: r.barcode ?? '',
+      UOM: r.uom ?? '',
+      Folder: r.folder ?? '',
+      ServiceCharge: b(r.serviceCharge),
+      Tax1: b(r.tax1),
+      Tax2: b(r.tax2),
+      NoDiscount: b(r.noDiscount),
+      HideReceipt: b(r.hideReceipt),
+      Printers: r.printers ?? '',
+      Outlets: r.outlets ?? '',
+    }));
+  }
+
+  async function fetchAllFiltered(): Promise<MasterItem[]> {
+    const params = new URLSearchParams({ export: 'true' });
+    if (search) params.set('search', search);
+    if (outletGroup !== 'ALL') params.set('outletGroup', outletGroup);
+    if (department !== 'ALL') params.set('department', department);
+    if (outlet !== 'ALL') params.set('outlet', outlet);
+    if (activeFilter === 'ACTIVE') params.set('active', '1');
+    else if (activeFilter === 'INACTIVE') params.set('active', '0');
+    const res = await fetch(`/api/admin/kb/items?${params}`);
+    if (!res.ok) throw new Error('Gagal mengambil data');
+    const data = await res.json();
+    return (data.items ?? []) as MasterItem[];
+  }
+
+  async function handleDownload(format: 'CSV' | 'XLSX') {
+    setDownloadingFormat(format);
+    try {
+      const all = await fetchAllFiltered();
+      if (all.length === 0) { toast.error('Tidak ada item untuk diekspor'); return; }
+      const rows = buildExportRows(all);
+      const date = new Date().toISOString().slice(0, 10);
+      const headers = [...EXPORT_HEADERS];
+
+      if (format === 'CSV') {
+        const escape = (v: string | number) => {
+          const s = String(v ?? '');
+          return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+        };
+        const csv = [
+          headers.join(','),
+          ...rows.map((row) => headers.map((h) => escape(row[h] ?? '')).join(',')),
+        ].join('\n');
+        downloadBlob(new Blob([csv], { type: 'text/csv;charset=utf-8' }), `master-items-${date}.csv`);
+      } else {
+        const XLSX = await import('xlsx');
+        const ws = XLSX.utils.json_to_sheet(rows, { header: headers });
+        ws['!cols'] = headers.map(() => ({ wch: 15 }));
+        ws['!cols'][2] = { wch: 30 };
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'Master Items');
+        const buffer = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
+        downloadBlob(new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), `master-items-${date}.xlsx`);
+      }
+      toast.success(`${format} diunduh: ${all.length.toLocaleString()} item`);
+    } catch (e: any) {
+      toast.error(e.message ?? 'Gagal mengunduh');
+    } finally {
+      setDownloadingFormat(null);
+    }
+  }
+
+  async function handleDelete(item: MasterItem) {
+    setDeletingId(item.id);
+    try {
+      const res = await fetch(`/api/admin/kb/items/${item.id}`, { method: 'DELETE' });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error ?? 'Gagal menghapus'); }
+      setItems((prev) => prev.filter((i) => i.id !== item.id));
+      setTotal((t) => Math.max(0, t - 1));
+      toast.success('Item berhasil dihapus');
+      setConfirmDelete(null);
+    } catch (e: any) {
+      toast.error(e.message ?? 'Gagal menghapus item');
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
+  async function handleToggleActive(item: MasterItem) {
+    const next = !item.active;
+    if (!window.confirm(`Ubah status item ini menjadi ${next ? 'Aktif' : 'Nonaktif'}?`)) return;
+    setTogglingId(item.id);
+    try {
+      const res = await fetch(`/api/admin/kb/items/${item.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ active: next }),
+      });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error ?? 'Gagal'); }
+      const updated = await res.json();
+      setItems((prev) => prev.map((i) => (i.id === item.id ? { ...i, active: updated.active } : i)));
+      toast.success(`Status item diubah menjadi ${next ? 'Aktif' : 'Nonaktif'}`);
+    } catch (e: any) {
+      toast.error(e.message ?? 'Gagal mengubah status');
+    } finally {
+      setTogglingId(null);
     }
   }
 
@@ -273,17 +599,35 @@ export default function MasterItemsPage() {
           <option value="ACTIVE">Active</option>
           <option value="INACTIVE">Inactive</option>
         </select>
-        {total > 0 && (
-          <span style={{ marginLeft: 'auto', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-            {total.toLocaleString()} items
-          </span>
-        )}
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
+          {total > 0 && (
+            <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+              {total.toLocaleString()} items
+            </span>
+          )}
+          <button
+            onClick={() => handleDownload('CSV')}
+            disabled={downloadingFormat !== null}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', height: '34px', padding: '0 0.75rem', background: 'transparent', border: '1px solid var(--border)', borderRadius: '0.375rem', fontSize: '0.78rem', fontWeight: 500, color: 'var(--text-secondary)', cursor: downloadingFormat !== null ? 'not-allowed' : 'pointer', opacity: downloadingFormat !== null ? 0.6 : 1 }}
+          >
+            {downloadingFormat === 'CSV' ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Download size={13} />}
+            Download CSV
+          </button>
+          <button
+            onClick={() => handleDownload('XLSX')}
+            disabled={downloadingFormat !== null}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', height: '34px', padding: '0 0.875rem', background: 'var(--bg-dark)', border: 'none', borderRadius: '0.375rem', fontSize: '0.78rem', fontWeight: 600, color: 'var(--accent-gold)', cursor: downloadingFormat !== null ? 'not-allowed' : 'pointer', opacity: downloadingFormat !== null ? 0.6 : 1 }}
+          >
+            {downloadingFormat === 'XLSX' ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Download size={13} />}
+            Download XLSX
+          </button>
+        </div>
       </div>
 
       {/* Table */}
       <div className="card" style={{ overflow: 'hidden' }}>
         {loading ? (
-          <TableSkeleton rows={8} cols={7} />
+          <TableSkeleton rows={8} cols={8} />
         ) : items.length === 0 ? (
           <div style={{ padding: '3rem', textAlign: 'center' }}>
             <Database size={32} style={{ color: 'var(--border)', margin: '0 auto 0.75rem' }} />
@@ -308,6 +652,7 @@ export default function MasterItemsPage() {
                   <th>Price</th>
                   <th>Outlets</th>
                   <th>Status</th>
+                  <th style={{ textAlign: 'right' }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -332,13 +677,35 @@ export default function MasterItemsPage() {
                         </div>
                       ) : '—'}
                     </td>
-                    <td>
-                      <span style={{ fontSize: '0.7rem', padding: '2px 6px', borderRadius: '3px', fontWeight: 600,
-                        background: item.active ? 'rgba(61,90,62,0.1)' : 'rgba(122,46,31,0.08)',
-                        color: item.active ? '#2D4A2E' : '#7A2E1F',
-                        border: `1px solid ${item.active ? 'rgba(61,90,62,0.2)' : 'rgba(122,46,31,0.15)'}` }}>
+                    <td onClick={(e) => e.stopPropagation()}>
+                      <button
+                        onClick={() => handleToggleActive(item)}
+                        disabled={togglingId === item.id}
+                        title="Klik untuk mengubah status"
+                        style={{ fontSize: '0.7rem', padding: '2px 6px', borderRadius: '3px', fontWeight: 600,
+                          background: item.active ? 'rgba(61,90,62,0.1)' : 'rgba(122,46,31,0.08)',
+                          color: item.active ? '#2D4A2E' : '#7A2E1F',
+                          border: `1px solid ${item.active ? 'rgba(61,90,62,0.2)' : 'rgba(122,46,31,0.15)'}`,
+                          cursor: togglingId === item.id ? 'wait' : 'pointer', opacity: togglingId === item.id ? 0.6 : 1 }}>
                         {item.active ? 'Active' : 'Inactive'}
-                      </span>
+                      </button>
+                    </td>
+                    <td onClick={(e) => e.stopPropagation()}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '0.25rem' }}>
+                        <button
+                          onClick={() => setEditItem(item)}
+                          title="Edit item"
+                          style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '28px', height: '28px', background: 'transparent', border: '1px solid var(--border)', borderRadius: '4px', cursor: 'pointer', color: 'var(--text-secondary)' }}>
+                          <Pencil size={13} />
+                        </button>
+                        <button
+                          onClick={() => setConfirmDelete(item)}
+                          disabled={deletingId === item.id}
+                          title="Hapus item"
+                          style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '28px', height: '28px', background: 'transparent', border: '1px solid rgba(122,46,31,0.25)', borderRadius: '4px', cursor: deletingId === item.id ? 'not-allowed' : 'pointer', color: '#7A2E1F', opacity: deletingId === item.id ? 0.5 : 1 }}>
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -372,6 +739,25 @@ export default function MasterItemsPage() {
       </div>
 
       {activeItem && <ItemSlideOver item={activeItem} onClose={() => setActiveItem(null)} />}
+
+      {editItem && (
+        <EditItemSlideOver
+          item={editItem}
+          onClose={() => setEditItem(null)}
+          onSaved={(updated) => setItems((prev) => prev.map((i) => (i.id === updated.id ? updated : i)))}
+        />
+      )}
+
+      {confirmDelete && (
+        <DeleteConfirmDialog
+          item={confirmDelete}
+          deleting={deletingId === confirmDelete.id}
+          onCancel={() => setConfirmDelete(null)}
+          onConfirm={() => handleDelete(confirmDelete)}
+        />
+      )}
+
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   );
 }

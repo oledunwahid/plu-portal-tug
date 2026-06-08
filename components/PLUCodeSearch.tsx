@@ -12,12 +12,14 @@ export interface PLUSearchResult {
 
 interface PLUCodeSearchProps {
   value: string;
-  onChange: (code: string) => void;
+  onChange: (text: string) => void;
   onItemSelect?: (item: PLUSearchResult) => void;
   inputStyle?: React.CSSProperties;
   placeholder?: string;
   error?: string;
   disabled?: boolean;
+  /** 'code' searches and displays the PLU code; 'name' searches and displays the item name. */
+  mode?: 'code' | 'name';
 }
 
 export function PLUCodeSearch({
@@ -28,6 +30,7 @@ export function PLUCodeSearch({
   placeholder = 'PLU code',
   error,
   disabled,
+  mode = 'code',
 }: PLUCodeSearchProps) {
   const [query, setQuery] = useState(value);
   const [results, setResults] = useState<PLUSearchResult[]>([]);
@@ -40,7 +43,8 @@ export function PLUCodeSearch({
   const search = useCallback(async (q: string) => {
     if (q.length < 2) { setResults([]); setOpen(false); return; }
     try {
-      const res = await fetch(`/api/admin/kb/items?search=${encodeURIComponent(q)}&limit=10`);
+      // active=1 so inactive items never surface in cashier type-ahead suggestions.
+      const res = await fetch(`/api/admin/kb/items?search=${encodeURIComponent(q)}&active=1&limit=10`);
       if (!res.ok) return;
       const data = await res.json();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -67,8 +71,9 @@ export function PLUCodeSearch({
   }
 
   function handleSelect(item: PLUSearchResult) {
-    setQuery(item.code);
-    onChange(item.code);
+    const display = mode === 'name' ? item.name : item.code;
+    setQuery(display);
+    onChange(display);
     setOpen(false);
     setResults([]);
     if (onItemSelect) onItemSelect(item);
@@ -130,12 +135,25 @@ export function PLUCodeSearch({
               onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-cream)'; }}
               onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
             >
-              <span style={{ fontFamily: 'monospace', fontSize: '0.78rem', color: '#C9A84C', fontWeight: 600 }}>
-                {item.code}
-              </span>
-              <span style={{ fontSize: '0.71rem', color: 'var(--text-secondary)' }}>
-                {item.name} ({item.category})
-              </span>
+              {mode === 'name' ? (
+                <>
+                  <span style={{ fontSize: '0.78rem', color: 'var(--text-primary)', fontWeight: 600 }}>
+                    {item.name}
+                  </span>
+                  <span style={{ fontSize: '0.71rem', color: 'var(--text-secondary)' }}>
+                    <span style={{ fontFamily: 'monospace', color: '#C9A84C' }}>{item.code}</span> ({item.category})
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span style={{ fontFamily: 'monospace', fontSize: '0.78rem', color: '#C9A84C', fontWeight: 600 }}>
+                    {item.code}
+                  </span>
+                  <span style={{ fontSize: '0.71rem', color: 'var(--text-secondary)' }}>
+                    {item.name} ({item.category})
+                  </span>
+                </>
+              )}
             </button>
           ))}
         </div>

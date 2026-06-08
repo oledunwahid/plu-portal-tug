@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/session';
-import { getRequestBatches } from '@/lib/db';
+import { getRequestBatches, getMasterMapByCodes } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
+
+// Update types whose items don't store the existing item's name/category — enriched from the registry.
+const ENRICH_TYPES = new Set(['UPDATE_PRICE', 'UPDATE_NAME']);
 
 export async function GET(request: NextRequest) {
   try {
@@ -19,7 +22,23 @@ export async function GET(request: NextRequest) {
     const to          = searchParams.get('to') ?? undefined;
 
     const batches = await getRequestBatches({ status, outletGroup, requestType, from, to, limit: 500 });
-    return NextResponse.json(batches);
+
+    // Enrich items of UPDATE_PRICE / UPDATE_NAME batches with the registry name & category.
+    const masterMap = await getMasterMapByCodes(
+      batches.filter((b) => ENRICH_TYPES.has(b.requestType)).flatMap((b) => b.items.map((i) => i.code)),
+    );
+    const enriched = batches.map((b) => {
+      if (!ENRICH_TYPES.has(b.requestType)) return b;
+      return {
+        ...b,
+        items: b.items.map((i) => {
+          const m = i.code ? masterMap.get(i.code) : undefined;
+          return { ...i, masterName: m?.name ?? '', masterCategory: m?.category ?? '' };
+        }),
+      };
+    });
+
+    return NextResponse.json(enriched);
   } catch (error) {
     console.error('[GET /api/admin/batches]', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

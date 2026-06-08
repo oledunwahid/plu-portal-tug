@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/session';
-import { getPLURequestsRaw, markPLURequestsExported } from '@/lib/db';
-import { generateDoneCSV } from '@/lib/export';
+import { getPLURequestsRaw, getPLURequests, getMasterMapByCodes, markPLURequestsExported } from '@/lib/db';
+import { generateDoneCSV, generateUpdatePriceCSV, generateUpdateNameCSV, type UpdateExportRow } from '@/lib/export';
 import { v4 as uuidv4 } from 'uuid';
 
 export const dynamic = 'force-dynamic';
@@ -38,13 +38,47 @@ export async function GET(request: NextRequest) {
       if (to)   filters.to   = to;
     }
 
+    const now = new Date();
+
+    // UPDATE_PRICE / UPDATE_NAME use an enriched human-readable report (name & category from registry).
+    if (type === 'UPDATE_PRICE' || type === 'UPDATE_NAME') {
+      const requests = await getPLURequests(filters);
+      if (preview) return NextResponse.json({ count: requests.length, items: requests });
+      if (requests.length === 0) return NextResponse.json({ error: 'No requests found for this filter' }, { status: 404 });
+
+      const masterMap = await getMasterMapByCodes(requests.map((r) => r.code));
+      const rows: UpdateExportRow[] = requests.map((r) => {
+        const m = r.code ? masterMap.get(r.code) : undefined;
+        return {
+          code: r.code, masterName: m?.name ?? '', masterCategory: m?.category ?? '',
+          newName: r.name, price: r.price, outlets: r.outlets, remarks: r.remarks,
+          by: r.submittedBy?.name ?? '', createdAt: r.createdAt, status: r.status,
+        };
+      });
+      const csv = type === 'UPDATE_PRICE' ? generateUpdatePriceCSV(rows) : generateUpdateNameCSV(rows);
+
+      await markPLURequestsExported(requests.map((r) => r.id), now.toISOString(), uuidv4());
+
+      const dateStr  = now.toISOString().slice(0, 10);
+      const typeSlug = type.toLowerCase().replace(/_/g, '-');
+      const group    = searchParams.get('group') ?? searchParams.get('outletGroup') ?? 'all';
+      const filename = `plu-${typeSlug}-${group.toLowerCase()}-${dateStr}.csv`;
+      return new NextResponse(csv, {
+        status: 200,
+        headers: {
+          'Content-Type': 'text/csv; charset=utf-8',
+          'Content-Disposition': `attachment; filename="${filename}"`,
+          'Cache-Control': 'no-store',
+        },
+      });
+    }
+
     const requests = await getPLURequestsRaw(filters);
 
     if (preview) return NextResponse.json({ count: requests.length, items: requests });
     if (requests.length === 0) return NextResponse.json({ error: 'No requests found for this filter' }, { status: 404 });
 
     const csv = generateDoneCSV(requests);
-    const now = new Date();
 
     const updateIds = requests.filter((r) => UPDATE_TYPES.includes(r.requestType)).map((r) => r.id);
     if (updateIds.length > 0) {

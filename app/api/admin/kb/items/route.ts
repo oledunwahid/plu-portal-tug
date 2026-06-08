@@ -18,6 +18,17 @@ export async function GET(req: NextRequest) {
     const outlet = searchParams.get('outlet') ?? undefined;
     const activeParam = searchParams.get('active');
     const active = activeParam === '1' ? true : activeParam === '0' ? false : null;
+    const isExport = searchParams.get('export') === 'true' || searchParams.get('export') === '1';
+
+    // Export: return ALL matching records (respecting filters) with no pagination.
+    if (isExport) {
+      const items = await getMasterItems({
+        search, outletGroup, department, category, outlet,
+        active: active ?? undefined, limit: 100000, offset: 0,
+      });
+      return NextResponse.json({ items });
+    }
+
     const page = Math.max(1, Number(searchParams.get('page') ?? 1));
     const limitParam = searchParams.get('limit');
     const limit = limitParam ? Math.min(Number(limitParam), 200) : 20;

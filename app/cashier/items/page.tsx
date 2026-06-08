@@ -89,6 +89,8 @@ export default function CashierItemLookupPage() {
       if (category) params.set('category', category);
       if (department) params.set('department', department);
       if (outlet) params.set('outlet', outlet);
+      // Cashiers must never see inactive items — always scope the lookup to active items.
+      params.set('active', '1');
       params.set('page', String(page));
       params.set('limit', String(PAGE_SIZE));
       const res = await fetch(`/api/admin/kb/items?${params}`);

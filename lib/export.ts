@@ -241,6 +241,80 @@ export function generateBatchDoneXLSX(items: BatchItemRow[]): Buffer {
   return Buffer.from(XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }));
 }
 
+/**
+ * UPDATE_PRICE / UPDATE_NAME exports are human-readable operational reports (not the 18-col
+ * Quinos import format). Name & Category are enriched from the master item registry by the
+ * route; '' when the code has no matching master item.
+ */
+export interface UpdateExportRow {
+  code: string | null;
+  masterName: string;     // existing item name from registry ('' if not found)
+  masterCategory: string; // existing item category from registry ('' if not found)
+  newName: string;        // requested new name (UPDATE_NAME)
+  price: number | null;   // requested new price (UPDATE_PRICE)
+  outlets: string;
+  remarks: string | null;
+  by: string;             // submitter name
+  createdAt: Date | string;
+  status: string;
+}
+
+const UPDATE_PRICE_HEADERS = ['Code', 'Name', 'Category', 'New Price', 'Outlets', 'Remarks', 'By', 'Date', 'Status'];
+const UPDATE_NAME_HEADERS = ['Code', 'Current Name', 'New Name', 'Category', 'Outlets', 'Remarks', 'By', 'Date', 'Status'];
+
+function formatExportDate(value: Date | string): string {
+  const d = new Date(value);
+  if (isNaN(d.getTime())) return '';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+export function generateUpdatePriceCSV(rows: UpdateExportRow[]): string {
+  const body = rows.map((r) => [
+    r.code ?? '', r.masterName, r.masterCategory,
+    r.price != null ? String(r.price) : '',
+    r.outlets, r.remarks ?? '', r.by, formatExportDate(r.createdAt), r.status,
+  ]);
+  return [UPDATE_PRICE_HEADERS.join(','), ...body.map((row) => row.map(escapeCsv).join(','))].join('\n');
+}
+
+export function generateUpdateNameCSV(rows: UpdateExportRow[]): string {
+  const body = rows.map((r) => [
+    r.code ?? '', r.masterName, r.newName, r.masterCategory,
+    r.outlets, r.remarks ?? '', r.by, formatExportDate(r.createdAt), r.status,
+  ]);
+  return [UPDATE_NAME_HEADERS.join(','), ...body.map((row) => row.map(escapeCsv).join(','))].join('\n');
+}
+
+export function generateUpdatePriceXLSX(rows: UpdateExportRow[]): Buffer {
+  const data = rows.map((r) => ({
+    Code: r.code ?? '', Name: r.masterName, Category: r.masterCategory,
+    'New Price': r.price ?? '', Outlets: r.outlets, Remarks: r.remarks ?? '',
+    By: r.by, Date: formatExportDate(r.createdAt), Status: r.status,
+  }));
+  const ws = XLSX.utils.json_to_sheet(data, { header: UPDATE_PRICE_HEADERS });
+  ws['!cols'] = UPDATE_PRICE_HEADERS.map(() => ({ wch: 15 }));
+  ws['!cols'][1] = { wch: 30 };
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Update Price');
+  return Buffer.from(XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }));
+}
+
+export function generateUpdateNameXLSX(rows: UpdateExportRow[]): Buffer {
+  const data = rows.map((r) => ({
+    Code: r.code ?? '', 'Current Name': r.masterName, 'New Name': r.newName,
+    Category: r.masterCategory, Outlets: r.outlets, Remarks: r.remarks ?? '',
+    By: r.by, Date: formatExportDate(r.createdAt), Status: r.status,
+  }));
+  const ws = XLSX.utils.json_to_sheet(data, { header: UPDATE_NAME_HEADERS });
+  ws['!cols'] = UPDATE_NAME_HEADERS.map(() => ({ wch: 15 }));
+  ws['!cols'][1] = { wch: 30 };
+  ws['!cols'][2] = { wch: 30 };
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Update Name');
+  return Buffer.from(XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }));
+}
+
 function escapeCsv(value: string): string {
   if (value.includes(',') || value.includes('"') || value.includes('\n')) {
     return `"${value.replace(/"/g, '""')}"`;
