@@ -30,9 +30,11 @@ interface MasterItem {
 }
 
 const BOOLEAN_FIELD = (v: boolean) => (
-  <span style={{ fontSize: '0.7rem', padding: '1px 5px', borderRadius: '3px', fontWeight: 600,
+  <span style={{
+    fontSize: '0.7rem', padding: '1px 5px', borderRadius: '3px', fontWeight: 600,
     background: v ? 'rgba(61,90,62,0.1)' : 'rgba(122,46,31,0.08)',
-    color: v ? '#2D4A2E' : '#7A2E1F', border: `1px solid ${v ? 'rgba(61,90,62,0.2)' : 'rgba(122,46,31,0.15)'}` }}>
+    color: v ? '#2D4A2E' : '#7A2E1F', border: `1px solid ${v ? 'rgba(61,90,62,0.2)' : 'rgba(122,46,31,0.15)'}`
+  }}>
     {v ? 'Yes' : 'No'}
   </span>
 );
@@ -192,7 +194,7 @@ function EditItemSlideOver({ item, onClose, onSaved }: { item: MasterItem; onClo
         printers: form.printers.trim() || null,
         outlets: form.outlets.trim() || null,
       };
-      const res = await fetch(`/api/admin/kb/items/${item.id}`, {
+      const res = await fetch(`/api/admin/kb/items/${encodeURIComponent(item.code)}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
       });
       if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error ?? 'Gagal menyimpan'); }
@@ -344,7 +346,7 @@ export default function MasterItemsPage() {
     fetch('/api/config/outlets?activeOnly=true')
       .then((r) => r.ok ? r.json() : [])
       .then((data: { code: string }[]) => setAllOutletCodes(data.map((o) => o.code).sort()))
-      .catch(() => {});
+      .catch(() => { });
   }, []);
 
   const fetchItems = useCallback(async (p = page) => {
@@ -479,7 +481,7 @@ export default function MasterItemsPage() {
   async function handleDelete(item: MasterItem) {
     setDeletingId(item.id);
     try {
-      const res = await fetch(`/api/admin/kb/items/${item.id}`, { method: 'DELETE' });
+      const res = await fetch(`/api/admin/kb/items/${encodeURIComponent(item.code)}`, { method: 'DELETE' });
       if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error ?? 'Gagal menghapus'); }
       setItems((prev) => prev.filter((i) => i.id !== item.id));
       setTotal((t) => Math.max(0, t - 1));
@@ -497,7 +499,7 @@ export default function MasterItemsPage() {
     if (!window.confirm(`Ubah status item ini menjadi ${next ? 'Aktif' : 'Nonaktif'}?`)) return;
     setTogglingId(item.id);
     try {
-      const res = await fetch(`/api/admin/kb/items/${item.id}`, {
+      const res = await fetch(`/api/admin/kb/items/${encodeURIComponent(item.code)}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ active: next }),
       });
       if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error ?? 'Gagal'); }
@@ -682,11 +684,13 @@ export default function MasterItemsPage() {
                         onClick={() => handleToggleActive(item)}
                         disabled={togglingId === item.id}
                         title="Klik untuk mengubah status"
-                        style={{ fontSize: '0.7rem', padding: '2px 6px', borderRadius: '3px', fontWeight: 600,
+                        style={{
+                          fontSize: '0.7rem', padding: '2px 6px', borderRadius: '3px', fontWeight: 600,
                           background: item.active ? 'rgba(61,90,62,0.1)' : 'rgba(122,46,31,0.08)',
                           color: item.active ? '#2D4A2E' : '#7A2E1F',
                           border: `1px solid ${item.active ? 'rgba(61,90,62,0.2)' : 'rgba(122,46,31,0.15)'}`,
-                          cursor: togglingId === item.id ? 'wait' : 'pointer', opacity: togglingId === item.id ? 0.6 : 1 }}>
+                          cursor: togglingId === item.id ? 'wait' : 'pointer', opacity: togglingId === item.id ? 0.6 : 1
+                        }}>
                         {item.active ? 'Active' : 'Inactive'}
                       </button>
                     </td>
