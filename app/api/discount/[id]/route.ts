@@ -42,7 +42,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     const body = await req.json();
 
     if (session.user.role === 'ADMIN') {
-      const updates: Parameters<typeof updateDiscountRequest>[1] = {};
+      const updates: Parameters<typeof updateDiscountRequest>[1] = { updatedBy: session.user.name };
       if (body.adminNote !== undefined) updates.adminNote = body.adminNote || null;
       if (body.status === 'DONE') {
         updates.status = 'DONE';
@@ -61,6 +61,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       applicableTo: body.applicableTo?.trim() || existing.applicableTo,
       conditions: body.conditions ?? existing.conditions,
       remarks: body.remarks ?? existing.remarks,
+      updatedBy: session.user.name,
     });
     return NextResponse.json(updated);
   } catch (error) {

@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard, Download, Users, Plus, Layers, Menu, X,
-  BookOpen, Database, ScanBarcode, FileText, BookMarked, ChevronDown, ChevronRight, Tag, Settings, Search, Trash2,
+  BookOpen, Database, ScanBarcode, BookMarked, ChevronDown, ChevronRight, Tag, Settings, Search, Trash2,
 } from 'lucide-react';
 import { useSession } from 'next-auth/react';
 import { SignOutButton } from '@/components/SignOutButton';
@@ -34,7 +34,6 @@ const NAV_ITEMS: NavItem[] = [
 const KB_ITEMS = [
   { label: 'Master Items', href: '/admin/kb/items', icon: <Database size={14} /> },
   { label: 'Barcode Lookup', href: '/admin/kb/barcode', icon: <ScanBarcode size={14} /> },
-  { label: 'Wiki', href: '/admin/kb/wiki', icon: <FileText size={14} /> },
   { label: 'Glossary', href: '/admin/kb/glossary', icon: <BookMarked size={14} /> },
 ];
 

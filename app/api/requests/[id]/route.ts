@@ -59,6 +59,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       noDiscount: parsed.data.noDiscount,
       hideReceipt: parsed.data.hideReceipt,
       remarks: parsed.data.remarks ?? null,
+      updatedBy: session.user.name,
     });
 
     if (!updated) return NextResponse.json({ error: 'Not found' }, { status: 404 });

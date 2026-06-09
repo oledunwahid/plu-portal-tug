@@ -17,7 +17,27 @@ interface RemovalRecord {
   adminNote: string | null;
   createdAt: string;
   doneAt: string | null;
+  updatedBy: string | null;
+  updatedAt: string | null;
   submittedBy: { id: string; name: string; email: string; outlet: string };
+}
+
+const ID_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+
+function formatAuditDate(iso: string): string {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getDate()} ${ID_MONTHS[d.getMonth()]} ${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function AuditLine({ by, at }: { by?: string | null; at?: string | null }) {
+  if (!by) return null;
+  return (
+    <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', fontStyle: 'italic', marginTop: '2px' }}>
+      Diperbarui oleh {by}{at ? ` • ${formatAuditDate(at)}` : ''}
+    </div>
+  );
 }
 
 const SELECT_STYLE: React.CSSProperties = {
@@ -272,7 +292,10 @@ export default function AdminRemovalPage() {
                     <td style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {rec.remarks ?? '—'}
                     </td>
-                    <td><StatusBadge status={rec.status} /></td>
+                    <td>
+                      <StatusBadge status={rec.status} />
+                      <AuditLine by={rec.updatedBy} at={rec.updatedAt} />
+                    </td>
                     <td onClick={(e) => { e.stopPropagation(); openSlideOver(rec); }}>
                       <button style={{ padding: '0.25rem 0.5rem', background: 'transparent', border: '1px solid var(--border)', borderRadius: '3px', cursor: 'pointer', color: 'var(--text-secondary)', fontSize: '0.7rem' }}>
                         View

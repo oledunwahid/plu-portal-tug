@@ -19,6 +19,9 @@ const TYPE_LABELS: Record<string, string> = {
   REMOVE_PLU: 'Remove PLU',
 };
 
+// Cashiers don't see the internal EXPORTED state — it reads as PENDING until admin marks it DONE.
+const toCashierStatus = (s: string): string => (s === 'DONE' ? 'DONE' : 'PENDING');
+
 interface DiscountRequest {
   id: string;
   buttonName: string;
@@ -198,15 +201,15 @@ export default function CashierDashboard() {
                         <td style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>{req.category}</td>
                         <td style={{ fontSize: '0.8rem' }}>{req.price ? formatPrice(req.price) : '—'}</td>
                         <td>
-                          <div className={req.status === 'PENDING' ? 'pending-badge-live' : undefined} style={{ display: 'inline-block' }}>
-                            <StatusBadge status={req.status} />
+                          <div className={toCashierStatus(req.status) === 'PENDING' ? 'pending-badge-live' : undefined} style={{ display: 'inline-block' }}>
+                            <StatusBadge status={toCashierStatus(req.status)} />
                           </div>
                         </td>
                         <td style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {req.adminNote ?? '—'}
                         </td>
                         <td>
-                          {req.status === 'PENDING' ? (
+                          {toCashierStatus(req.status) === 'PENDING' ? (
                             <Link
                               href={`/cashier/request/edit/${req.id}`}
                               style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.75rem', color: 'var(--text-secondary)', border: '1px solid var(--border)', borderRadius: '3px', padding: '0.2rem 0.45rem', textDecoration: 'none' }}
@@ -251,15 +254,15 @@ export default function CashierDashboard() {
                       <td style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>—</td>
                       <td style={{ fontSize: '0.8rem' }}>—</td>
                       <td>
-                        <div className={batch.status === 'PENDING' ? 'pending-badge-live' : undefined} style={{ display: 'inline-block' }}>
-                          <StatusBadge status={batch.status} />
+                        <div className={toCashierStatus(batch.status) === 'PENDING' ? 'pending-badge-live' : undefined} style={{ display: 'inline-block' }}>
+                          <StatusBadge status={toCashierStatus(batch.status)} />
                         </div>
                       </td>
                       <td style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {batch.adminNote ?? '—'}
                       </td>
                       <td>
-                        {batch.status === 'PENDING' ? (
+                        {toCashierStatus(batch.status) === 'PENDING' ? (
                           <Link
                             href={`/cashier/request/batch/edit/${batch.id}`}
                             style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.75rem', color: 'var(--text-secondary)', border: '1px solid var(--border)', borderRadius: '3px', padding: '0.2rem 0.45rem', textDecoration: 'none' }}

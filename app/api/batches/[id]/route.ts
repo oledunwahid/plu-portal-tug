@@ -67,7 +67,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
     const updated = await updateRequestBatch(
       params.id,
-      { title: body.title?.trim(), requestType: body.requestType },
+      { title: body.title?.trim(), requestType: body.requestType, updatedBy: session.user.name },
       items
     );
     if (!updated) return NextResponse.json({ error: 'Not found' }, { status: 404 });

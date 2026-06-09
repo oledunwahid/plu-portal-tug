@@ -5,6 +5,12 @@ const STATUS_CONFIG: Record<string, { label: string; bg: string; color: string; 
     color: 'var(--status-pending-text)',
     border: 'var(--status-pending-border)',
   },
+  EXPORTED: {
+    label: 'Exported',
+    bg: 'rgba(59, 130, 246, 0.08)',
+    color: '#1e40af',
+    border: 'rgba(59, 130, 246, 0.25)',
+  },
   DONE: {
     label: 'Done',
     bg: 'var(--status-done-bg)',

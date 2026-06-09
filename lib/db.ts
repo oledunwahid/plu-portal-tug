@@ -52,6 +52,10 @@ export interface DbPLURequest {
   cashierOutlet: string;
   createdAt: string;
   updatedAt: string;
+  updatedBy: string | null;
+  exportCount: number;
+  lastExportedAt: string | null;
+  lastExportedBy: string | null;
   doneAt: string | null;
   adminNote: string | null;
   exportedAt: string | null;
@@ -95,6 +99,10 @@ export interface DbRequestBatch {
   userId: string;
   createdAt: string;
   updatedAt: string;
+  updatedBy: string | null;
+  exportCount: number;
+  lastExportedAt: string | null;
+  lastExportedBy: string | null;
   doneAt: string | null;
   adminNote: string | null;
   exportedAt: string | null;
@@ -178,6 +186,17 @@ async function getDb() {
     try { g.__sqljsDb.run('ALTER TABLE "PLURequest" ADD COLUMN "barcode" TEXT'); } catch { /* already exists */ }
     try { g.__sqljsDb.run('ALTER TABLE "RequestBatchItem" ADD COLUMN "barcode" TEXT'); } catch { /* already exists */ }
     try { g.__sqljsDb.run('ALTER TABLE "RequestBatchItem" ADD COLUMN "remarks" TEXT'); } catch { /* already exists */ }
+    // Audit trail — who last changed the record
+    try { g.__sqljsDb.run('ALTER TABLE "PLURequest" ADD COLUMN "updatedBy" TEXT'); } catch { /* already exists */ }
+    try { g.__sqljsDb.run('ALTER TABLE "RequestBatch" ADD COLUMN "updatedBy" TEXT'); } catch { /* already exists */ }
+    try { g.__sqljsDb.run('ALTER TABLE "DiscountRequest" ADD COLUMN "updatedBy" TEXT'); } catch { /* already exists */ }
+    // Export tracking — EXPORTED status + how many times / when / by whom each record was downloaded
+    try { g.__sqljsDb.run('ALTER TABLE "PLURequest" ADD COLUMN "exportCount" INTEGER NOT NULL DEFAULT 0'); } catch { /* already exists */ }
+    try { g.__sqljsDb.run('ALTER TABLE "PLURequest" ADD COLUMN "lastExportedAt" TEXT'); } catch { /* already exists */ }
+    try { g.__sqljsDb.run('ALTER TABLE "PLURequest" ADD COLUMN "lastExportedBy" TEXT'); } catch { /* already exists */ }
+    try { g.__sqljsDb.run('ALTER TABLE "RequestBatch" ADD COLUMN "exportCount" INTEGER NOT NULL DEFAULT 0'); } catch { /* already exists */ }
+    try { g.__sqljsDb.run('ALTER TABLE "RequestBatch" ADD COLUMN "lastExportedAt" TEXT'); } catch { /* already exists */ }
+    try { g.__sqljsDb.run('ALTER TABLE "RequestBatch" ADD COLUMN "lastExportedBy" TEXT'); } catch { /* already exists */ }
     // KB tables
     g.__sqljsDb.run(`CREATE TABLE IF NOT EXISTS "MasterItem" (
       id TEXT PRIMARY KEY, active INTEGER NOT NULL DEFAULT 1, code TEXT NOT NULL UNIQUE,
@@ -216,6 +235,7 @@ async function getDb() {
       adminNote TEXT,
       createdAt TEXT NOT NULL,
       updatedAt TEXT NOT NULL,
+      updatedBy TEXT,
       doneAt TEXT
     )`);
     // Add outlets column to existing DiscountRequest tables that were created before this column was added
@@ -439,6 +459,10 @@ function rowToPLURequest(row: Record<string, unknown>): DbPLURequest {
     cashierOutlet: String(row.cashierOutlet),
     createdAt: String(row.createdAt),
     updatedAt: String(row.updatedAt),
+    updatedBy: normStr(row.updatedBy),
+    exportCount: row.exportCount != null ? Number(row.exportCount) : 0,
+    lastExportedAt: normStr(row.lastExportedAt),
+    lastExportedBy: normStr(row.lastExportedBy),
     doneAt: normStr(row.doneAt),
     adminNote: normStr(row.adminNote),
     exportedAt: normStr(row.exportedAt),
@@ -604,6 +628,7 @@ export async function updatePLURequest(id: string, data: Partial<{
   barcode: string | null;
   remarks: string | null; adminNote: string | null; status: string;
   doneAt: string | null; exportedAt: string | null; exportBatchId: string | null;
+  updatedBy: string | null;
 }>): Promise<DbPLURequest | null> {
   return withWriteLock((db) => {
     const sets: string[] = ['updatedAt = ?'];
@@ -612,7 +637,7 @@ export async function updatePLURequest(id: string, data: Partial<{
     const boolFields = ['serviceCharge', 'tax1', 'tax2', 'noDiscount', 'hideReceipt'] as const;
     const strFields = [
       'code', 'name', 'category', 'department', 'folder', 'printers', 'outlets',
-      'barcode', 'remarks', 'adminNote', 'status', 'doneAt', 'exportedAt', 'exportBatchId',
+      'barcode', 'remarks', 'adminNote', 'status', 'doneAt', 'exportedAt', 'exportBatchId', 'updatedBy',
     ] as const;
 
     for (const f of boolFields) {
@@ -639,14 +664,34 @@ export async function deletePLURequest(id: string): Promise<boolean> {
   });
 }
 
-export async function bulkMarkPLURequestsDone(ids: string[]): Promise<number> {
+export async function bulkMarkPLURequestsDone(ids: string[], updatedBy?: string | null): Promise<number> {
   if (ids.length === 0) return 0;
   return withWriteLock((db) => {
     const now = nowIso();
     const ph = ids.map(() => '?').join(',');
+    // Allow PENDING and EXPORTED → DONE; never touch records already DONE.
     db.run(
-      `UPDATE "PLURequest" SET status = 'DONE', doneAt = ?, updatedAt = ? WHERE id IN (${ph}) AND status = 'PENDING'`,
-      [now, now, ...ids]);
+      `UPDATE "PLURequest" SET status = 'DONE', doneAt = ?, updatedAt = ?, updatedBy = ? WHERE id IN (${ph}) AND status != 'DONE'`,
+      [now, now, updatedBy ?? null, ...ids]);
+    return db.getRowsModified() as number;
+  });
+}
+
+// Mark PENDING records as EXPORTED, bumping exportCount and stamping who/when. Already-EXPORTED
+// or DONE records are skipped (status = 'PENDING' guard). Returns count of records changed.
+export async function markRequestsExported(
+  ids: string[],
+  type: 'single' | 'batch',
+  exportedBy: string | null,
+): Promise<number> {
+  if (ids.length === 0) return 0;
+  return withWriteLock((db) => {
+    const now = nowIso();
+    const table = type === 'batch' ? 'RequestBatch' : 'PLURequest';
+    const ph = ids.map(() => '?').join(',');
+    db.run(
+      `UPDATE "${table}" SET status = 'EXPORTED', lastExportedAt = ?, lastExportedBy = ?, exportCount = COALESCE(exportCount, 0) + 1, updatedAt = ? WHERE id IN (${ph}) AND status = 'PENDING'`,
+      [now, exportedBy ?? null, now, ...ids]);
     return db.getRowsModified() as number;
   });
 }
@@ -702,6 +747,44 @@ export async function getPLUMetrics(filters: { outletGroup?: string; from?: stri
   }
 }
 
+export interface LastUpdatedInfo { updatedBy: string; updatedAt: string }
+
+// Most recent audited change for a PLU request type, across single PLURequest and batch RequestBatch records.
+export async function getLastUpdatedForType(requestType: string): Promise<LastUpdatedInfo | null> {
+  try {
+    const db = await getDb();
+    const candidates: Record<string, unknown>[] = [];
+    const single = execFirst(db,
+      `SELECT updatedBy, updatedAt FROM "PLURequest" WHERE requestType = ? AND updatedBy IS NOT NULL AND updatedBy != '' ORDER BY updatedAt DESC LIMIT 1`,
+      [requestType]);
+    if (single) candidates.push(single);
+    const batch = execFirst(db,
+      `SELECT updatedBy, updatedAt FROM "RequestBatch" WHERE requestType = ? AND updatedBy IS NOT NULL AND updatedBy != '' ORDER BY updatedAt DESC LIMIT 1`,
+      [requestType]);
+    if (batch) candidates.push(batch);
+    if (candidates.length === 0) return null;
+    candidates.sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
+    const top = candidates[0];
+    return { updatedBy: String(top.updatedBy), updatedAt: String(top.updatedAt) };
+  } catch (err) {
+    console.error('[db] getLastUpdatedForType failed:', err);
+    return null;
+  }
+}
+
+export async function getLastUpdatedDiscount(): Promise<LastUpdatedInfo | null> {
+  try {
+    const db = await getDb();
+    const row = execFirst(db,
+      `SELECT updatedBy, updatedAt FROM "DiscountRequest" WHERE updatedBy IS NOT NULL AND updatedBy != '' ORDER BY updatedAt DESC LIMIT 1`,
+      []);
+    return row ? { updatedBy: String(row.updatedBy), updatedAt: String(row.updatedAt) } : null;
+  } catch (err) {
+    console.error('[db] getLastUpdatedDiscount failed:', err);
+    return null;
+  }
+}
+
 // ── RequestBatchItem row mapper ───────────────────────────────────────────────
 
 function rowToRequestBatchItem(row: Record<string, unknown>): DbRequestBatchItem {
@@ -740,6 +823,10 @@ function rowToRequestBatch(row: Record<string, unknown>): DbRequestBatch {
     userId: String(row.userId),
     createdAt: String(row.createdAt),
     updatedAt: String(row.updatedAt),
+    updatedBy: normStr(row.updatedBy),
+    exportCount: row.exportCount != null ? Number(row.exportCount) : 0,
+    lastExportedAt: normStr(row.lastExportedAt),
+    lastExportedBy: normStr(row.lastExportedBy),
     doneAt: normStr(row.doneAt),
     adminNote: normStr(row.adminNote),
     exportedAt: normStr(row.exportedAt),
@@ -773,6 +860,19 @@ function buildBatchConditions(filters: RequestBatchFilters, alias: string): { co
 }
 
 // ── RequestBatch helpers ──────────────────────────────────────────────────────
+
+export async function countRequestBatches(filters: RequestBatchFilters = {}): Promise<number> {
+  try {
+    const db = await getDb();
+    const { conditions, params } = buildBatchConditions(filters, 'rb');
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    const row = execFirst(db, `SELECT COUNT(*) as cnt FROM "RequestBatch" rb ${where}`, params);
+    return row ? Number(row.cnt) : 0;
+  } catch (err) {
+    console.error('[db] countRequestBatches failed:', err);
+    return 0;
+  }
+}
 
 export async function getRequestBatches(filters: RequestBatchFilters = {}): Promise<DbRequestBatchWithItems[]> {
   try {
@@ -906,7 +1006,7 @@ export async function createRequestBatch(
 
 export async function updateRequestBatch(
   id: string,
-  data: { title?: string; requestType?: string },
+  data: { title?: string; requestType?: string; updatedBy?: string | null },
   items: BatchItemInput[]
 ): Promise<DbRequestBatchWithItems | null> {
   return withWriteLock((db) => {
@@ -914,10 +1014,10 @@ export async function updateRequestBatch(
     if (!existing) return null;
 
     const now = nowIso();
-    db.run('UPDATE "RequestBatch" SET title = ?, requestType = ?, updatedAt = ? WHERE id = ?', [
+    db.run('UPDATE "RequestBatch" SET title = ?, requestType = ?, updatedAt = ?, updatedBy = ? WHERE id = ?', [
       data.title ?? String(existing.title),
       data.requestType ?? String(existing.requestType),
-      now, id,
+      now, data.updatedBy ?? (existing.updatedBy as string | null) ?? null, id,
     ]);
     db.run('DELETE FROM "RequestBatchItem" WHERE batchId = ?', [id]);
     const createdItems = insertBatchItems(db, id, items);
@@ -960,13 +1060,13 @@ export async function deleteRequestBatch(id: string): Promise<boolean> {
   });
 }
 
-export async function markRequestBatchDone(id: string): Promise<{ batch: DbRequestBatch; itemCount: number } | null> {
+export async function markRequestBatchDone(id: string, updatedBy?: string | null): Promise<{ batch: DbRequestBatch; itemCount: number } | null> {
   return withWriteLock((db) => {
     const existing = execFirst(db, 'SELECT id, status FROM "RequestBatch" WHERE id = ?', [id]);
     if (!existing) return null;
     const now = nowIso();
-    db.run('UPDATE "RequestBatch" SET status = ?, doneAt = ?, updatedAt = ? WHERE id = ?',
-      ['DONE', now, now, id]);
+    db.run('UPDATE "RequestBatch" SET status = ?, doneAt = ?, updatedAt = ?, updatedBy = ? WHERE id = ?',
+      ['DONE', now, now, updatedBy ?? null, id]);
     const itemCountRow = execFirst(db,
       'SELECT COUNT(*) as cnt FROM "RequestBatchItem" WHERE batchId = ?', [id]);
     const itemCount = itemCountRow ? Number(itemCountRow.cnt) : 0;
@@ -1452,6 +1552,7 @@ export interface DbDiscountRequest {
   adminNote: string | null;
   createdAt: string;
   updatedAt: string;
+  updatedBy: string | null;
   doneAt: string | null;
 }
 
@@ -1485,6 +1586,7 @@ function rowToDiscountRequest(row: Record<string, unknown>): DbDiscountRequest {
     adminNote: normStr(row.adminNote),
     createdAt: String(row.createdAt),
     updatedAt: String(row.updatedAt),
+    updatedBy: normStr(row.updatedBy),
     doneAt: normStr(row.doneAt),
   };
 }
@@ -1524,6 +1626,28 @@ export async function getDiscountRequests(filters: DiscountRequestFilters = {}):
   } catch (err) {
     console.error('[db] getDiscountRequests failed:', err);
     return [];
+  }
+}
+
+export async function countDiscountRequests(filters: DiscountRequestFilters = {}): Promise<number> {
+  try {
+    const db = await getDb();
+    const conditions: string[] = [];
+    const params: unknown[] = [];
+    if (filters.status && filters.status !== 'ALL') { conditions.push('dr.status = ?'); params.push(filters.status); }
+    if (filters.outletGroup && filters.outletGroup !== 'ALL') { conditions.push('dr.outletGroup = ?'); params.push(filters.outletGroup); }
+    if (filters.userId) { conditions.push('dr.userId = ?'); params.push(filters.userId); }
+    if (filters.from) { conditions.push('dr.createdAt >= ?'); params.push(filters.from); }
+    if (filters.to) {
+      const d = new Date(filters.to); d.setHours(23, 59, 59, 999);
+      conditions.push('dr.createdAt <= ?'); params.push(d.toISOString());
+    }
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    const row = execFirst(db, `SELECT COUNT(*) as cnt FROM "DiscountRequest" dr ${where}`, params);
+    return row ? Number(row.cnt) : 0;
+  } catch (err) {
+    console.error('[db] countDiscountRequests failed:', err);
+    return 0;
   }
 }
 
@@ -1587,13 +1711,14 @@ export async function updateDiscountRequest(id: string, data: Partial<{
   status: string;
   doneAt: string | null;
   outlets: string;
+  updatedBy: string | null;
 }>): Promise<DbDiscountRequest | null> {
   return withWriteLock((db) => {
     const sets: string[] = ['updatedAt = ?'];
     const vals: unknown[] = [nowIso()];
     const strFields = [
       'buttonName', 'discountType', 'discountValueType', 'outlets', 'applicableTo',
-      'conditions', 'remarks', 'adminNote', 'status', 'doneAt',
+      'conditions', 'remarks', 'adminNote', 'status', 'doneAt', 'updatedBy',
     ] as const;
     for (const f of strFields) {
       if (f in data) { sets.push(`${f} = ?`); vals.push((data as Record<string, unknown>)[f] ?? null); }

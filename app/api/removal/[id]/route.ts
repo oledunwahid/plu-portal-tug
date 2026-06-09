@@ -35,7 +35,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     }
 
     const body = await req.json();
-    const updates: Parameters<typeof updatePLURequest>[1] = {};
+    const updates: Parameters<typeof updatePLURequest>[1] = { updatedBy: session.user.name };
     if ('adminNote' in body) updates.adminNote = body.adminNote ?? null;
     if (body.status === 'DONE' && record.status !== 'DONE') {
       updates.status = 'DONE';

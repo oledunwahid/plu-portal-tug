@@ -39,6 +39,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     const updated = await updatePLURequest(params.id, {
       ...parsed.data,
       price: parsed.data.price ?? null,
+      updatedBy: session.user.name,
     });
     if (!updated) return NextResponse.json({ error: 'Not found' }, { status: 404 });
     return NextResponse.json(updated);

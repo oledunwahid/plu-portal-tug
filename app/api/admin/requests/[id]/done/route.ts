@@ -18,6 +18,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     const updated = await updatePLURequest(params.id, {
       status: 'DONE',
       doneAt: new Date().toISOString(),
+      updatedBy: session.user.name,
     });
     if (!updated) return NextResponse.json({ error: 'Not found' }, { status: 404 });
     return NextResponse.json(updated);

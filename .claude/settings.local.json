@@ -37,7 +37,9 @@
       "Bash(ConvertTo-Csv -NoTypeInformation)",
       "Bash(Out-String)",
       "PowerShell(head *)",
-      "Bash(echo \"EXIT: $?\")"
+      "Bash(echo \"EXIT: $?\")",
+      "Bash(DATABASE_URL=\"file:./dev.db\" npx prisma migrate status)",
+      "Bash(DATABASE_URL=\"file:./dev.db\" npx prisma migrate deploy)"
     ]
   }
 }

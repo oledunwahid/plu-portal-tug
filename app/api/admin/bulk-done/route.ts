@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
     }
 
     const validIds = ids.filter((id): id is string => typeof id === 'string' && id.length > 0);
-    const updated = await bulkMarkPLURequestsDone(validIds);
+    const updated = await bulkMarkPLURequestsDone(validIds, session.user.name);
     return NextResponse.json({ updated });
   } catch (error) {
     console.error('[POST /api/admin/bulk-done]', error);

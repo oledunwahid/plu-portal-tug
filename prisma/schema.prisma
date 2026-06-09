@@ -38,6 +38,10 @@ model RequestBatch {
   items         RequestBatchItem[]
   createdAt     DateTime           @default(now())
   updatedAt     DateTime           @updatedAt
+  updatedBy     String?
+  exportCount    Int      @default(0)
+  lastExportedAt DateTime?
+  lastExportedBy String?
   doneAt        DateTime?
   adminNote     String?
   exportedAt    DateTime?
@@ -137,6 +141,7 @@ model DiscountRequest {
   adminNote         String?
   createdAt         DateTime              @default(now())
   updatedAt         DateTime              @updatedAt
+  updatedBy         String?
   doneAt            DateTime?
 }
 
@@ -199,6 +204,10 @@ model PLURequest {
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+  updatedBy     String?
+  exportCount    Int      @default(0)
+  lastExportedAt DateTime?
+  lastExportedBy String?
   doneAt        DateTime?
   adminNote     String?
   exportedAt    DateTime?

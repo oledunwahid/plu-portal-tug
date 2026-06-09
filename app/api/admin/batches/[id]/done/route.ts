@@ -15,7 +15,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 });
     if (existing.status === 'DONE') return NextResponse.json({ error: 'Already marked as done' }, { status: 409 });
 
-    const result = await markRequestBatchDone(params.id);
+    const result = await markRequestBatchDone(params.id, session.user.name);
     if (!result) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
     return NextResponse.json({ ...result.batch, itemCount: result.itemCount });

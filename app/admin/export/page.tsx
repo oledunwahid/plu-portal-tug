@@ -1,14 +1,16 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
+import { useSession } from 'next-auth/react';
 import { toast } from 'sonner';
-import { PlusCircle, Tag, Type, Printer, Download, Loader2, Layers } from 'lucide-react';
+import { PlusCircle, Tag, Type, Printer, Trash2, Check, Download, Loader2, Layers } from 'lucide-react';
 import { formatPrice } from '@/lib/utils';
 import { formatTimestamp } from '@/lib/format';
 import StatusBadge from '@/components/StatusBadge';
 import TableSkeleton from '@/components/skeletons/TableSkeleton';
 
-type RequestType = 'NEW_ITEM' | 'UPDATE_PRICE' | 'UPDATE_NAME' | 'UPDATE_PRINTER';
+type RequestType = 'NEW_ITEM' | 'UPDATE_PRICE' | 'UPDATE_NAME' | 'UPDATE_PRINTER' | 'REMOVE_PLU';
 
 interface PLURequest {
   id: string;
@@ -29,6 +31,13 @@ interface PLURequest {
   // Enriched from the master item registry for UPDATE_PRICE / UPDATE_NAME (empty string if not found).
   masterName?: string;
   masterCategory?: string;
+  // Audit trail — who last changed the record and when.
+  updatedBy?: string | null;
+  updatedAt?: string | null;
+  // Export tracking.
+  exportCount?: number;
+  lastExportedAt?: string | null;
+  lastExportedBy?: string | null;
 }
 
 interface TabConfig {
@@ -46,6 +55,7 @@ const TABS: TabConfig[] = [
   { type: 'UPDATE_PRICE', label: 'Update Price', Icon: Tag, color: '#8B6914', lightColor: 'rgba(139,105,20,0.12)', format: 'CSV', defaultStatus: 'ALL' },
   { type: 'UPDATE_NAME', label: 'Update Name', Icon: Type, color: '#7A2E1F', lightColor: 'rgba(122,46,31,0.12)', format: 'CSV', defaultStatus: 'ALL' },
   { type: 'UPDATE_PRINTER', label: 'Update Printer', Icon: Printer, color: '#1F3A5F', lightColor: 'rgba(31,58,95,0.12)', format: 'CSV', defaultStatus: 'ALL' },
+  { type: 'REMOVE_PLU', label: 'Remove PLU', Icon: Trash2, color: '#8B3A2A', lightColor: 'rgba(139,58,42,0.12)', format: 'CSV', defaultStatus: 'ALL' },
 ];
 
 const SELECT_STYLE = {
@@ -73,6 +83,41 @@ const DATE_STYLE = {
 
 type ColumnDef = { key: string; label: string; render: (r: PLURequest) => React.ReactNode };
 
+const ID_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+
+function formatAuditDate(iso: string): string {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getDate()} ${ID_MONTHS[d.getMonth()]} ${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function AuditLine({ by, at }: { by?: string | null; at?: string | null }) {
+  if (!by) return null;
+  return (
+    <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', fontStyle: 'italic', marginTop: '2px' }}>
+      Diperbarui oleh {by}{at ? ` • ${formatAuditDate(at)}` : ''}
+    </div>
+  );
+}
+
+// Shared status cell — badge plus the audit line underneath (only renders when updatedBy is set).
+const STATUS_COL: ColumnDef = {
+  key: 'status',
+  label: 'Status',
+  render: (r) => (
+    <div>
+      <StatusBadge status={r.status} />
+      <AuditLine by={r.updatedBy} at={r.updatedAt} />
+      {(r.exportCount ?? 0) > 0 && (
+        <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
+          Dieksport {r.exportCount}x
+        </div>
+      )}
+    </div>
+  ),
+};
+
 const COLUMNS: Record<RequestType, ColumnDef[]> = {
   NEW_ITEM: [
     { key: 'name', label: 'Item Name', render: (r) => <span style={{ fontWeight: 500 }}>{r.name}</span> },
@@ -84,7 +129,7 @@ const COLUMNS: Record<RequestType, ColumnDef[]> = {
     { key: 'outlets', label: 'Outlets', render: (r) => <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{r.outlets.replace(/;/g, ' · ')}</span> },
     { key: 'by', label: 'By', render: (r) => <span style={{ fontSize: '0.8rem' }}>{r.cashierOutlet}</span> },
     { key: 'date', label: 'Date', render: (r) => <div style={{ minWidth: '130px' }}><div style={{ fontSize: '0.8rem', color: 'var(--text-primary)' }}>{formatTimestamp(r.createdAt).split(', ')[0]}</div><div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontVariantNumeric: 'tabular-nums' }}>{formatTimestamp(r.createdAt).split(', ')[1]}</div></div> },
-    { key: 'status', label: 'Status', render: (r) => <StatusBadge status={r.status} /> },
+    STATUS_COL,
   ],
   UPDATE_PRICE: [
     { key: 'code', label: 'Code', render: (r) => <span style={{ fontFamily: 'monospace', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{r.code ?? '—'}</span> },
@@ -94,7 +139,7 @@ const COLUMNS: Record<RequestType, ColumnDef[]> = {
     { key: 'outlet', label: 'Outlet', render: (r) => <span style={{ fontSize: '0.8rem' }}>{r.cashierOutlet}</span> },
     { key: 'by', label: 'By', render: (r) => <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{r.submittedBy.name}</span> },
     { key: 'date', label: 'Date', render: (r) => <div style={{ minWidth: '130px' }}><div style={{ fontSize: '0.8rem', color: 'var(--text-primary)' }}>{formatTimestamp(r.createdAt).split(', ')[0]}</div><div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontVariantNumeric: 'tabular-nums' }}>{formatTimestamp(r.createdAt).split(', ')[1]}</div></div> },
-    { key: 'status', label: 'Status', render: (r) => <StatusBadge status={r.status} /> },
+    STATUS_COL,
   ],
   UPDATE_NAME: [
     { key: 'code', label: 'Code', render: (r) => <span style={{ fontFamily: 'monospace', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{r.code ?? '—'}</span> },
@@ -103,7 +148,7 @@ const COLUMNS: Record<RequestType, ColumnDef[]> = {
     { key: 'outlet', label: 'Outlet', render: (r) => <span style={{ fontSize: '0.8rem' }}>{r.cashierOutlet}</span> },
     { key: 'by', label: 'By', render: (r) => <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{r.submittedBy.name}</span> },
     { key: 'date', label: 'Date', render: (r) => <div style={{ minWidth: '130px' }}><div style={{ fontSize: '0.8rem', color: 'var(--text-primary)' }}>{formatTimestamp(r.createdAt).split(', ')[0]}</div><div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontVariantNumeric: 'tabular-nums' }}>{formatTimestamp(r.createdAt).split(', ')[1]}</div></div> },
-    { key: 'status', label: 'Status', render: (r) => <StatusBadge status={r.status} /> },
+    STATUS_COL,
   ],
   UPDATE_PRINTER: [
     { key: 'code', label: 'Code', render: (r) => <span style={{ fontFamily: 'monospace', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{r.code ?? '—'}</span> },
@@ -112,13 +157,27 @@ const COLUMNS: Record<RequestType, ColumnDef[]> = {
     { key: 'outlets', label: 'Outlets', render: (r) => <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{r.outlets.replace(/;/g, ' · ')}</span> },
     { key: 'by', label: 'By', render: (r) => <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{r.submittedBy.name}</span> },
     { key: 'date', label: 'Date', render: (r) => <div style={{ minWidth: '130px' }}><div style={{ fontSize: '0.8rem', color: 'var(--text-primary)' }}>{formatTimestamp(r.createdAt).split(', ')[0]}</div><div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontVariantNumeric: 'tabular-nums' }}>{formatTimestamp(r.createdAt).split(', ')[1]}</div></div> },
-    { key: 'status', label: 'Status', render: (r) => <StatusBadge status={r.status} /> },
+    STATUS_COL,
+  ],
+  REMOVE_PLU: [
+    { key: 'code', label: 'Code', render: (r) => <span style={{ fontFamily: 'monospace', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{r.code ?? '—'}</span> },
+    { key: 'name', label: 'Item Name', render: (r) => <span style={{ fontWeight: 500 }}>{r.name || '—'}</span> },
+    { key: 'outlet', label: 'Outlet', render: (r) => <span style={{ fontSize: '0.8rem' }}>{r.cashierOutlet}</span> },
+    { key: 'by', label: 'By', render: (r) => <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{r.submittedBy.name}</span> },
+    { key: 'date', label: 'Date', render: (r) => <div style={{ minWidth: '130px' }}><div style={{ fontSize: '0.8rem', color: 'var(--text-primary)' }}>{formatTimestamp(r.createdAt).split(', ')[0]}</div><div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontVariantNumeric: 'tabular-nums' }}>{formatTimestamp(r.createdAt).split(', ')[1]}</div></div> },
+    STATUS_COL,
   ],
 };
 
 const FALLBACK_GROUPS = ['UNION', 'CNS', 'FRENCH', 'IBR', 'IND'];
 
-export default function ExportPage() {
+const VALID_TYPES: RequestType[] = ['NEW_ITEM', 'UPDATE_PRICE', 'UPDATE_NAME', 'UPDATE_PRINTER', 'REMOVE_PLU'];
+
+function ExportPageContent() {
+  const searchParams = useSearchParams();
+  const { data: session } = useSession();
+  const adminName = (session?.user as { name?: string } | undefined)?.name ?? null;
+  const [markingDone, setMarkingDone] = useState(false);
   const [activeType, setActiveType] = useState<RequestType>('NEW_ITEM');
   const [group, setGroup] = useState('ALL');
   const [outletGroups, setOutletGroups] = useState<string[]>(FALLBACK_GROUPS);
@@ -169,6 +228,11 @@ export default function ExportPage() {
         outletGroup: b.outletGroup,
         createdAt: b.createdAt,
         submittedBy: b.submittedBy,
+        updatedBy: b.updatedBy,
+        updatedAt: b.updatedAt,
+        exportCount: b.exportCount,
+        lastExportedAt: b.lastExportedAt,
+        lastExportedBy: b.lastExportedBy,
       }))
     )
   , []);
@@ -212,6 +276,16 @@ export default function ExportPage() {
       .catch(() => {});
   }, []);
 
+  // Pre-select a section from the ?type= query param (used by dashboard command-center cards).
+  // Unrecognized/absent values leave the default (NEW_ITEM) untouched.
+  useEffect(() => {
+    const t = searchParams.get('type');
+    if (t && (VALID_TYPES as string[]).includes(t)) {
+      switchTab(t as RequestType);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
+
   function switchTab(type: RequestType) {
     const tab = TABS.find((t) => t.type === type)!;
     setActiveType(type);
@@ -229,6 +303,63 @@ export default function ExportPage() {
       return next;
     });
   }
+
+  // Optimistically flag the given rows as DONE with the current admin as the auditor.
+  // Both PENDING and EXPORTED rows can transition to DONE.
+  function applyDoneLocally(rowMatches: (r: PLURequest) => boolean) {
+    const now = new Date().toISOString();
+    setRequests((prev) => prev.map((r) =>
+      rowMatches(r) && r.status !== 'DONE'
+        ? { ...r, status: 'DONE', updatedBy: adminName ?? r.updatedBy, updatedAt: now }
+        : r
+    ));
+  }
+
+  async function markRowDone(req: PLURequest) {
+    const isBatch = req.id.includes(':');
+    const batchId = isBatch ? req.id.split(':')[0] : null;
+    const url = isBatch ? `/api/admin/batches/${batchId}/done` : `/api/admin/requests/${req.id}/done`;
+    setMarkingDone(true);
+    try {
+      const res = await fetch(url, { method: 'POST' });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error ?? 'Gagal'); }
+      // Marking a batch item done completes the whole batch — reflect that across its rows.
+      applyDoneLocally((r) => isBatch ? r.id.startsWith(`${batchId}:`) : r.id === req.id);
+      toast.success('Permintaan ditandai selesai.');
+    } catch (err: any) {
+      toast.error(err.message ?? 'Gagal menandai selesai.');
+    } finally {
+      setMarkingDone(false);
+    }
+  }
+
+  async function bulkMarkDone() {
+    const actionable = requests.filter((r) => selectedIds.has(r.id) && r.status !== 'DONE');
+    if (actionable.length === 0) return;
+    const singleIds = actionable.filter((r) => !r.id.includes(':')).map((r) => r.id);
+    const batchIds = Array.from(new Set(actionable.filter((r) => r.id.includes(':')).map((r) => r.id.split(':')[0])));
+    setMarkingDone(true);
+    try {
+      const ops: Promise<Response>[] = [];
+      if (singleIds.length > 0) {
+        ops.push(fetch('/api/admin/bulk-done', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: singleIds }),
+        }));
+      }
+      for (const bid of batchIds) ops.push(fetch(`/api/admin/batches/${bid}/done`, { method: 'POST' }));
+      const results = await Promise.all(ops);
+      if (results.some((r) => !r.ok)) throw new Error('Sebagian gagal');
+      applyDoneLocally((r) => selectedIds.has(r.id) || batchIds.some((bid) => r.id.startsWith(`${bid}:`)));
+      setSelectedIds(new Set());
+      toast.success('Permintaan ditandai selesai.');
+    } catch (err: any) {
+      toast.error(err.message ?? 'Gagal menandai selesai.');
+    } finally {
+      setMarkingDone(false);
+    }
+  }
+
+  const selectedActionableCount = requests.filter((r) => selectedIds.has(r.id) && r.status !== 'DONE').length;
 
   async function handleDownload(format: 'XLSX' | 'CSV') {
     const toDownload = selectedIds.size > 0 ? Array.from(selectedIds) : requests.map((r) => r.id);
@@ -282,7 +413,27 @@ export default function ExportPage() {
       } else {
         toast.success(`${format} downloaded: ${toDownload.length} item${plural}.`);
       }
-      fetchRequests();
+
+      // Auto-advance downloaded PENDING items to EXPORTED. The file is already saved — never block
+      // or reverse the download if this fails; just warn the admin to refresh.
+      try {
+        const markRes = await fetch('/api/admin/export/mark-exported', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ids: exportIds, type: isBatchItem ? 'batch' : 'single' }),
+        });
+        if (!markRes.ok) throw new Error('mark-exported failed');
+        const now = new Date().toISOString();
+        const exportedSet = new Set(exportIds);
+        setRequests((prev) => prev.map((r) => {
+          const recId = isBatchItem ? r.id.split(':')[0] : r.id;
+          return exportedSet.has(recId) && r.status === 'PENDING'
+            ? { ...r, status: 'EXPORTED', lastExportedBy: adminName ?? r.lastExportedBy ?? null, lastExportedAt: now, exportCount: (r.exportCount ?? 0) + 1 }
+            : r;
+        }));
+      } catch {
+        toast.warning('Export berhasil diunduh, tetapi status gagal diperbarui. Refresh halaman untuk melihat status terbaru.');
+      }
     } catch (err: any) {
       toast.error(err.message ?? 'Something went wrong. Please try again.');
     } finally {
@@ -346,7 +497,7 @@ export default function ExportPage() {
       </div>
 
       {/* Tab strip */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.75rem', marginBottom: '1.25rem' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '0.75rem', marginBottom: '1.25rem' }}>
         {TABS.map((tab) => {
           const isActive = activeType === tab.type;
           const count = tabCounts[tab.type];
@@ -402,7 +553,7 @@ export default function ExportPage() {
           </div>
           {/* Status sub-filter */}
           <div style={{ display: 'flex', gap: '0.375rem' }}>
-            {(['PENDING', 'DONE', 'ALL'] as const).map((s) => (
+            {(['PENDING', 'EXPORTED', 'DONE', 'ALL'] as const).map((s) => (
               <button
                 key={s}
                 onClick={() => setStatusFilter(s)}
@@ -434,6 +585,16 @@ export default function ExportPage() {
             <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
               {selectedIds.size > 0 ? `${selectedIds.size} selected` : `${requests.length} item${requests.length !== 1 ? 's' : ''}`}
             </span>
+            {selectedActionableCount > 0 && (
+              <button
+                onClick={bulkMarkDone}
+                disabled={markingDone}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '0.375rem', padding: '0.35rem 0.75rem', background: 'rgba(61,90,62,0.1)', border: '1px solid rgba(61,90,62,0.3)', borderRadius: '4px', fontSize: '0.78rem', fontWeight: 600, color: '#2D4A2E', cursor: markingDone ? 'not-allowed' : 'pointer', opacity: markingDone ? 0.6 : 1 }}
+              >
+                <Check size={13} />
+                Tandai Selesai ({selectedActionableCount})
+              </button>
+            )}
             <span style={{ marginLeft: 'auto', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
               {selectedIds.size === 0 ? 'Select rows or download all' : `Will export ${selectedIds.size} item${selectedIds.size !== 1 ? 's' : ''}`}
             </span>
@@ -442,7 +603,7 @@ export default function ExportPage() {
 
         {/* Table */}
         {loading ? (
-          <TableSkeleton rows={6} cols={columns.length + 1} />
+          <TableSkeleton rows={6} cols={columns.length + 2} />
         ) : requests.length === 0 ? (
           <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
             No {activeTab.label.toLowerCase()} requests found for the current filters.
@@ -454,6 +615,7 @@ export default function ExportPage() {
                 <tr>
                   <th style={{ width: '40px', padding: '0.75rem' }}></th>
                   {columns.map((col) => <th key={col.key}>{col.label}</th>)}
+                  <th style={{ width: '60px', textAlign: 'center' }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -473,6 +635,18 @@ export default function ExportPage() {
                       />
                     </td>
                     {columns.map((col) => <td key={col.key}>{col.render(req)}</td>)}
+                    <td style={{ textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
+                      {req.status !== 'DONE' && (
+                        <button
+                          onClick={() => markRowDone(req)}
+                          disabled={markingDone}
+                          title="Tandai selesai"
+                          style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '28px', height: '28px', background: 'rgba(61,90,62,0.1)', border: '1px solid rgba(61,90,62,0.3)', borderRadius: '3px', cursor: markingDone ? 'not-allowed' : 'pointer', color: '#2D4A2E', opacity: markingDone ? 0.5 : 1 }}
+                        >
+                          <Check size={13} />
+                        </button>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -517,5 +691,13 @@ export default function ExportPage() {
 
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
+  );
+}
+
+export default function ExportPage() {
+  return (
+    <Suspense fallback={null}>
+      <ExportPageContent />
+    </Suspense>
   );
 }
