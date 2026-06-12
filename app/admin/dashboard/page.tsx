@@ -109,15 +109,22 @@ export default function AdminDashboard() {
 
   const [stats, setStats] = useState<StatsByType | null>(null);
   const [statsLoading, setStatsLoading] = useState(true);
+  const [statsError, setStatsError] = useState(false);
 
   const fetchStats = useCallback(async () => {
     setStatsLoading(true);
     try {
-      const res = await fetch('/api/admin/stats/by-type');
+      // no-store: never let a stale (e.g. all-zero cold-start) response get cached and
+      // misread as real counts. force-dynamic on the route keeps the server side fresh too.
+      const res = await fetch('/api/admin/stats/by-type', { cache: 'no-store' });
       if (!res.ok) throw new Error();
       setStats(await res.json());
+      setStatsError(false);
     } catch {
+      // Surface the failure instead of silently falling back to 0 on every card —
+      // an all-zero dashboard should mean "no pending work", not "the request failed".
       setStats(null);
+      setStatsError(true);
     } finally {
       setStatsLoading(false);
     }
@@ -193,10 +200,26 @@ export default function AdminDashboard() {
         </div>
       </div>
 
+      {/* Stats load failure — distinct from genuine zeros so admins know to retry. */}
+      {!statsLoading && statsError && (
+        <div className="card" style={{ padding: '1rem 1.25rem', marginBottom: '1.25rem', borderLeft: '3px solid #8B3A2A', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem', flexWrap: 'wrap' }}>
+          <span style={{ fontSize: '0.85rem', color: '#8B3A2A' }}>
+            Gagal memuat statistik permintaan. Angka di bawah mungkin tidak akurat.
+          </span>
+          <button
+            onClick={fetchStats}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '0.375rem', padding: '0.4rem 0.75rem', background: 'transparent', border: '1px solid #8B3A2A', borderRadius: '0.375rem', fontSize: '0.8rem', color: '#8B3A2A', cursor: 'pointer' }}
+          >
+            <RefreshCw size={13} />
+            Coba lagi
+          </button>
+        </div>
+      )}
+
       {/* Summary stat cards */}
       {statsLoading ? (
         <StatCardSkeleton />
-      ) : (
+      ) : statsError ? null : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.875rem', marginBottom: '1.25rem' }}>
           <StatCard label="Shown" value={summary?.total ?? null} />
           <StatCard label="Pending" value={summary?.pending ?? null} accent={(summary?.pending ?? 0) > 0} />
@@ -220,6 +243,10 @@ export default function AdminDashboard() {
               <div className="skeleton" style={{ height: '10px', width: '90%' }} />
             </div>
           ))}
+        </div>
+      ) : statsError ? (
+        <div className="card" style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
+          Statistik tidak tersedia. Gunakan &quot;Coba lagi&quot; di atas untuk memuat ulang.
         </div>
       ) : (
         <div className="cmd-grid">

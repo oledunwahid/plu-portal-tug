@@ -173,6 +173,28 @@ const FALLBACK_GROUPS = ['UNION', 'CNS', 'FRENCH', 'IBR', 'IND'];
 
 const VALID_TYPES: RequestType[] = ['NEW_ITEM', 'UPDATE_PRICE', 'UPDATE_NAME', 'UPDATE_PRINTER', 'REMOVE_PLU'];
 
+// Done items accumulate over time, so only that view is paginated.
+const DONE_PAGE_SIZE = 25;
+
+function donePgBtnStyle(disabled: boolean): React.CSSProperties {
+  return {
+    padding: '0.3rem 0.85rem', background: 'transparent', border: '1px solid var(--border)', borderRadius: '4px',
+    fontSize: '0.78rem', fontWeight: 600, color: disabled ? 'var(--text-secondary)' : '#8B6914',
+    cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.4 : 1,
+  };
+}
+
+function DonePagination({ page, totalPages, onPage }: { page: number; totalPages: number; onPage: (p: number) => void }) {
+  if (totalPages <= 1) return null;
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.85rem', padding: '0.875rem', borderTop: '1px solid var(--border)' }}>
+      <button onClick={() => onPage(page - 1)} disabled={page <= 1} style={donePgBtnStyle(page <= 1)}>Previous</button>
+      <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Halaman {page} dari {totalPages}</span>
+      <button onClick={() => onPage(page + 1)} disabled={page >= totalPages} style={donePgBtnStyle(page >= totalPages)}>Next</button>
+    </div>
+  );
+}
+
 function ExportPageContent() {
   const searchParams = useSearchParams();
   const { data: session } = useSession();
@@ -190,6 +212,8 @@ function ExportPageContent() {
   const [loading, setLoading] = useState(false);
   const [downloadingFormat, setDownloadingFormat] = useState<'XLSX' | 'CSV' | null>(null);
   const [sourceFilter, setSourceFilter] = useState<'SINGLE' | 'BATCH'>('SINGLE');
+  const [donePage, setDonePage] = useState(1);
+  const [doneCount, setDoneCount] = useState<number | null>(null);
 
   const activeTab = TABS.find((t) => t.type === activeType)!;
   const columns = COLUMNS[activeType];
@@ -264,6 +288,40 @@ function ExportPageContent() {
   }, [activeType, group, statusFilter, from, to, sourceFilter, flattenBatches]);
 
   useEffect(() => { fetchRequests(); }, [fetchRequests]);
+
+  // Total count of DONE items for the current section/filters — surfaced on the Done tab label
+  // so admins know the volume before switching to it. Uses countOnly for single requests;
+  // batches lack a count endpoint, so their (small) done list is summed client-side.
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchDoneCount() {
+      try {
+        const params = new URLSearchParams({ requestType: activeType, status: 'DONE' });
+        if (group !== 'ALL') params.set('outletGroup', group);
+        if (from) params.set('from', from);
+        if (to) params.set('to', to);
+        let count = 0;
+        if (sourceFilter === 'BATCH') {
+          const res = await fetch(`/api/admin/batches?${params}`);
+          const data = res.ok ? await res.json() : [];
+          count = Array.isArray(data) ? data.reduce((sum: number, b: any) => sum + ((b.items as any[])?.length ?? 0), 0) : 0;
+        } else {
+          params.set('countOnly', '1');
+          const res = await fetch(`/api/admin/requests?${params}`);
+          const data = res.ok ? await res.json() : {};
+          count = typeof data.count === 'number' ? data.count : 0;
+        }
+        if (!cancelled) setDoneCount(count);
+      } catch {
+        if (!cancelled) setDoneCount(null);
+      }
+    }
+    fetchDoneCount();
+    return () => { cancelled = true; };
+  }, [activeType, group, from, to, sourceFilter]);
+
+  // Reset Done pagination whenever the view it paginates changes (tab switch, filters, source).
+  useEffect(() => { setDonePage(1); }, [activeType, statusFilter, sourceFilter, group, from, to]);
 
   useEffect(() => {
     fetch('/api/config/outlets?activeOnly=true')
@@ -442,6 +500,14 @@ function ExportPageContent() {
   }
   const downloadCount = selectedIds.size > 0 ? selectedIds.size : requests.length;
 
+  // Done items are paginated client-side; all other tabs render the full active queue.
+  const isDoneView = statusFilter === 'DONE';
+  const doneTotalPages = isDoneView ? Math.max(1, Math.ceil(requests.length / DONE_PAGE_SIZE)) : 1;
+  const safeDonePage = Math.min(donePage, doneTotalPages);
+  const visibleRequests = isDoneView
+    ? requests.slice((safeDonePage - 1) * DONE_PAGE_SIZE, safeDonePage * DONE_PAGE_SIZE)
+    : requests;
+
   return (
     <div style={{ maxWidth: '1080px' }}>
       <h1 className="page-title" style={{ marginBottom: '0.375rem' }}>Export</h1>
@@ -559,7 +625,11 @@ function ExportPageContent() {
                 onClick={() => setStatusFilter(s)}
                 style={{ padding: '0.25rem 0.625rem', borderRadius: '3px', border: `1px solid ${statusFilter === s ? 'var(--accent-gold)' : 'var(--border)'}`, background: statusFilter === s ? 'rgba(201,168,76,0.08)' : 'transparent', color: statusFilter === s ? 'var(--text-primary)' : 'var(--text-secondary)', fontSize: '0.75rem', fontWeight: statusFilter === s ? 600 : 400, cursor: 'pointer' }}
               >
-                {s === 'ALL' ? 'All' : s.charAt(0) + s.slice(1).toLowerCase()}
+                {s === 'ALL'
+                  ? 'All'
+                  : s === 'DONE'
+                    ? `Done${doneCount != null ? ` (${doneCount})` : ''}`
+                    : s.charAt(0) + s.slice(1).toLowerCase()}
               </button>
             ))}
           </div>
@@ -619,7 +689,7 @@ function ExportPageContent() {
                 </tr>
               </thead>
               <tbody>
-                {requests.map((req) => (
+                {visibleRequests.map((req) => (
                   <tr
                     key={req.id}
                     onClick={() => toggleOne(req.id)}
@@ -652,6 +722,11 @@ function ExportPageContent() {
               </tbody>
             </table>
           </div>
+        )}
+
+        {/* Done items pagination */}
+        {!loading && isDoneView && (
+          <DonePagination page={safeDonePage} totalPages={doneTotalPages} onPage={setDonePage} />
         )}
 
         {/* Bottom download bar */}

@@ -51,6 +51,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { code: stri
     if ('printers' in body) fields.printers = body.printers ? String(body.printers) : null;
     if ('outlets' in body) fields.outlets = body.outlets ? String(body.outlets) : null;
     if ('outletGroup' in body) fields.outletGroup = body.outletGroup ? String(body.outletGroup) : null;
+    if ('priceLevels' in body) fields.priceLevels = body.priceLevels ? String(body.priceLevels) : null;
     const updated = await updateMasterItem(existing.id, fields);
     if (!updated) return NextResponse.json({ error: 'Item tidak ditemukan' }, { status: 404 });
     return NextResponse.json(updated);

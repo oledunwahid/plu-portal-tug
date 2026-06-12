@@ -2,8 +2,9 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { toast } from 'sonner';
-import { Upload, X, ChevronLeft, ChevronRight, Database, Pencil, Trash2, Download, Loader2 } from 'lucide-react';
+import { Upload, X, ChevronLeft, ChevronRight, Database, Pencil, Trash2, Download, Loader2, FileSpreadsheet } from 'lucide-react';
 import { formatPrice } from '@/lib/utils';
+import { buildMasterReport, type ReportItem } from '@/lib/masterReport';
 import { Switch } from '@/components/ui/switch';
 import TableSkeleton from '@/components/skeletons/TableSkeleton';
 
@@ -26,6 +27,7 @@ interface MasterItem {
   uom: string | null; folder: string | null;
   serviceCharge: boolean; tax1: boolean; tax2: boolean; noDiscount: boolean; hideReceipt: boolean;
   printers: string | null; outlets: string | null; outletGroup: string | null;
+  priceLevels: string | null;
   importedAt: string; updatedAt: string;
 }
 
@@ -338,6 +340,7 @@ export default function MasterItemsPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [downloadingFormat, setDownloadingFormat] = useState<'CSV' | 'XLSX' | null>(null);
+  const [generatingReport, setGeneratingReport] = useState(false);
 
   const totalPages = Math.ceil(total / 50);
 
@@ -475,6 +478,43 @@ export default function MasterItemsPage() {
       toast.error(e.message ?? 'Gagal mengunduh');
     } finally {
       setDownloadingFormat(null);
+    }
+  }
+
+  async function handleMasterReport() {
+    setGeneratingReport(true);
+    const toastId = toast.loading('Membuat Master Report… ini bisa memakan beberapa detik.');
+    try {
+      // Pull all active items (no pagination) for the full report.
+      const res = await fetch('/api/admin/kb/items?activeOnly=true&limit=99999');
+      if (!res.ok) throw new Error('Gagal mengambil data item');
+      const data = await res.json();
+      const items = (data.items ?? []) as ReportItem[];
+      if (items.length === 0) { toast.error('Tidak ada item aktif untuk dilaporkan', { id: toastId }); return; }
+
+      const report = buildMasterReport(items);
+      const XLSX = await import('xlsx');
+      const wb = XLSX.utils.book_new();
+
+      const allItemWs = XLSX.utils.aoa_to_sheet(report.allItem);
+      XLSX.utils.book_append_sheet(wb, allItemWs, 'ALL ITEM');
+      for (const sheet of report.outletSheets) {
+        const ws = XLSX.utils.aoa_to_sheet(sheet.aoa);
+        // Sheet names are capped at 31 chars by the XLSX spec; outlet codes are short.
+        XLSX.utils.book_append_sheet(wb, ws, sheet.name.slice(0, 31));
+      }
+
+      const buffer = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
+      const date = new Date().toISOString().slice(0, 10);
+      downloadBlob(
+        new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
+        `master-all-item-${date}.xlsx`,
+      );
+      toast.success(`Master Report dibuat: ${items.length.toLocaleString('id-ID')} item`, { id: toastId });
+    } catch (e: any) {
+      toast.error(e.message ?? 'Gagal membuat Master Report', { id: toastId });
+    } finally {
+      setGeneratingReport(false);
     }
   }
 
@@ -622,6 +662,15 @@ export default function MasterItemsPage() {
           >
             {downloadingFormat === 'XLSX' ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Download size={13} />}
             Download XLSX
+          </button>
+          <button
+            onClick={handleMasterReport}
+            disabled={generatingReport}
+            title="Buat laporan Master All Item lengkap dengan sheet per outlet"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', height: '34px', padding: '0 0.875rem', background: 'var(--bg-dark)', border: 'none', borderRadius: '0.375rem', fontSize: '0.78rem', fontWeight: 600, color: 'var(--accent-gold)', cursor: generatingReport ? 'not-allowed' : 'pointer', opacity: generatingReport ? 0.6 : 1 }}
+          >
+            {generatingReport ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <FileSpreadsheet size={13} />}
+            Master Report
           </button>
         </div>
       </div>

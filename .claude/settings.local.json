@@ -39,7 +39,11 @@
       "PowerShell(head *)",
       "Bash(echo \"EXIT: $?\")",
       "Bash(DATABASE_URL=\"file:./dev.db\" npx prisma migrate status)",
-      "Bash(DATABASE_URL=\"file:./dev.db\" npx prisma migrate deploy)"
+      "Bash(DATABASE_URL=\"file:./dev.db\" npx prisma migrate deploy)",
+      "Bash(curl -s -D - -o /dev/null -H 'Cookie: next-auth.session-token=__CMDSUB_OUTPUT__' http://localhost:3001/api/admin/stats/by-type)",
+      "Bash(echo \"=== exit: $? ===\")",
+      "Bash(npx tsx -e ' *)",
+      "Bash(npx tsx *)"
     ]
   }
 }

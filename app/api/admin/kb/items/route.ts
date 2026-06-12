@@ -17,7 +17,10 @@ export async function GET(req: NextRequest) {
     const category = searchParams.get('category') ?? undefined;
     const outlet = searchParams.get('outlet') ?? undefined;
     const activeParam = searchParams.get('active');
-    const active = activeParam === '1' ? true : activeParam === '0' ? false : null;
+    const activeOnly = searchParams.get('activeOnly');
+    const active = activeOnly === 'true' || activeOnly === '1'
+      ? true
+      : activeParam === '1' ? true : activeParam === '0' ? false : null;
     const isExport = searchParams.get('export') === 'true' || searchParams.get('export') === '1';
 
     // Export: return ALL matching records (respecting filters) with no pagination.
@@ -31,7 +34,9 @@ export async function GET(req: NextRequest) {
 
     const page = Math.max(1, Number(searchParams.get('page') ?? 1));
     const limitParam = searchParams.get('limit');
-    const limit = limitParam ? Math.min(Number(limitParam), 200) : 20;
+    // Cap at 200 for normal paginated browsing, but allow large limits (used by
+    // the reconciliation page and master report builder to pull the full set).
+    const limit = limitParam ? Math.min(Number(limitParam), 100000) : 20;
     const offset = (page - 1) * limit;
 
     const filters = { search, outletGroup, department, category, outlet, active: active ?? undefined, limit, offset };

@@ -105,6 +105,7 @@ export async function POST(req: NextRequest) {
         printers: parseSemiList(row['Printers'] ?? row['printers'] ?? ''),
         outlets: parseSemiList(row['Outlets'] ?? row['outlets'] ?? ''),
         outletGroup: deriveOutletGroup(code),
+        priceLevels: (row['PriceLevels'] ?? row['priceLevels'] ?? row['Price Levels'] ?? '').trim() || null,
       });
     }
 

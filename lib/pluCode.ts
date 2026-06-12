@@ -290,6 +290,67 @@ export function assemblePLUCode(prefix: string, deptCode: string, catCode: strin
   return code
 }
 
+// Prefix for a single outlet code. MIL outlets are already mapped to 'MIL' in
+// OUTLET_TO_PREFIX, so this is the single source of truth; unknown outlets fall
+// back to 'UNI'.
+export function prefixForOutlet(outlet: string): string {
+  return OUTLET_TO_PREFIX[outlet] ?? 'UNI'
+}
+
+export function isTugDepartment(department: string): boolean {
+  return TUG_DEPARTMENTS.includes(department)
+}
+
+// Department/category code parts for a category — prefix-agnostic.
+export function getCategoryCodeParts(
+  category: string,
+  categoryCodeMap?: CategoryCodeEntry[],
+): { department: string; deptCode: string; catCode: string } | null {
+  const entry = (categoryCodeMap ?? CATEGORY_CODE_MAP).find((e) => e.category === category)
+  if (!entry) return null
+  return {
+    department: entry.department,
+    deptCode: String(entry.departmentCode).padStart(2, '0'),
+    catCode: String(entry.categoryCode).padStart(3, '0'),
+  }
+}
+
+export interface PrefixGroup {
+  prefix: string
+  outlets: string[]
+  isTUG: boolean
+}
+
+// Group the SELECTED outlets by their derived prefix. This — not the cashier's
+// login outlet — is what determines the prefix of a new item.
+//   • TUG-exempt departments collapse to a single TUG group holding all outlets.
+//   • Otherwise each distinct outlet prefix becomes its own group, carrying only
+//     the outlets that belong to it (sorted by prefix for stable output).
+// Returns [] when the category is unknown. A non-TUG category with no selected
+// outlets also returns [] (no prefix can be derived until an outlet is chosen).
+export function derivePrefixGroups(
+  category: string,
+  selectedOutlets: string[],
+  categoryCodeMap?: CategoryCodeEntry[],
+): PrefixGroup[] {
+  const entry = (categoryCodeMap ?? CATEGORY_CODE_MAP).find((e) => e.category === category)
+  if (!entry) return []
+
+  if (TUG_DEPARTMENTS.includes(entry.department)) {
+    return [{ prefix: 'TUG', outlets: [...selectedOutlets], isTUG: true }]
+  }
+
+  const byPrefix = new Map<string, string[]>()
+  for (const outlet of selectedOutlets) {
+    const prefix = prefixForOutlet(outlet)
+    if (!byPrefix.has(prefix)) byPrefix.set(prefix, [])
+    byPrefix.get(prefix)!.push(outlet)
+  }
+  return Array.from(byPrefix.entries())
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([prefix, outlets]) => ({ prefix, outlets, isTUG: false }))
+}
+
 export function suggestPLUCode(
   category: string,
   cashierOutlet: string,
@@ -297,37 +358,35 @@ export function suggestPLUCode(
   sequence?: number,
   categoryCodeMap?: CategoryCodeEntry[],
 ): { code: string; prefix: string; reason: string; isTUG: boolean; deptCode: string; catCode: string } | null {
-  const entry = (categoryCodeMap ?? CATEGORY_CODE_MAP).find((e) => e.category === category)
-  if (!entry) return null
+  const parts = getCategoryCodeParts(category, categoryCodeMap)
+  if (!parts) return null
 
-  const isMilOutlet = MIL_OUTLETS.has(cashierOutlet)
-  const tugEligible = TUG_DEPARTMENTS.includes(entry.department)
+  // Prefix derives from the SELECTED outlets, not the cashier's login outlet.
+  const groups = derivePrefixGroups(category, selectedOutlets, categoryCodeMap)
 
   let prefix: string
   let isTUG = false
   let reason: string
 
-  if (tugEligible) {
-    // TUG for all outlets — purely category/department driven, no outlet count check
-    prefix = 'TUG'
-    isTUG = true
-    reason = `TUG prefix: ${entry.department}`
-  } else if (isMilOutlet) {
-    prefix = 'MIL'
-    reason = 'MIL prefix for Milano outlet'
+  if (groups.length === 1) {
+    prefix = groups[0].prefix
+    isTUG = groups[0].isTUG
+    reason = isTUG ? `TUG prefix: ${parts.department}` : `Prefix ${prefix} dari outlet terpilih`
+  } else if (groups.length > 1) {
+    // Mixed prefixes — callers should expand via derivePrefixGroups(); this single
+    // suggestion previews the first group only.
+    prefix = groups[0].prefix
+    reason = `${groups.length} prefix berbeda dari outlet terpilih`
   } else {
-    prefix = OUTLET_TO_PREFIX[cashierOutlet] ?? 'UNI'
-    const hasFallback = !(cashierOutlet in OUTLET_TO_PREFIX)
-    reason = hasFallback
-      ? `UNI fallback — outlet ${cashierOutlet} has no prefix mapping`
-      : `${prefix} prefix for outlet ${cashierOutlet}`
+    // Non-TUG category with no outlets selected yet — preview using the cashier's
+    // own outlet prefix; the real prefix is enforced from selected outlets at submit.
+    prefix = prefixForOutlet(cashierOutlet)
+    reason = 'Pilih outlet untuk menentukan prefix'
   }
 
-  const deptCode = String(entry.departmentCode).padStart(2, '0')
-  const catCode  = String(entry.categoryCode).padStart(3, '0')
-  const seq      = sequence ?? NEW_ITEM_SEQUENCE_START
-  const code     = assemblePLUCode(prefix, deptCode, catCode, seq)
-  return { code, prefix, reason, isTUG, deptCode, catCode }
+  const seq  = sequence ?? NEW_ITEM_SEQUENCE_START
+  const code = assemblePLUCode(prefix, parts.deptCode, parts.catCode, seq)
+  return { code, prefix, reason, isTUG, deptCode: parts.deptCode, catCode: parts.catCode }
 }
 
 export function hasFallbackPrefix(cashierOutlet: string): boolean {
