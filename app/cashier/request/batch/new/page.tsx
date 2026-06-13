@@ -11,6 +11,7 @@ import { Loader2, Plus, Trash2, Copy, AlertTriangle, Upload, X, Check, Download 
 import { SuccessModal } from '@/components/SuccessModal';
 import { PLUCodeSearch } from '@/components/PLUCodeSearch';
 import type { PLUSearchResult } from '@/components/PLUCodeSearch';
+import type { RowMatch, MatchCandidate } from '@/lib/itemMatch';
 
 const REQUEST_TYPES = [
   { value: 'NEW_ITEM', label: 'New Item' },
@@ -79,7 +80,10 @@ const IMPORT_COLUMNS: Record<string, { key: string; label: string }[]> = {
     { key: 'SalesDef', label: 'SALES DEF' },
   ],
   UPDATE_PRICE: [
-    { key: 'Code', label: 'CODE' },
+    { key: 'Name', label: 'NAME' },
+    { key: 'Category', label: 'CATEGORY' },
+    { key: 'Department', label: 'DEPARTMENT' },
+    { key: 'Barcode', label: 'BARCODE' },
     { key: 'Price', label: 'PRICE' },
   ],
   UPDATE_NAME: [
@@ -169,9 +173,6 @@ function validateImportRows(rows: Record<string, string>[], requestType: Request
       } else {
         issues.push({ field: 'Category', message: 'Category is required' });
       }
-    } else if (requestType === 'UPDATE_PRICE') {
-      if (!row['Code']?.trim()) issues.push({ field: 'Code', message: 'Code is required' });
-      if (!row['Price']?.trim() || isNaN(Number(row['Price']))) issues.push({ field: 'Price', message: 'Price is required' });
     } else if (requestType === 'UPDATE_NAME') {
       if (!row['Code']?.trim()) issues.push({ field: 'Code', message: 'Code is required' });
       if (!row['Name']?.trim()) issues.push({ field: 'Name', message: 'Name is required' });
@@ -219,6 +220,79 @@ function parsedRowToItemRow(parsed: ParsedRow, requestType: RequestTypeValue, ca
     currentPrice: '',
     errors: {},
   };
+}
+
+// ── UPDATE_PRICE import: code resolved by matching against the master registry ──
+
+// Real PIC price-change files carry Name/Category/Department/Barcode/Price (no Code).
+const PRICE_TEMPLATE_HEADERS = ['Name', 'Category', 'Department', 'Barcode', 'Price'];
+
+interface PriceMatchRow {
+  rowNum: number;
+  name: string;
+  category: string;
+  department: string;
+  barcode: string;
+  price: string;       // digits only
+  match: RowMatch;
+  resolvedCode: string; // current code (auto-filled for clean exact match; chosen/typed otherwise)
+  confirmed: boolean;   // user explicitly accepted a review row
+}
+
+function sanitizePrice(raw: string): string {
+  return String(raw ?? '').replace(/[^\d]/g, '');
+}
+
+function buildPriceRow(rowNum: number, data: Record<string, string>, match: RowMatch): PriceMatchRow {
+  const price = sanitizePrice(data['Price'] ?? '');
+  // Clean exact match (no category/department mismatch) auto-fills the code.
+  const isExact = match.type === 'barcode' || match.type === 'namecat';
+  const cleanExact = isExact && !!match.resolvedCode && !match.categoryMismatch && !match.departmentMismatch;
+  return {
+    rowNum,
+    name: data['Name'] ?? '',
+    category: data['Category'] ?? '',
+    department: data['Department'] ?? '',
+    barcode: data['Barcode'] ?? '',
+    price,
+    match,
+    // Mismatched exact matches keep the resolved code visible but still require confirmation.
+    resolvedCode: cleanExact || (isExact && match.resolvedCode) ? (match.resolvedCode ?? '') : '',
+    confirmed: false,
+  };
+}
+
+function priceIsValid(price: string): boolean {
+  return price.trim() !== '' && Number(price) > 0;
+}
+
+// True for a clean exact match (barcode or name+category) with no category/department
+// mismatch — these auto-fill the code and are ready without user action.
+function isCleanExact(m: RowMatch): boolean {
+  return (m.type === 'barcode' || m.type === 'namecat')
+    && !!m.resolvedCode && !m.categoryMismatch && !m.departmentMismatch;
+}
+
+// A row counts toward "siap diimport" only when it has a valid price and either an
+// auto-resolved clean exact match, or a code the user explicitly confirmed.
+function priceRowReady(r: PriceMatchRow): boolean {
+  if (!priceIsValid(r.price) || !r.resolvedCode.trim()) return false;
+  return isCleanExact(r.match) || r.confirmed;
+}
+
+function csvEscape(v: string | number): string {
+  const s = String(v ?? '');
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+function toCsv(headers: string[], rows: (string | number)[][]): string {
+  return [headers.join(','), ...rows.map((r) => r.map(csvEscape).join(','))].join('\n');
+}
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
 }
 
 export default function BatchNewPage() {
@@ -272,6 +346,9 @@ export default function BatchNewPage() {
   // Import state
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importModal, setImportModal] = useState<{ open: boolean; rows: ParsedRow[] }>({ open: false, rows: [] });
+  const [priceImportModal, setPriceImportModal] = useState<{ open: boolean; rows: PriceMatchRow[] }>({ open: false, rows: [] });
+  const [matching, setMatching] = useState(false);
+  const [showRejected, setShowRejected] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
 
   // Sequence management
@@ -663,6 +740,33 @@ export default function BatchNewPage() {
     try {
       const rows = await parseFile(file);
       if (rows.length === 0) { toast.error('File is empty or has no data rows'); return; }
+
+      // UPDATE_PRICE files have no Code column — resolve it by matching against
+      // the master registry instead of validating a Code field.
+      if (requestType === 'UPDATE_PRICE') {
+        setMatching(true);
+        try {
+          const inputs = rows.map((r) => ({
+            name: r['Name'] ?? '', category: r['Category'] ?? '',
+            department: r['Department'] ?? '', barcode: r['Barcode'] ?? '',
+          }));
+          const res = await fetch('/api/plu/match-batch', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rows: inputs }),
+          });
+          if (!res.ok) throw new Error('match failed');
+          const data = await res.json();
+          const results: RowMatch[] = data.results ?? [];
+          const priceRows = rows.map((r, i) => buildPriceRow(i + 1, r, results[i] ?? { type: 'none' }));
+          setShowRejected(false);
+          setPriceImportModal({ open: true, rows: priceRows });
+        } catch {
+          toast.error('Gagal mencocokkan data dengan master item. Coba lagi.');
+        } finally {
+          setMatching(false);
+        }
+        return;
+      }
+
       const validated = validateImportRows(rows, requestType, configCategories);
       setImportModal({ open: true, rows: validated });
     } catch {
@@ -681,6 +785,37 @@ export default function BatchNewPage() {
     setIsDragOver(false);
     const file = e.dataTransfer.files?.[0];
     if (file) handleFile(file);
+  }
+
+  function updatePriceRow(rowNum: number, patch: Partial<PriceMatchRow>) {
+    setPriceImportModal((prev) => ({
+      ...prev,
+      rows: prev.rows.map((r) => (r.rowNum === rowNum ? { ...r, ...patch } : r)),
+    }));
+  }
+
+  // Pull ready rows (auto-resolved clean exact + user-confirmed) into the items
+  // table, carrying the resolved code, new price, and the master name/price for reference.
+  function confirmPriceImport() {
+    const ready = priceImportModal.rows.filter(priceRowReady);
+    if (ready.length === 0) return;
+    const newItems: ItemRow[] = ready.map((r) => {
+      const cand = r.match.candidates?.find((c) => c.code === r.resolvedCode);
+      const displayName = r.match.master?.name ?? cand?.name ?? r.name;
+      const oldPrice = r.match.master?.price ?? cand?.price ?? null;
+      return {
+        ...makeDefaultRow(),
+        code: r.resolvedCode.trim(),
+        codeIsAutoGenerated: false,
+        price: r.price,
+        name: displayName,
+        currentName: displayName,
+        currentPrice: oldPrice != null ? String(oldPrice) : '',
+      };
+    });
+    setItems(newItems);
+    setPriceImportModal({ open: false, rows: [] });
+    toast.success(`${newItems.length} baris berhasil diimport`);
   }
 
   async function confirmImport() {
@@ -737,8 +872,9 @@ export default function BatchNewPage() {
   async function downloadTemplate() {
     const XLSX = await import('xlsx');
     const date = new Date().toISOString().split('T')[0];
-    const ws = XLSX.utils.aoa_to_sheet([TEMPLATE_HEADERS]);
-    ws['!cols'] = TEMPLATE_HEADERS.map(() => ({ wch: 15 }));
+    const headers = requestType === 'UPDATE_PRICE' ? PRICE_TEMPLATE_HEADERS : TEMPLATE_HEADERS;
+    const ws = XLSX.utils.aoa_to_sheet([headers]);
+    ws['!cols'] = headers.map(() => ({ wch: 15 }));
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Template');
     const buffer = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
@@ -870,6 +1006,268 @@ export default function BatchNewPage() {
         );
       })()}
 
+      {/* UPDATE_PRICE import modal — code resolved by matching against the registry */}
+      {priceImportModal.open && (() => {
+        const rows = priceImportModal.rows;
+        const rejected = rows.filter((r) => r.match.type === 'none');
+        const matched = rows.filter((r) => r.match.type !== 'none');
+        const readyCount = rows.filter(priceRowReady).length;
+        const fmtRp = (n: number) => n.toLocaleString('id-ID');
+
+        const badge = (ready: boolean) => ready ? (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.2rem', padding: '0.15rem 0.5rem', borderRadius: '0.25rem', fontSize: '0.67rem', fontWeight: 600, background: 'rgba(61,90,62,0.1)', color: '#2D4A2E', border: '1px solid rgba(61,90,62,0.25)', whiteSpace: 'nowrap' }}>
+            <Check size={9} /> SIAP
+          </span>
+        ) : (
+          <span style={{ display: 'inline-flex', alignItems: 'center', padding: '0.15rem 0.4rem', borderRadius: '0.25rem', fontSize: '0.62rem', fontWeight: 700, background: 'rgba(184,134,11,0.12)', color: '#8B6914', border: '1px solid rgba(184,134,11,0.3)', whiteSpace: 'nowrap' }}>
+            PERLU DIPERBAIKI
+          </span>
+        );
+
+        const matchBasisLabel = (t: string) => t === 'barcode' ? 'Cocok via barcode' : t === 'namecat' ? 'Cocok via nama + kategori' : t === 'fuzzy' ? 'Nama mirip' : '';
+
+        return (
+          <>
+            <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 60 }} />
+            <div style={{
+              position: 'fixed', top: '5vh', left: '50%', transform: 'translateX(-50%)',
+              width: 'min(940px, 96vw)', maxHeight: '90vh',
+              zIndex: 70, background: 'var(--bg-card)', borderRadius: '0.5rem',
+              boxShadow: '0 8px 40px rgba(0,0,0,0.2)', display: 'flex', flexDirection: 'column', overflow: 'hidden',
+            }}>
+              <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+                <div>
+                  <h2 style={{ fontFamily: 'var(--font-display)', fontSize: '1.25rem', fontWeight: 500, margin: 0 }}>Periksa Data Sebelum Import</h2>
+                  <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', margin: '0.25rem 0 0' }}>
+                    Kode PLU dicocokkan otomatis dari Nama / Kategori / Barcode terhadap master item.
+                  </p>
+                </div>
+                <button onClick={() => setPriceImportModal({ open: false, rows: [] })} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: '0.25rem' }}>
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div style={{ flex: 1, overflow: 'auto', padding: '0.75rem 1rem' }}>
+                {matched.length === 0 && (
+                  <div style={{ padding: '1.5rem', textAlign: 'center', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                    Tidak ada baris yang cocok dengan master item.
+                  </div>
+                )}
+
+                {matched.map((r) => {
+                  const m = r.match;
+                  const isExact = m.type === 'barcode' || m.type === 'namecat';
+                  const cleanExact = isCleanExact(m);
+                  const mismatchExact = isExact && !!m.resolvedCode && (m.categoryMismatch || m.departmentMismatch);
+                  const needsCandidate = (isExact && !m.resolvedCode) || m.type === 'fuzzy'; // ambiguous or fuzzy
+                  const priceOk = priceIsValid(r.price);
+                  const ready = priceRowReady(r);
+
+                  return (
+                    <div key={r.rowNum} style={{
+                      border: `1px solid ${ready ? 'rgba(61,90,62,0.25)' : 'var(--border)'}`,
+                      borderLeft: `3px solid ${ready ? '#3D5A3E' : '#B8860B'}`,
+                      borderRadius: '0.375rem', padding: '0.75rem 0.875rem', marginBottom: '0.625rem',
+                      background: ready ? 'rgba(61,90,62,0.03)' : 'rgba(184,134,11,0.025)',
+                    }}>
+                      {/* Header line */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', fontWeight: 600, minWidth: '20px' }}>#{r.rowNum}</span>
+                        {badge(ready)}
+                        <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)' }}>{r.name || <em style={{ color: 'var(--text-secondary)' }}>tanpa nama</em>}</span>
+                        {r.category && <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>· {r.category}</span>}
+                        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
+                          <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>Harga baru</span>
+                          <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>Rp</span>
+                          <input
+                            type="text" inputMode="numeric" value={formatPriceDisplay(r.price)}
+                            onChange={(e) => updatePriceRow(r.rowNum, { price: sanitizePrice(e.target.value) })}
+                            placeholder="0"
+                            style={{ width: '110px', height: '30px', border: `1px solid ${priceOk ? 'var(--input-border)' : 'rgba(122,46,31,0.5)'}`, borderRadius: '4px', background: 'var(--bg-card)', color: 'var(--text-primary)', padding: '0 0.5rem', fontSize: '0.78rem', outline: 'none', textAlign: 'right' }}
+                          />
+                        </div>
+                      </div>
+                      {!priceOk && <div style={{ fontSize: '0.7rem', color: '#8B3A2A', marginTop: '0.35rem' }}>Harga tidak valid — perbaiki sebelum baris ini dapat diimport.</div>}
+
+                      {/* Clean exact match */}
+                      {cleanExact && (
+                        <div style={{ marginTop: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', fontSize: '0.76rem' }}>
+                          <span style={{ color: 'var(--text-secondary)' }}>{matchBasisLabel(m.type)} →</span>
+                          <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#C9A84C' }}>{m.resolvedCode}</span>
+                          <span style={{ color: 'var(--text-primary)' }}>{m.master?.name}</span>
+                          <span style={{ color: 'var(--text-secondary)' }}>({m.master?.category})</span>
+                          {m.master?.price != null && <span style={{ color: 'var(--text-secondary)' }}>· harga lama Rp {fmtRp(m.master.price)}</span>}
+                        </div>
+                      )}
+
+                      {/* Exact match but category/department differs — show both sides, require confirm */}
+                      {mismatchExact && (
+                        <div style={{ marginTop: '0.5rem' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', fontSize: '0.76rem', marginBottom: '0.4rem' }}>
+                            <span style={{ color: 'var(--text-secondary)' }}>{matchBasisLabel(m.type)} →</span>
+                            <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#C9A84C' }}>{m.resolvedCode}</span>
+                            <span style={{ color: 'var(--text-primary)' }}>{m.master?.name}</span>
+                            {m.master?.price != null && <span style={{ color: 'var(--text-secondary)' }}>· harga lama Rp {fmtRp(m.master.price)}</span>}
+                          </div>
+                          <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', fontSize: '0.72rem', background: 'rgba(184,134,11,0.06)', border: '1px solid rgba(184,134,11,0.2)', borderRadius: '0.25rem', padding: '0.4rem 0.6rem' }}>
+                            <div>
+                              <div style={{ color: 'var(--text-secondary)', fontWeight: 600, marginBottom: '2px' }}>Dari file</div>
+                              <div style={{ color: m.categoryMismatch ? '#8B6914' : 'var(--text-primary)' }}>Kategori: {r.category || '—'}</div>
+                              <div style={{ color: m.departmentMismatch ? '#8B6914' : 'var(--text-primary)' }}>Departemen: {r.department || '—'}</div>
+                            </div>
+                            <div style={{ borderLeft: '1px solid rgba(184,134,11,0.25)', paddingLeft: '0.75rem' }}>
+                              <div style={{ color: 'var(--text-secondary)', fontWeight: 600, marginBottom: '2px' }}>Master item</div>
+                              <div style={{ color: m.categoryMismatch ? '#8B6914' : 'var(--text-primary)', fontWeight: m.categoryMismatch ? 700 : 400 }}>Kategori: {m.master?.category || '—'}</div>
+                              <div style={{ color: m.departmentMismatch ? '#8B6914' : 'var(--text-primary)', fontWeight: m.departmentMismatch ? 700 : 400 }}>Departemen: {m.master?.department || '—'}</div>
+                            </div>
+                          </div>
+                          <div style={{ marginTop: '0.4rem' }}>
+                            {r.confirmed ? (
+                              <span style={{ fontSize: '0.74rem', color: '#2D4A2E' }}>
+                                Dikonfirmasi — kode <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>{r.resolvedCode}</span>{' '}
+                                <button type="button" onClick={() => updatePriceRow(r.rowNum, { confirmed: false })} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', textDecoration: 'underline', cursor: 'pointer', fontSize: '0.72rem' }}>Ganti</button>
+                              </span>
+                            ) : (
+                              <button type="button" onClick={() => updatePriceRow(r.rowNum, { confirmed: true })}
+                                style={{ padding: '0.3rem 0.7rem', background: 'var(--bg-dark)', color: 'var(--accent-gold)', border: 'none', borderRadius: '0.3rem', fontSize: '0.74rem', fontWeight: 600, cursor: 'pointer' }}>
+                                Gunakan kode ini
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Fuzzy / ambiguous — pick a candidate or enter a code manually */}
+                      {needsCandidate && (
+                        <div style={{ marginTop: '0.5rem' }}>
+                          <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginBottom: '0.35rem' }}>
+                            {m.type === 'fuzzy' ? 'Tidak ada kecocokan persis. Pilih kandidat atau masukkan kode manual:' : 'Lebih dari satu master cocok. Pilih kandidat atau masukkan kode manual:'}
+                          </div>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                            {(m.candidates ?? []).map((c: MatchCandidate) => {
+                              const selected = r.confirmed && r.resolvedCode === c.code;
+                              return (
+                                <button key={c.code} type="button"
+                                  onClick={() => updatePriceRow(r.rowNum, { resolvedCode: c.code, confirmed: true })}
+                                  style={{
+                                    display: 'flex', alignItems: 'center', gap: '0.5rem', textAlign: 'left', width: '100%',
+                                    padding: '0.35rem 0.55rem', borderRadius: '0.3rem', cursor: 'pointer',
+                                    border: `1px solid ${selected ? '#3D5A3E' : 'var(--border)'}`,
+                                    background: selected ? 'rgba(61,90,62,0.08)' : 'var(--bg-card)',
+                                  }}>
+                                  {selected && <Check size={12} style={{ color: '#2D4A2E', flexShrink: 0 }} />}
+                                  <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#C9A84C', fontSize: '0.76rem' }}>{c.code}</span>
+                                  <span style={{ fontSize: '0.76rem', color: 'var(--text-primary)' }}>{c.name}</span>
+                                  <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>({c.category})</span>
+                                  {c.price != null && <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>· Rp {fmtRp(c.price)}</span>}
+                                  {m.type === 'fuzzy' && <span style={{ marginLeft: 'auto', fontSize: '0.68rem', fontWeight: 600, color: '#8B6914' }}>{Math.round(c.score * 100)}%</span>}
+                                </button>
+                              );
+                            })}
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.4rem' }}>
+                            <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>Atau kode manual:</span>
+                            <input
+                              type="text"
+                              value={r.confirmed && !(m.candidates ?? []).some((c) => c.code === r.resolvedCode) ? r.resolvedCode : ''}
+                              onChange={(e) => {
+                                const code = e.target.value.trim();
+                                updatePriceRow(r.rowNum, { resolvedCode: code, confirmed: code !== '' });
+                              }}
+                              placeholder="PLU code"
+                              style={{ width: '140px', height: '30px', border: '1px solid var(--input-border)', borderRadius: '4px', background: 'var(--bg-card)', color: 'var(--text-primary)', padding: '0 0.5rem', fontSize: '0.78rem', outline: 'none', fontFamily: 'monospace' }}
+                            />
+                            {r.confirmed && (
+                              <button type="button" onClick={() => updatePriceRow(r.rowNum, { confirmed: false, resolvedCode: '' })}
+                                style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', textDecoration: 'underline', cursor: 'pointer', fontSize: '0.72rem' }}>Hapus pilihan</button>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+
+                {/* Rejected (no match) — separate section, never counts toward import */}
+                {rejected.length > 0 && (
+                  <div style={{ marginTop: '0.5rem', border: '1px solid rgba(122,46,31,0.2)', borderRadius: '0.375rem', overflow: 'hidden' }}>
+                    <button type="button" onClick={() => setShowRejected((v) => !v)}
+                      style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.6rem 0.875rem', background: 'rgba(122,46,31,0.05)', border: 'none', cursor: 'pointer' }}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', fontWeight: 600, color: '#7A2E1F' }}>
+                        <AlertTriangle size={13} /> Ditolak — tidak ditemukan di master ({rejected.length})
+                      </span>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{showRejected ? 'Sembunyikan' : 'Tampilkan'}</span>
+                    </button>
+                    {showRejected && (
+                      <div style={{ padding: '0.5rem 0.875rem' }}>
+                        <p style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', margin: '0 0 0.5rem' }}>
+                          Baris ini tidak diimport. Tangani secara manual sebagai permintaan item baru bila perlu.
+                        </p>
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '0.5rem' }}>
+                          <button type="button"
+                            onClick={() => {
+                              const date = new Date().toISOString().slice(0, 10);
+                              const csv = toCsv(
+                                ['Name', 'Category', 'Department', 'Barcode', 'Price'],
+                                rejected.map((r) => [r.name, r.category, r.department, r.barcode, r.price]),
+                              );
+                              downloadBlob(new Blob([csv], { type: 'text/csv;charset=utf-8' }), `import-ditolak-${date}.csv`);
+                              toast.success('CSV diunduh');
+                            }}
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', padding: '0.3rem 0.7rem', background: 'transparent', border: '1px solid var(--border)', borderRadius: '0.3rem', fontSize: '0.74rem', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+                            <Download size={12} /> Download CSV
+                          </button>
+                        </div>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.74rem' }}>
+                          <thead>
+                            <tr style={{ textAlign: 'left', color: 'var(--text-secondary)' }}>
+                              <th style={{ padding: '0.25rem 0.4rem', fontWeight: 600 }}>Nama</th>
+                              <th style={{ padding: '0.25rem 0.4rem', fontWeight: 600 }}>Kategori</th>
+                              <th style={{ padding: '0.25rem 0.4rem', fontWeight: 600 }}>Barcode</th>
+                              <th style={{ padding: '0.25rem 0.4rem', fontWeight: 600, textAlign: 'right' }}>Harga</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {rejected.map((r) => (
+                              <tr key={r.rowNum} style={{ borderTop: '1px solid var(--border)' }}>
+                                <td style={{ padding: '0.3rem 0.4rem', color: 'var(--text-primary)' }}>{r.name || '—'}</td>
+                                <td style={{ padding: '0.3rem 0.4rem', color: 'var(--text-secondary)' }}>{r.category || '—'}</td>
+                                <td style={{ padding: '0.3rem 0.4rem', color: 'var(--text-secondary)', fontFamily: 'monospace' }}>{r.barcode || '—'}</td>
+                                <td style={{ padding: '0.3rem 0.4rem', textAlign: 'right', color: 'var(--text-secondary)' }}>{r.price ? `Rp ${formatPriceDisplay(r.price)}` : '—'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <div style={{ padding: '1rem 1.5rem', borderTop: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', flexShrink: 0 }}>
+                <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                  {readyCount} dari {rows.length} baris siap diimport
+                  {rejected.length > 0 && <span style={{ color: '#7A2E1F' }}> · {rejected.length} ditolak</span>}
+                </span>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <button onClick={() => setPriceImportModal({ open: false, rows: [] })}
+                    style={{ padding: '0.5rem 1rem', background: 'transparent', border: '1px solid var(--border)', borderRadius: '0.375rem', fontSize: '0.8rem', cursor: 'pointer', color: 'var(--text-secondary)' }}>
+                    Tutup
+                  </button>
+                  <button
+                    onClick={confirmPriceImport}
+                    disabled={readyCount === 0}
+                    title={readyCount === 0 ? 'Belum ada baris yang siap diimport' : undefined}
+                    style={{ padding: '0.5rem 1.25rem', background: readyCount > 0 ? 'var(--bg-dark)' : 'rgba(26,16,8,0.3)', border: 'none', borderRadius: '0.375rem', fontSize: '0.8rem', fontWeight: 600, cursor: readyCount > 0 ? 'pointer' : 'not-allowed', color: readyCount > 0 ? 'var(--accent-gold)' : 'rgba(201,168,76,0.4)' }}>
+                    Import {readyCount} Baris
+                  </button>
+                </div>
+              </div>
+            </div>
+          </>
+        );
+      })()}
+
       <SuccessModal
         isOpen={successModal.open}
         itemName={`${successModal.count} item${successModal.count !== 1 ? 's' : ''} submitted under "${successModal.title}"`}
@@ -908,7 +1306,7 @@ export default function BatchNewPage() {
               <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                 {REQUEST_TYPES.map((t) => (
                   <button key={t.value} type="button"
-                    onClick={() => { setRequestType(t.value); setItems([makeDefaultRow()]); setApplyHighlight(false); }}
+                    onClick={() => { setRequestType(t.value); setItems([makeDefaultRow()]); setApplyHighlight(false); setPriceImportModal({ open: false, rows: [] }); }}
                     style={{ padding: '0.5rem 1rem', borderRadius: '0.375rem', border: `1px solid ${requestType === t.value ? 'var(--bg-dark)' : 'var(--border)'}`, background: requestType === t.value ? 'var(--bg-dark)' : 'transparent', color: requestType === t.value ? 'var(--accent-gold)' : 'var(--text-secondary)', fontSize: '0.8rem', fontWeight: requestType === t.value ? 500 : 400, cursor: 'pointer', transition: 'all 200ms ease' }}>
                     {t.label}
                   </button>
@@ -931,21 +1329,35 @@ export default function BatchNewPage() {
           <input ref={fileInputRef} type="file" accept=".xlsx,.csv" onChange={handleFileInput} style={{ display: 'none' }} />
 
           <div
-            onClick={() => fileInputRef.current?.click()}
-            onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
+            onClick={() => { if (!matching) fileInputRef.current?.click(); }}
+            onDragOver={(e) => { e.preventDefault(); if (!matching) setIsDragOver(true); }}
             onDragLeave={() => setIsDragOver(false)}
-            onDrop={handleDrop}
+            onDrop={(e) => { if (!matching) handleDrop(e); else e.preventDefault(); }}
             style={{
               border: `2px dashed ${isDragOver ? 'var(--accent-gold)' : 'var(--border)'}`,
-              borderRadius: '0.5rem', padding: '1.5rem', textAlign: 'center', cursor: 'pointer',
+              borderRadius: '0.5rem', padding: '1.5rem', textAlign: 'center', cursor: matching ? 'default' : 'pointer',
               background: isDragOver ? 'rgba(201,168,76,0.05)' : 'var(--bg-cream)',
               transition: 'all 200ms ease',
             }}
           >
-            <Upload size={20} style={{ color: 'var(--text-secondary)', margin: '0 auto 0.5rem' }} />
-            <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: 0 }}>
-              Drag & drop atau <span style={{ color: 'var(--accent-gold)', fontWeight: 500 }}>pilih file</span> (.xlsx atau .csv)
-            </p>
+            {matching ? (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', color: 'var(--text-secondary)' }}>
+                <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} />
+                <span style={{ fontSize: '0.8rem' }}>Mencocokkan dengan master item…</span>
+              </div>
+            ) : (
+              <>
+                <Upload size={20} style={{ color: 'var(--text-secondary)', margin: '0 auto 0.5rem' }} />
+                <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: 0 }}>
+                  Drag & drop atau <span style={{ color: 'var(--accent-gold)', fontWeight: 500 }}>pilih file</span> (.xlsx atau .csv)
+                </p>
+                {requestType === 'UPDATE_PRICE' && (
+                  <p style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', margin: '0.4rem 0 0', fontStyle: 'italic' }}>
+                    Kode PLU akan dicocokkan otomatis dari Nama / Kategori / Barcode — kolom Code tidak diperlukan.
+                  </p>
+                )}
+              </>
+            )}
           </div>
         </div>
 
