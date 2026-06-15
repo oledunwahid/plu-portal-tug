@@ -456,6 +456,25 @@ function ExportPageContent() {
       const match = disposition.match(/filename="([^"]+)"/);
       const filename = match?.[1] ?? `export.${format.toLowerCase()}`;
 
+      // Some rows may export with blank master-sourced columns because their PLU code has no master
+      // item match. The server flags those via X-Export-Warnings — surface it before the save so
+      // the admin knows the file is incomplete (the download still proceeds).
+      const warnRaw = res.headers.get('X-Export-Warnings');
+      if (warnRaw) {
+        try {
+          const warn = JSON.parse(decodeURIComponent(warnRaw));
+          if (warn?.type === 'MISSING_MASTER' && warn.count > 0) {
+            const codes = (warn.rows as { code: string }[])
+              .map((x) => x.code || '(tanpa kode)')
+              .join(', ');
+            toast.warning(
+              `${warn.count} baris tanpa data master — kolom dari master dikosongkan: ${codes}`,
+              { duration: 12000 },
+            );
+          }
+        } catch { /* malformed header — ignore, file still downloads */ }
+      }
+
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;

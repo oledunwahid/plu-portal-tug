@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/session';
 import { getRequestBatches, getMasterMapByCodes } from '@/lib/db';
-import { generateBatchXLSX, generateBatchDoneXLSX, generateUpdatePriceXLSX, generateUpdateNameXLSX, type UpdateExportRow } from '@/lib/export';
+import { generateBatchDoneXLSX, generateUpdateNameXLSX, generateTemplateXLSX, priceToTemplateRow, newItemToTemplateRow, buildMissingMasterWarning, type TemplateRow, type UpdateExportRow } from '@/lib/export';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -40,19 +40,35 @@ export async function GET(request: NextRequest) {
     const filename = `${typeLabel}-${dateStr}.xlsx`;
 
     let buffer: Buffer;
-    if (type === 'UPDATE_PRICE' || type === 'UPDATE_NAME') {
-      // Enriched human-readable report (name & category from the registry).
+    let warningHeader: string | null = null;
+    if (type === 'UPDATE_PRICE' || type === 'NEW_ITEM') {
+      // Both emit the 17-column import template. Item attributes are pulled from the master record
+      // by PLU code; UPDATE_PRICE overrides only Price, NEW_ITEM keeps its submitted core fields.
+      const masterMap = await getMasterMapByCodes(batches.flatMap((b) => b.items.map((i) => i.code)));
+      const items = batches.flatMap((b) => b.items);
+      if (items.length === 0) return NextResponse.json({ error: 'No batch items found' }, { status: 404 });
+      const rows: TemplateRow[] = items.map((item) => {
+        const m = item.code ? masterMap.get(item.code) : undefined;
+        return type === 'UPDATE_PRICE' ? priceToTemplateRow(item.code, m, item.price) : newItemToTemplateRow(item, m);
+      });
+      warningHeader = buildMissingMasterWarning(
+        items.map((i) => ({ code: i.code, name: i.name })), masterMap, '[GET /api/admin/export/batches/xlsx]',
+      );
+      buffer = generateTemplateXLSX(rows);
+    } else if (type === 'UPDATE_NAME') {
+      // Human-readable report (current vs new name, enriched from the registry).
       const masterMap = await getMasterMapByCodes(batches.flatMap((b) => b.items.map((i) => i.code)));
       const rows: UpdateExportRow[] = batches.flatMap((b) => b.items.map((item) => {
         const m = item.code ? masterMap.get(item.code) : undefined;
         return {
           code: item.code, masterName: m?.name ?? '', masterCategory: m?.category ?? '',
+          masterDepartment: m?.department ?? '', masterBarcode: m?.barcode ?? '',
           newName: item.name, price: item.price, outlets: item.outlets, remarks: item.remarks,
           by: b.submittedBy?.name ?? '', createdAt: b.createdAt, status: b.status,
         };
       }));
       if (rows.length === 0) return NextResponse.json({ error: 'No batch items found' }, { status: 404 });
-      buffer = type === 'UPDATE_PRICE' ? generateUpdatePriceXLSX(rows) : generateUpdateNameXLSX(rows);
+      buffer = generateUpdateNameXLSX(rows);
     } else {
       const items = batches.flatMap((b) => b.items.map((item) => ({
         batchTitle: b.title,
@@ -65,17 +81,20 @@ export async function GET(request: NextRequest) {
         barcode: item.barcode,
       })));
       if (items.length === 0) return NextResponse.json({ error: 'No batch items found' }, { status: 404 });
-      buffer = type === 'NEW_ITEM' ? generateBatchXLSX(items) : generateBatchDoneXLSX(items);
+      buffer = generateBatchDoneXLSX(items);
     }
 
-    return new NextResponse(new Uint8Array(buffer), {
-      status: 200,
-      headers: {
-        'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        'Content-Disposition': `attachment; filename="${filename}"`,
-        'Cache-Control': 'no-store',
-      },
-    });
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition': `attachment; filename="${filename}"`,
+      'Cache-Control': 'no-store',
+    };
+    if (warningHeader) {
+      headers['X-Export-Warnings'] = warningHeader;
+      headers['Access-Control-Expose-Headers'] = 'X-Export-Warnings';
+    }
+
+    return new NextResponse(new Uint8Array(buffer), { status: 200, headers });
   } catch (error) {
     console.error('[GET /api/admin/export/batches/xlsx]', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

@@ -1,4 +1,5 @@
 import * as XLSX from 'xlsx';
+import type { DbMasterItem } from '@/lib/db';
 
 // Constant for the 18 required headers in specific order
 const EXPORT_HEADERS = [
@@ -241,25 +242,98 @@ export function generateBatchDoneXLSX(items: BatchItemRow[]): Buffer {
   return Buffer.from(XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }));
 }
 
+// ── 17-column cashier import template ───────────────────────────────────────────
+// NEW_ITEM and UPDATE_PRICE exports must be column-for-column identical to the system's import
+// template (sheet name 'Template', no leading 'Active' column). Item attributes are sourced from
+// the master item record (looked up by PLU code); the per-type mappers below decide which columns
+// come from the request instead.
+const TEMPLATE_HEADERS = [
+  'Code', 'Name', 'Category', 'Department', 'SalesDef', 'Price', 'PLU', 'Barcode', 'UOM',
+  'Folder', 'ServiceCharge', 'Tax1', 'Tax2', 'NoDiscount', 'HideReceipt', 'Printers', 'Outlets',
+] as const;
+
+export interface TemplateRow {
+  Code: string; Name: string; Category: string; Department: string; SalesDef: string;
+  Price: number | string; PLU: string; Barcode: string; UOM: string; Folder: string;
+  ServiceCharge: number; Tax1: number; Tax2: number; NoDiscount: number; HideReceipt: number;
+  Printers: string; Outlets: string;
+}
+
+// Blank only when the master genuinely has no value for the field; booleans default to 0/1.
+const str = (v: string | null | undefined): string => v ?? '';
+const flag = (v: boolean | null | undefined): number => (v ? 1 : 0);
+
+// UPDATE_PRICE: every column except Price is taken from the master record (looked up by the
+// request's stored PLU code). Price is the approved new price from the request. Code falls back to
+// the request code so an unmatched row is still identifiable.
+export function priceToTemplateRow(
+  reqCode: string | null, m: DbMasterItem | undefined, newPrice: number | null,
+): TemplateRow {
+  return {
+    Code: m?.code ?? str(reqCode), Name: str(m?.name), Category: str(m?.category),
+    Department: str(m?.department), SalesDef: str(m?.salesDef), Price: newPrice ?? '',
+    PLU: str(m?.plu), Barcode: str(m?.barcode), UOM: str(m?.uom), Folder: str(m?.folder),
+    ServiceCharge: flag(m?.serviceCharge), Tax1: flag(m?.tax1), Tax2: flag(m?.tax2),
+    NoDiscount: flag(m?.noDiscount), HideReceipt: flag(m?.hideReceipt),
+    Printers: str(m?.printers), Outlets: str(m?.outlets),
+  };
+}
+
+// NEW_ITEM: Code (generated, stored on the request) plus the submitted core fields
+// (Name/Category/Department/Price/Printers/Outlets); the remaining attributes are enriched from the
+// master record — which should exist once the item is created — looked up by the generated code.
+export interface NewItemTemplateInput {
+  code: string | null; name: string; category: string; department: string;
+  price: number | null; printers: string; outlets: string;
+}
+
+export function newItemToTemplateRow(r: NewItemTemplateInput, m: DbMasterItem | undefined): TemplateRow {
+  return {
+    Code: str(r.code), Name: r.name, Category: r.category, Department: r.department,
+    SalesDef: str(m?.salesDef), Price: r.price ?? '', PLU: str(m?.plu), Barcode: str(m?.barcode),
+    UOM: str(m?.uom), Folder: str(m?.folder), ServiceCharge: flag(m?.serviceCharge),
+    Tax1: flag(m?.tax1), Tax2: flag(m?.tax2), NoDiscount: flag(m?.noDiscount),
+    HideReceipt: flag(m?.hideReceipt), Printers: r.printers, Outlets: r.outlets,
+  };
+}
+
+export function generateTemplateXLSX(rows: TemplateRow[]): Buffer {
+  const ws = XLSX.utils.json_to_sheet(rows, { header: [...TEMPLATE_HEADERS] });
+  ws['!cols'] = TEMPLATE_HEADERS.map(() => ({ wch: 15 }));
+  ws['!cols'][1] = { wch: 30 }; // Name column wider
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Template');
+  return Buffer.from(XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }));
+}
+
+export function generateTemplateCSV(rows: TemplateRow[]): string {
+  const body = rows.map((r) => TEMPLATE_HEADERS.map((h) => {
+    const v = r[h];
+    return v == null ? '' : String(v);
+  }));
+  return [TEMPLATE_HEADERS.join(','), ...body.map((row) => row.map(escapeCsv).join(','))].join('\n');
+}
+
 /**
- * UPDATE_PRICE / UPDATE_NAME exports are human-readable operational reports (not the 18-col
- * Quinos import format). Name & Category are enriched from the master item registry by the
- * route; '' when the code has no matching master item.
+ * UPDATE_NAME exports are a human-readable operational report (not the import template). Current
+ * name & category are enriched from the master item registry by the route; '' when the code has no
+ * matching master item.
  */
 export interface UpdateExportRow {
   code: string | null;
-  masterName: string;     // existing item name from registry ('' if not found)
-  masterCategory: string; // existing item category from registry ('' if not found)
-  newName: string;        // requested new name (UPDATE_NAME)
-  price: number | null;   // requested new price (UPDATE_PRICE)
+  masterName: string;       // existing item name from registry ('' if not found)
+  masterCategory: string;   // existing item category from registry ('' if not found)
+  masterDepartment: string; // existing item department from registry ('' if not found)
+  masterBarcode: string;    // existing item barcode from registry ('' if not found)
+  newName: string;          // requested new name (UPDATE_NAME)
+  price: number | null;     // requested new price (UPDATE_PRICE)
   outlets: string;
   remarks: string | null;
-  by: string;             // submitter name
+  by: string;               // submitter name
   createdAt: Date | string;
   status: string;
 }
 
-const UPDATE_PRICE_HEADERS = ['Code', 'Name', 'Category', 'New Price', 'Outlets', 'Remarks', 'By', 'Date', 'Status'];
 const UPDATE_NAME_HEADERS = ['Code', 'Current Name', 'New Name', 'Category', 'Outlets', 'Remarks', 'By', 'Date', 'Status'];
 
 function formatExportDate(value: Date | string): string {
@@ -269,35 +343,12 @@ function formatExportDate(value: Date | string): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-export function generateUpdatePriceCSV(rows: UpdateExportRow[]): string {
-  const body = rows.map((r) => [
-    r.code ?? '', r.masterName, r.masterCategory,
-    r.price != null ? String(r.price) : '',
-    r.outlets, r.remarks ?? '', r.by, formatExportDate(r.createdAt), r.status,
-  ]);
-  return [UPDATE_PRICE_HEADERS.join(','), ...body.map((row) => row.map(escapeCsv).join(','))].join('\n');
-}
-
 export function generateUpdateNameCSV(rows: UpdateExportRow[]): string {
   const body = rows.map((r) => [
     r.code ?? '', r.masterName, r.newName, r.masterCategory,
     r.outlets, r.remarks ?? '', r.by, formatExportDate(r.createdAt), r.status,
   ]);
   return [UPDATE_NAME_HEADERS.join(','), ...body.map((row) => row.map(escapeCsv).join(','))].join('\n');
-}
-
-export function generateUpdatePriceXLSX(rows: UpdateExportRow[]): Buffer {
-  const data = rows.map((r) => ({
-    Code: r.code ?? '', Name: r.masterName, Category: r.masterCategory,
-    'New Price': r.price ?? '', Outlets: r.outlets, Remarks: r.remarks ?? '',
-    By: r.by, Date: formatExportDate(r.createdAt), Status: r.status,
-  }));
-  const ws = XLSX.utils.json_to_sheet(data, { header: UPDATE_PRICE_HEADERS });
-  ws['!cols'] = UPDATE_PRICE_HEADERS.map(() => ({ wch: 15 }));
-  ws['!cols'][1] = { wch: 30 };
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Update Price');
-  return Buffer.from(XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }));
 }
 
 export function generateUpdateNameXLSX(rows: UpdateExportRow[]): Buffer {
@@ -313,6 +364,34 @@ export function generateUpdateNameXLSX(rows: UpdateExportRow[]): Buffer {
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Update Name');
   return Buffer.from(XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }));
+}
+
+/**
+ * Identify export rows whose PLU code has no matching master item — those rows export with the
+ * master-sourced template columns left blank. Logs a server-side warning and returns an encoded
+ * value for the `X-Export-Warnings` response header so the admin sees which rows are incomplete
+ * before the file is saved. Returns null when every row resolved cleanly.
+ */
+export function buildMissingMasterWarning(
+  requests: { code: string | null; name: string }[],
+  masterMap: Map<string, unknown>,
+  logPrefix: string,
+): string | null {
+  const missing = requests.filter((r) => !(r.code && masterMap.has(r.code)));
+  if (missing.length === 0) return null;
+
+  console.warn(
+    `${logPrefix} export: ${missing.length} row(s) without a master item match ` +
+    `(master-sourced columns left blank): ${missing.map((r) => r.code ?? '(no code)').join(', ')}`,
+  );
+
+  const payload = {
+    type: 'MISSING_MASTER',
+    count: missing.length,
+    rows: missing.slice(0, 50).map((r) => ({ code: r.code ?? '', name: r.name })),
+  };
+  // encodeURIComponent keeps the header value ASCII-safe (item names may contain non-Latin chars).
+  return encodeURIComponent(JSON.stringify(payload));
 }
 
 function escapeCsv(value: string): string {

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/session';
 import { getRequestBatches, getMasterMapByCodes } from '@/lib/db';
-import { generateBatchCSV, generateUpdatePriceCSV, generateUpdateNameCSV, type UpdateExportRow } from '@/lib/export';
+import { generateBatchCSV, generateUpdateNameCSV, generateTemplateCSV, priceToTemplateRow, newItemToTemplateRow, buildMissingMasterWarning, type TemplateRow, type UpdateExportRow } from '@/lib/export';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -38,19 +38,45 @@ export async function GET(request: NextRequest) {
     const typeSlug = type ? type.toLowerCase().replace(/_/g, '-') : 'mixed';
     const filename = `batch-${typeSlug}-${dateStr}.csv`;
 
-    // UPDATE_PRICE / UPDATE_NAME use an enriched human-readable report (name & category from registry).
-    if (type === 'UPDATE_PRICE' || type === 'UPDATE_NAME') {
+    // UPDATE_PRICE and NEW_ITEM both emit the 17-column import template (attributes from master).
+    if (type === 'UPDATE_PRICE' || type === 'NEW_ITEM') {
+      const masterMap = await getMasterMapByCodes(batches.flatMap((b) => b.items.map((i) => i.code)));
+      const items = batches.flatMap((b) => b.items);
+      if (items.length === 0) return NextResponse.json({ error: 'No batch items found' }, { status: 404 });
+      const rows: TemplateRow[] = items.map((item) => {
+        const m = item.code ? masterMap.get(item.code) : undefined;
+        return type === 'UPDATE_PRICE' ? priceToTemplateRow(item.code, m, item.price) : newItemToTemplateRow(item, m);
+      });
+      const csv = generateTemplateCSV(rows);
+      const warningHeader = buildMissingMasterWarning(
+        items.map((i) => ({ code: i.code, name: i.name })), masterMap, '[GET /api/admin/export/batches/csv]',
+      );
+      const headers: Record<string, string> = {
+        'Content-Type': 'text/csv; charset=utf-8',
+        'Content-Disposition': `attachment; filename="${filename}"`,
+        'Cache-Control': 'no-store',
+      };
+      if (warningHeader) {
+        headers['X-Export-Warnings'] = warningHeader;
+        headers['Access-Control-Expose-Headers'] = 'X-Export-Warnings';
+      }
+      return new NextResponse(csv, { status: 200, headers });
+    }
+
+    // UPDATE_NAME stays a human-readable report (current vs new name, enriched from the registry).
+    if (type === 'UPDATE_NAME') {
       const masterMap = await getMasterMapByCodes(batches.flatMap((b) => b.items.map((i) => i.code)));
       const rows: UpdateExportRow[] = batches.flatMap((b) => b.items.map((item) => {
         const m = item.code ? masterMap.get(item.code) : undefined;
         return {
           code: item.code, masterName: m?.name ?? '', masterCategory: m?.category ?? '',
+          masterDepartment: m?.department ?? '', masterBarcode: m?.barcode ?? '',
           newName: item.name, price: item.price, outlets: item.outlets, remarks: item.remarks,
           by: b.submittedBy?.name ?? '', createdAt: b.createdAt, status: b.status,
         };
       }));
       if (rows.length === 0) return NextResponse.json({ error: 'No batch items found' }, { status: 404 });
-      const csv = type === 'UPDATE_PRICE' ? generateUpdatePriceCSV(rows) : generateUpdateNameCSV(rows);
+      const csv = generateUpdateNameCSV(rows);
       return new NextResponse(csv, {
         status: 200,
         headers: {
