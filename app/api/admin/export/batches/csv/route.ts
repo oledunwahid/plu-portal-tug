@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/session';
 import { getRequestBatches, getMasterMapByCodes } from '@/lib/db';
-import { generateBatchCSV, generateUpdateNameCSV, generateTemplateCSV, priceToTemplateRow, newItemToTemplateRow, buildMissingMasterWarning, type TemplateRow, type UpdateExportRow } from '@/lib/export';
+import { generateTemplateCSV, requestToTemplateRow, isMasterSourced, buildMissingMasterWarning } from '@/lib/export';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -16,6 +16,8 @@ export async function GET(request: NextRequest) {
     const idsParam = searchParams.get('ids');
     const ids      = idsParam ? idsParam.split(',').filter(Boolean) : null;
     const type     = searchParams.get('type') ?? undefined;
+    const previewVal = searchParams.get('preview');
+    const preview  = previewVal === '1' || previewVal === 'true';
 
     const filters: Parameters<typeof getRequestBatches>[0] = { orderAsc: true, limit: 2000 };
     if (type && type !== 'ALL') filters.requestType = type;
@@ -38,77 +40,41 @@ export async function GET(request: NextRequest) {
     const typeSlug = type ? type.toLowerCase().replace(/_/g, '-') : 'mixed';
     const filename = `batch-${typeSlug}-${dateStr}.csv`;
 
-    // UPDATE_PRICE and NEW_ITEM both emit the 17-column import template (attributes from master).
-    if (type === 'UPDATE_PRICE' || type === 'NEW_ITEM') {
-      const masterMap = await getMasterMapByCodes(batches.flatMap((b) => b.items.map((i) => i.code)));
-      const items = batches.flatMap((b) => b.items);
-      if (items.length === 0) return NextResponse.json({ error: 'No batch items found' }, { status: 404 });
-      const rows: TemplateRow[] = items.map((item) => {
-        const m = item.code ? masterMap.get(item.code) : undefined;
-        return type === 'UPDATE_PRICE' ? priceToTemplateRow(item.code, m, item.price) : newItemToTemplateRow(item, m);
-      });
-      const csv = generateTemplateCSV(rows);
-      const warningHeader = buildMissingMasterWarning(
-        items.map((i) => ({ code: i.code, name: i.name })), masterMap, '[GET /api/admin/export/batches/csv]',
-      );
-      const headers: Record<string, string> = {
-        'Content-Type': 'text/csv; charset=utf-8',
-        'Content-Disposition': `attachment; filename="${filename}"`,
-        'Cache-Control': 'no-store',
-      };
-      if (warningHeader) {
-        headers['X-Export-Warnings'] = warningHeader;
-        headers['Access-Control-Expose-Headers'] = 'X-Export-Warnings';
-      }
-      return new NextResponse(csv, { status: 200, headers });
-    }
-
-    // UPDATE_NAME stays a human-readable report (current vs new name, enriched from the registry).
-    if (type === 'UPDATE_NAME') {
-      const masterMap = await getMasterMapByCodes(batches.flatMap((b) => b.items.map((i) => i.code)));
-      const rows: UpdateExportRow[] = batches.flatMap((b) => b.items.map((item) => {
-        const m = item.code ? masterMap.get(item.code) : undefined;
-        return {
-          code: item.code, masterName: m?.name ?? '', masterCategory: m?.category ?? '',
-          masterDepartment: m?.department ?? '', masterBarcode: m?.barcode ?? '',
-          newName: item.name, price: item.price, outlets: item.outlets, remarks: item.remarks,
-          by: b.submittedBy?.name ?? '', createdAt: b.createdAt, status: b.status,
-        };
-      }));
-      if (rows.length === 0) return NextResponse.json({ error: 'No batch items found' }, { status: 404 });
-      const csv = generateUpdateNameCSV(rows);
-      return new NextResponse(csv, {
-        status: 200,
-        headers: {
-          'Content-Type': 'text/csv; charset=utf-8',
-          'Content-Disposition': `attachment; filename="${filename}"`,
-          'Cache-Control': 'no-store',
-        },
-      });
-    }
-
+    // Flatten every batch item, tagging it with its batch's request type so the dispatcher can source
+    // each row correctly (NEW_ITEM from the request; UPDATE_* / REMOVE_PLU from master by PLU code).
+    // The preview id (`batchId:itemId`) matches the export page's flattened row id for selection.
     const items = batches.flatMap((b) => b.items.map((item) => ({
-      batchTitle: b.title,
-      code: item.code, name: item.name, category: item.category, department: item.department,
-      price: item.price, folder: item.folder,
-      serviceCharge: item.serviceCharge, tax1: item.tax1, tax2: item.tax2,
-      noDiscount: item.noDiscount, hideReceipt: item.hideReceipt,
-      printers: item.printers, outlets: item.outlets, salesDef: item.salesDef,
-      barcode: item.barcode,
+      ...item, requestType: b.requestType, previewId: `${b.id}:${item.id}`,
     })));
 
+    const masterMap = await getMasterMapByCodes(items.map((i) => i.code));
+    const previewRows = items.map((item) => ({
+      id: item.previewId,
+      ...requestToTemplateRow(item.requestType, item, item.code ? masterMap.get(item.code) : undefined),
+    }));
+
+    // Side-effect-free preview for the export page's "Export preview" toggle.
+    if (preview) return NextResponse.json({ count: previewRows.length, rows: previewRows });
     if (items.length === 0) return NextResponse.json({ error: 'No batch items found' }, { status: 404 });
 
-    const csv      = generateBatchCSV(items);
+    // The generators only read TEMPLATE_HEADERS columns, so the extra `id` on each row is ignored.
+    const csv = generateTemplateCSV(previewRows);
 
-    return new NextResponse(csv, {
-      status: 200,
-      headers: {
-        'Content-Type': 'text/csv; charset=utf-8',
-        'Content-Disposition': `attachment; filename="${filename}"`,
-        'Cache-Control': 'no-store',
-      },
-    });
+    const masterRows = items.filter((i) => isMasterSourced(i.requestType));
+    const warningHeader = buildMissingMasterWarning(
+      masterRows.map((i) => ({ code: i.code, name: i.name })), masterMap, '[GET /api/admin/export/batches/csv]',
+    );
+
+    const headers: Record<string, string> = {
+      'Content-Type': 'text/csv; charset=utf-8',
+      'Content-Disposition': `attachment; filename="${filename}"`,
+      'Cache-Control': 'no-store',
+    };
+    if (warningHeader) {
+      headers['X-Export-Warnings'] = warningHeader;
+      headers['Access-Control-Expose-Headers'] = 'X-Export-Warnings';
+    }
+    return new NextResponse(csv, { status: 200, headers });
   } catch (error) {
     console.error('[GET /api/admin/export/batches/csv]', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

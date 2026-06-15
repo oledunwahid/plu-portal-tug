@@ -173,6 +173,25 @@ const FALLBACK_GROUPS = ['UNION', 'CNS', 'FRENCH', 'IBR', 'IND'];
 
 const VALID_TYPES: RequestType[] = ['NEW_ITEM', 'UPDATE_PRICE', 'UPDATE_NAME', 'UPDATE_PRINTER', 'REMOVE_PLU'];
 
+// The exact 18 columns the export file will contain, in order. The "Export preview" toggle renders
+// these straight from the server-computed rows (same requestToTemplateRow sourcing as the download),
+// so the admin can verify the populated data before committing to the file.
+const EXPORT_PREVIEW_COLUMNS = [
+  'Active', 'Code', 'Name', 'Category', 'Department', 'SalesDef', 'Price', 'PLU', 'Barcode', 'UOM',
+  'Folder', 'ServiceCharge', 'Tax1', 'Tax2', 'NoDiscount', 'HideReceipt', 'Printers', 'Outlets',
+] as const;
+
+type PreviewRow = { id: string } & Record<string, string | number>;
+
+// Render a preview cell. `undefined` row = not loaded yet (skeleton, never blank/zero); an empty
+// value is shown as an em-dash because the file genuinely carries a blank there.
+function previewCellText(row: PreviewRow | undefined, key: string): string {
+  if (!row) return '…';
+  const v = row[key];
+  if (v === '' || v === null || v === undefined) return '—';
+  return String(v);
+}
+
 // Done items accumulate over time, so only that view is paginated.
 const DONE_PAGE_SIZE = 25;
 
@@ -214,6 +233,9 @@ function ExportPageContent() {
   const [sourceFilter, setSourceFilter] = useState<'SINGLE' | 'BATCH'>('SINGLE');
   const [donePage, setDonePage] = useState(1);
   const [doneCount, setDoneCount] = useState<number | null>(null);
+  const [previewMode, setPreviewMode] = useState(false);
+  const [previewMap, setPreviewMap] = useState<Map<string, PreviewRow>>(new Map());
+  const [previewLoading, setPreviewLoading] = useState(false);
 
   const activeTab = TABS.find((t) => t.type === activeType)!;
   const columns = COLUMNS[activeType];
@@ -288,6 +310,37 @@ function ExportPageContent() {
   }, [activeType, group, statusFilter, from, to, sourceFilter, flattenBatches]);
 
   useEffect(() => { fetchRequests(); }, [fetchRequests]);
+
+  // Fetch the export-preview rows for the currently loaded set. Reuses the export route's preview
+  // mode (preview=1) so the displayed 18 columns are computed by the exact same requestToTemplateRow
+  // sourcing the file uses — no logic duplicated client-side. Only runs while the toggle is on.
+  const fetchPreview = useCallback(async () => {
+    if (requests.length === 0) { setPreviewMap(new Map()); return; }
+    setPreviewLoading(true);
+    try {
+      const isBatch = sourceFilter === 'BATCH';
+      const exportIds = isBatch
+        ? Array.from(new Set(requests.map((r) => r.id.split(':')[0])))
+        : requests.map((r) => r.id);
+      const params = new URLSearchParams({ ids: exportIds.join(','), type: activeType, preview: '1' });
+      const apiPath = isBatch
+        ? `/api/admin/export/batches/csv?${params}`
+        : `/api/admin/export/csv?${params}`;
+      const res = await fetch(apiPath);
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      const map = new Map<string, PreviewRow>();
+      for (const row of (data.rows ?? []) as PreviewRow[]) map.set(row.id, row);
+      setPreviewMap(map);
+    } catch {
+      setPreviewMap(new Map());
+      toast.error('Gagal memuat pratinjau ekspor.');
+    } finally {
+      setPreviewLoading(false);
+    }
+  }, [requests, sourceFilter, activeType]);
+
+  useEffect(() => { if (previewMode) fetchPreview(); }, [previewMode, fetchPreview]);
 
   // Total count of DONE items for the current section/filters — surfaced on the Done tab label
   // so admins know the volume before switching to it. Uses countOnly for single requests;
@@ -662,6 +715,31 @@ function ExportPageContent() {
           </div>
         )}
 
+        {/* View toggle: operational table vs. full 18-column export preview */}
+        {!loading && requests.length > 0 && (
+          <div style={{ padding: '0.5rem 1.5rem', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', fontWeight: 500 }}>View:</span>
+            {([['TABLE', 'Table view'], ['PREVIEW', 'Export preview']] as const).map(([val, label]) => {
+              const on = (val === 'PREVIEW') === previewMode;
+              return (
+                <button
+                  key={val}
+                  onClick={() => setPreviewMode(val === 'PREVIEW')}
+                  style={{ padding: '0.25rem 0.75rem', borderRadius: '3px', border: `1px solid ${on ? 'var(--accent-gold)' : 'var(--border)'}`, background: on ? 'rgba(201,168,76,0.08)' : 'transparent', color: on ? 'var(--text-primary)' : 'var(--text-secondary)', fontSize: '0.775rem', fontWeight: on ? 600 : 400, cursor: 'pointer' }}
+                >
+                  {label}
+                </button>
+              );
+            })}
+            {previewMode && previewLoading && <Loader2 size={13} style={{ animation: 'spin 1s linear infinite', color: 'var(--text-secondary)' }} />}
+            {previewMode && (
+              <span style={{ marginLeft: 'auto', fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
+                Pratinjau persis seperti isi file ekspor (18 kolom).
+              </span>
+            )}
+          </div>
+        )}
+
         {/* Action bar */}
         {!loading && requests.length > 0 && (
           <div style={{ padding: '0.625rem 1.5rem', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '0.75rem', background: 'var(--bg-cream)' }}>
@@ -703,7 +781,9 @@ function ExportPageContent() {
               <thead>
                 <tr>
                   <th style={{ width: '40px', padding: '0.75rem' }}></th>
-                  {columns.map((col) => <th key={col.key}>{col.label}</th>)}
+                  {previewMode
+                    ? EXPORT_PREVIEW_COLUMNS.map((c) => <th key={c} style={{ whiteSpace: 'nowrap' }}>{c}</th>)
+                    : columns.map((col) => <th key={col.key}>{col.label}</th>)}
                   <th style={{ width: '60px', textAlign: 'center' }}>Actions</th>
                 </tr>
               </thead>
@@ -723,7 +803,16 @@ function ExportPageContent() {
                         style={{ cursor: 'pointer', accentColor: 'var(--bg-dark)' }}
                       />
                     </td>
-                    {columns.map((col) => <td key={col.key}>{col.render(req)}</td>)}
+                    {previewMode
+                      ? EXPORT_PREVIEW_COLUMNS.map((c) => {
+                          const pr = previewMap.get(req.id);
+                          return (
+                            <td key={c} style={{ fontSize: '0.78rem', whiteSpace: 'nowrap', color: pr ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
+                              {previewCellText(pr, c)}
+                            </td>
+                          );
+                        })
+                      : columns.map((col) => <td key={col.key}>{col.render(req)}</td>)}
                     <td style={{ textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
                       {req.status !== 'DONE' && (
                         <button

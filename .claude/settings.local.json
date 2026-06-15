@@ -43,7 +43,9 @@
       "Bash(curl -s -D - -o /dev/null -H 'Cookie: next-auth.session-token=__CMDSUB_OUTPUT__' http://localhost:3001/api/admin/stats/by-type)",
       "Bash(echo \"=== exit: $? ===\")",
       "Bash(npx tsx -e ' *)",
-      "Bash(npx tsx *)"
+      "Bash(npx tsx *)",
+      "PowerShell(npx tsc --noEmit)",
+      "PowerShell(npx next lint --file lib/export.ts --file app/api/admin/export/csv/route.ts --file app/api/admin/export/xlsx/route.ts --file app/api/admin/export/batches/csv/route.ts --file app/api/admin/export/batches/xlsx/route.ts)"
     ]
   }
 }
