@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/session';
-import { getMasterItems } from '@/lib/db';
+import { getMasterItems, getAllSapItemsForMatch } from '@/lib/db';
 import { matchImportRows, type MatchInput, type MasterRef } from '@/lib/itemMatch';
+import { annotateWineWarnings, isWineDepartment, type SapRef } from '@/lib/wineChecks';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -33,10 +34,21 @@ export async function POST(request: NextRequest) {
     // with the manual PLU code search box.
     const masters = await getMasterItems({ active: true, limit: 100000 });
     const refs: MasterRef[] = masters.map((m) => ({
-      code: m.code, name: m.name, category: m.category, department: m.department, barcode: m.barcode, price: m.price,
+      code: m.code, name: m.name, category: m.category, department: m.department,
+      barcode: m.barcode, price: m.price, priceLevels: m.priceLevels,
     }));
 
-    const results = matchImportRows(inputs, refs);
+    let results = matchImportRows(inputs, refs);
+
+    // Wine-only advisory pass: barcode integrity (SAP cross-check) + active
+    // price-levels warning. Only loads the SAP registry when a wine row exists.
+    if (inputs.some((i) => isWineDepartment(i.department))) {
+      const saps = await getAllSapItemsForMatch();
+      const sapRefs: SapRef[] = saps.map((s) => ({ itemNo: s.itemNo, description: s.description, barcode: s.barcode }));
+      const masterByCode = new Map<string, MasterRef>(refs.map((r) => [r.code, r]));
+      results = annotateWineWarnings(inputs, results, masterByCode, sapRefs);
+    }
+
     return NextResponse.json({ results });
   } catch (error) {
     console.error('[POST /api/plu/match-batch]', error);

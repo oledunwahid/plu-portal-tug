@@ -6,7 +6,7 @@ import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard, Download, Users, Plus, Layers, Menu, X,
   BookOpen, Database, ScanBarcode, BookMarked, ChevronDown, ChevronRight, Tag, Settings, Search, Trash2,
-  AlertTriangle, ArrowLeftRight,
+  AlertTriangle, ArrowLeftRight, FileSpreadsheet, BadgeDollarSign,
 } from 'lucide-react';
 import { useSession } from 'next-auth/react';
 import { SignOutButton } from '@/components/SignOutButton';
@@ -27,6 +27,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Discount Request', href: '/cashier/discount/new', icon: <Tag size={15} />, roles: ['CASHIER'] },
   { label: 'Dashboard', href: '/admin/dashboard', icon: <LayoutDashboard size={15} />, roles: ['ADMIN'] },
   { label: 'Export', href: '/admin/export', icon: <Download size={15} />, roles: ['ADMIN'] },
+  { label: 'Price Check', href: '/admin/price-check', icon: <BadgeDollarSign size={15} />, roles: ['ADMIN'] },
   { label: 'Discount', href: '/admin/discount', icon: <Tag size={15} />, roles: ['ADMIN'] },
   { label: 'Request Removal', href: '/admin/removal', icon: <Trash2 size={15} />, roles: ['ADMIN'] },
   { label: 'Users', href: '/admin/users', icon: <Users size={15} />, roles: ['ADMIN'] },
@@ -34,6 +35,7 @@ const NAV_ITEMS: NavItem[] = [
 
 const KB_ITEMS = [
   { label: 'Master Items', href: '/admin/kb/items', icon: <Database size={14} /> },
+  { label: 'Master Items SAP', href: '/admin/kb/sap-items', icon: <FileSpreadsheet size={14} /> },
   { label: 'Data Quality', href: '/admin/kb/quality', icon: <AlertTriangle size={14} /> },
   { label: 'Rekonsiliasi', href: '/admin/kb/reconcile', icon: <ArrowLeftRight size={14} /> },
   { label: 'Barcode Lookup', href: '/admin/kb/barcode', icon: <ScanBarcode size={14} /> },

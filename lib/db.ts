@@ -217,6 +217,13 @@ async function initDb(): Promise<any> {
   // (e.g. "DINE IN:CSPI+CSPI-B:1100000;TAKE AWAY:CSPI:1100000;...") for items
   // imported before this column existed.
   try { db.run('ALTER TABLE "MasterItem" ADD COLUMN "priceLevels" TEXT'); } catch { /* already exists */ }
+  // Second, independent registry sourced from the SAP export (List_of_Items-WINE.xlsx).
+  // Deliberately NOT merged into MasterItem — SAP item numbers don't map 1:1 to
+  // Quinos codes. Used only for the wine barcode-integrity cross-check.
+  db.run(`CREATE TABLE IF NOT EXISTS "SapMasterItem" (
+    id TEXT PRIMARY KEY, itemNo TEXT NOT NULL UNIQUE, description TEXT NOT NULL,
+    subGroup TEXT, barcode TEXT, importedAt TEXT NOT NULL, updatedAt TEXT NOT NULL
+  )`);
   db.run(`CREATE TABLE IF NOT EXISTS "WikiArticle" (
     id TEXT PRIMARY KEY, title TEXT NOT NULL, content TEXT NOT NULL,
     category TEXT NOT NULL DEFAULT 'General', isPinned INTEGER NOT NULL DEFAULT 0,
@@ -1251,6 +1258,123 @@ export async function getMasterItemDepartments(): Promise<string[]> {
     const rows = execAll(db, 'SELECT DISTINCT department FROM "MasterItem" ORDER BY department ASC');
     return rows.map((r) => String(r.department));
   } catch { return []; }
+}
+
+// ── SAP Master Items (List_of_Items-WINE.xlsx) ───────────────────────────────
+// Independent registry, keyed by SAP item number. Used for the wine barcode
+// integrity cross-check and a standalone browsable list view.
+
+export interface DbSapMasterItem {
+  id: string; itemNo: string; description: string;
+  subGroup: string | null; barcode: string | null;
+  importedAt: string; updatedAt: string;
+}
+
+export interface SapMasterItemUpsertInput {
+  itemNo: string; description: string; subGroup?: string | null; barcode?: string | null;
+}
+
+export interface SapMasterItemFilters {
+  search?: string; subGroup?: string; limit?: number; offset?: number;
+}
+
+function rowToSapMasterItem(row: Record<string, unknown>): DbSapMasterItem {
+  return {
+    id: String(row.id), itemNo: String(row.itemNo), description: String(row.description),
+    subGroup: normStr(row.subGroup), barcode: normStr(row.barcode),
+    importedAt: String(row.importedAt), updatedAt: String(row.updatedAt),
+  };
+}
+
+function buildSapConditions(f: SapMasterItemFilters): { conditions: string[]; params: unknown[] } {
+  const conditions: string[] = [];
+  const params: unknown[] = [];
+  if (f.search) {
+    const q = `%${f.search}%`;
+    conditions.push('(itemNo LIKE ? OR description LIKE ? OR barcode LIKE ? OR subGroup LIKE ?)');
+    params.push(q, q, q, q);
+  }
+  if (f.subGroup && f.subGroup !== 'ALL') { conditions.push('subGroup = ?'); params.push(f.subGroup); }
+  return { conditions, params };
+}
+
+export async function getSapMasterItems(filters: SapMasterItemFilters = {}): Promise<DbSapMasterItem[]> {
+  try {
+    const db = await getDb();
+    const { conditions, params } = buildSapConditions(filters);
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    const limit = filters.limit ?? 50;
+    const offset = filters.offset ?? 0;
+    const rows = execAll(db, `SELECT * FROM "SapMasterItem" ${where} ORDER BY description ASC LIMIT ? OFFSET ?`, [...params, limit, offset]);
+    return rows.map(rowToSapMasterItem);
+  } catch (err) {
+    console.error('[db] getSapMasterItems failed:', err);
+    return [];
+  }
+}
+
+export async function countSapMasterItems(filters: SapMasterItemFilters = {}): Promise<number> {
+  try {
+    const db = await getDb();
+    const { conditions, params } = buildSapConditions(filters);
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    const row = execFirst(db, `SELECT COUNT(*) as cnt FROM "SapMasterItem" ${where}`, params);
+    return row ? Number(row.cnt) : 0;
+  } catch (err) {
+    console.error('[db] countSapMasterItems failed:', err);
+    return 0;
+  }
+}
+
+export async function getSapSubGroups(): Promise<string[]> {
+  try {
+    const db = await getDb();
+    const rows = execAll(db, `SELECT DISTINCT subGroup FROM "SapMasterItem" WHERE subGroup IS NOT NULL AND subGroup <> '' ORDER BY subGroup ASC`);
+    return rows.map((r) => String(r.subGroup));
+  } catch { return []; }
+}
+
+export async function getSapMasterItemsLastImported(): Promise<string | null> {
+  try {
+    const db = await getDb();
+    const row = execFirst(db, 'SELECT MAX(importedAt) as last FROM "SapMasterItem"');
+    return row?.last ? String(row.last) : null;
+  } catch { return null; }
+}
+
+// Full SAP set (itemNo/description/barcode only) for the in-memory fuzzy name
+// match done by the wine barcode-integrity check. Capped high; the SAP wine
+// export is a few thousand rows.
+export async function getAllSapItemsForMatch(): Promise<DbSapMasterItem[]> {
+  try {
+    const db = await getDb();
+    const rows = execAll(db, 'SELECT * FROM "SapMasterItem" LIMIT 100000');
+    return rows.map(rowToSapMasterItem);
+  } catch (err) {
+    console.error('[db] getAllSapItemsForMatch failed:', err);
+    return [];
+  }
+}
+
+export async function upsertSapMasterItems(items: SapMasterItemUpsertInput[]): Promise<{ inserted: number; updated: number; skipped: number }> {
+  if (items.length === 0) return { inserted: 0, updated: 0, skipped: 0 };
+  return withWriteLock((db) => {
+    let inserted = 0, updated = 0;
+    const now = nowIso();
+    for (const item of items) {
+      const existing = execFirst(db, 'SELECT id FROM "SapMasterItem" WHERE itemNo = ?', [item.itemNo]);
+      if (existing) {
+        db.run(`UPDATE "SapMasterItem" SET description=?, subGroup=?, barcode=?, updatedAt=? WHERE itemNo=?`,
+          [item.description, item.subGroup ?? null, item.barcode ?? null, now, item.itemNo]);
+        updated++;
+      } else {
+        db.run(`INSERT INTO "SapMasterItem" (id,itemNo,description,subGroup,barcode,importedAt,updatedAt) VALUES (?,?,?,?,?,?,?)`,
+          [newId(), item.itemNo, item.description, item.subGroup ?? null, item.barcode ?? null, now, now]);
+        inserted++;
+      }
+    }
+    return { inserted, updated, skipped: 0 };
+  });
 }
 
 export interface MasterItemUpsertInput {

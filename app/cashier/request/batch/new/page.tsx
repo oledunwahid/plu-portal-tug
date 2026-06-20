@@ -11,7 +11,8 @@ import { Loader2, Plus, Trash2, Copy, AlertTriangle, Upload, X, Check, Download 
 import { SuccessModal } from '@/components/SuccessModal';
 import { PLUCodeSearch } from '@/components/PLUCodeSearch';
 import type { PLUSearchResult } from '@/components/PLUCodeSearch';
-import type { RowMatch, MatchCandidate } from '@/lib/itemMatch';
+import type { RowMatch, MatchCandidate, BarcodeMismatch, PriceLevelsWarning } from '@/lib/itemMatch';
+import { WineWarnings } from '@/components/WineWarnings';
 
 const REQUEST_TYPES = [
   { value: 'NEW_ITEM', label: 'New Item' },
@@ -271,6 +272,16 @@ function priceIsValid(price: string): boolean {
 function isCleanExact(m: RowMatch): boolean {
   return (m.type === 'barcode' || m.type === 'namecat')
     && !!m.resolvedCode && !m.categoryMismatch && !m.departmentMismatch;
+}
+
+// Wine advisory flags that apply to whichever identity is currently selected:
+// the resolved exact master, or the candidate the user picked for a fuzzy row.
+function effectiveWineWarnings(r: PriceMatchRow): { barcodeMismatch?: BarcodeMismatch; priceLevels?: PriceLevelsWarning } {
+  const m = r.match;
+  if (m.barcodeMismatch || m.priceLevels) return { barcodeMismatch: m.barcodeMismatch, priceLevels: m.priceLevels };
+  const cand = r.resolvedCode ? m.candidates?.find((c) => c.code === r.resolvedCode) : undefined;
+  if (cand) return { barcodeMismatch: cand.barcodeMismatch, priceLevels: cand.priceLevels };
+  return {};
 }
 
 // A row counts toward "siap diimport" only when it has a valid price and either an
@@ -1184,6 +1195,12 @@ export default function BatchNewPage() {
                           </div>
                         </div>
                       )}
+
+                      {/* Wine-only advisory flags (barcode integrity + active price levels) */}
+                      {(() => {
+                        const w = effectiveWineWarnings(r);
+                        return <WineWarnings barcodeMismatch={w.barcodeMismatch} priceLevels={w.priceLevels} requestedPrice={r.price} />;
+                      })()}
                     </div>
                   );
                 })}
