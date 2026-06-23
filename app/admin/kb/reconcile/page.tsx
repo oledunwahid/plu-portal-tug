@@ -2,32 +2,49 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { toast } from 'sonner';
-import { Upload, ArrowLeftRight, Loader2, Download, AlertCircle } from 'lucide-react';
+import { Upload, ArrowLeftRight, Loader2, Download, AlertCircle, History, Filter, X } from 'lucide-react';
 import { formatPrice } from '@/lib/utils';
 
-interface MasterItem {
-  id: string; code: string; name: string; price: number | null;
-  barcode: string | null; outlets: string | null; department: string;
+// All parsing, matching, bridge lookup and export now run server-side (see
+// app/api/admin/kb/reconcile/*). This page is just the shell: it uploads the file,
+// lets the admin pick a past session, drives filters, and renders the persisted rows.
+
+interface SessionSummary {
+  id: string; label: string; uploadedAt: string; department: string;
+  total: number; matched: number; notInCloud: number; priceMismatch: number;
 }
 
-interface FisikRow {
-  code: string; name: string; price: number | null; qty: number | null;
+interface ReconcileRow {
+  id: string; fisikCode: string; fisikName: string; fisikPrice: number | null; fisikQty: number | null;
+  codeType: string; matchedMasterCode: string | null; matchedMasterName: string | null;
+  matchedMasterPrice: number | null; matchConfidence: string; matchMethod: string;
+  priceMatch: boolean | null; subGroup: string | null; priceDiff: number | null;
 }
 
-interface FoundRow {
-  fisikCode: string; fisikName: string; masterCode: string; masterName: string;
-  fisikPrice: number | null; masterPrice: number | null;
-  priceMatch: boolean; confidence: 'exact' | 'fuzzy';
+interface NotInFisikMaster {
+  code: string; name: string; price: number | null; outlets: string | null; category: string;
+}
+
+interface Filters {
+  confidence: string; priceMatch: string; codeType: string;
+  subGroup: string; priceDiffMin: string; priceDiffMax: string; search: string;
 }
 
 const DEPARTMENTS = ['WINE', 'ALCOHOLIC BEVERAGES', 'NON ALCOHOLIC BEVERAGES', 'ALL'];
+const EMPTY_FILTERS: Filters = { confidence: '', priceMatch: '', codeType: '', subGroup: '', priceDiffMin: '', priceDiffMax: '', search: '' };
 
 const AMBER_BG = 'rgba(251,191,36,0.1)';
 
 const SELECT_STYLE: React.CSSProperties = {
-  height: '36px', borderRadius: '0.375rem', border: '1px solid var(--input-border)',
+  height: '34px', borderRadius: '0.375rem', border: '1px solid var(--input-border)',
   background: 'var(--bg-card)', color: 'var(--text-primary)',
-  padding: '0 0.625rem', fontSize: '0.8rem', cursor: 'pointer', outline: 'none',
+  padding: '0 0.5rem', fontSize: '0.78rem', cursor: 'pointer', outline: 'none',
+};
+const INPUT_STYLE: React.CSSProperties = { ...SELECT_STYLE, cursor: 'text', width: '110px' };
+
+const METHOD_LABEL: Record<string, string> = {
+  BARCODE_DIRECT: 'Barcode', SAP_NCK_DERIVED: 'SAP→NCK', XEVLA_BRIDGE: 'XEVLA→SAP',
+  SAP_PREFIX: 'SAP prefix', NAME_FUZZY: 'Nama mirip', NONE: '—',
 };
 
 function downloadBlob(blob: Blob, filename: string) {
@@ -38,179 +55,163 @@ function downloadBlob(blob: Blob, filename: string) {
   URL.revokeObjectURL(url);
 }
 
-function toCsv(headers: string[], rows: (string | number)[][]): string {
-  const escape = (v: string | number) => {
-    const s = String(v ?? '');
-    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-  };
-  return [headers.join(','), ...rows.map((r) => r.map(escape).join(','))].join('\n');
-}
-
-function num(v: unknown): number | null {
-  if (v == null || v === '') return null;
-  const n = parseFloat(String(v).replace(/[^0-9.-]/g, ''));
-  return Number.isFinite(n) ? n : null;
-}
-
-// A real item code is alphanumeric and contains at least one digit. This skips
-// category header rows like "Australia", "Hampers", and dashed labels like "1-1".
-function isItemCode(code: string): boolean {
-  return /^[A-Za-z0-9]+$/.test(code) && /\d/.test(code);
-}
-
-function nameContains(a: string, b: string): boolean {
-  const x = a.toLowerCase().trim();
-  const y = b.toLowerCase().trim();
-  if (!x || !y) return false;
-  return x.includes(y) || y.includes(x);
-}
-
 type TabKey = 'cocok' | 'cloud' | 'fisik';
+
+// Build the shared query string from the active filters for the rows/export routes.
+function filterQuery(f: Filters): string {
+  const p = new URLSearchParams();
+  if (f.confidence) p.set('confidence', f.confidence);
+  if (f.priceMatch) p.set('priceMatch', f.priceMatch);
+  if (f.codeType) p.set('codeType', f.codeType);
+  if (f.subGroup) p.set('subGroup', f.subGroup);
+  if (f.priceDiffMin) p.set('priceDiffMin', f.priceDiffMin);
+  if (f.priceDiffMax) p.set('priceDiffMax', f.priceDiffMax);
+  if (f.search) p.set('search', f.search);
+  return p.toString();
+}
 
 export default function ReconcilePage() {
   const [department, setDepartment] = useState('WINE');
-  const [masters, setMasters] = useState<MasterItem[]>([]);
-  const [loadingMasters, setLoadingMasters] = useState(false);
-  const [fisikRows, setFisikRows] = useState<FisikRow[]>([]);
-  const [parsing, setParsing] = useState(false);
-  const [fileName, setFileName] = useState<string | null>(null);
+  const [sessions, setSessions] = useState<SessionSummary[]>([]);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
-  const [tab, setTab] = useState<TabKey>('cocok');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const fetchMasters = useCallback(async (dept: string) => {
-    setLoadingMasters(true);
+  const [tab, setTab] = useState<TabKey>('cocok');
+  const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
+  const [rows, setRows] = useState<ReconcileRow[]>([]);
+  const [notInFisik, setNotInFisik] = useState<NotInFisikMaster[]>([]);
+  const [notInFisikCount, setNotInFisikCount] = useState<number | null>(null);
+  const [subGroups, setSubGroups] = useState<string[]>([]);
+  const [loadingRows, setLoadingRows] = useState(false);
+  const [exporting, setExporting] = useState(false);
+
+  const active = sessions.find((s) => s.id === activeId) ?? null;
+
+  const fetchSessions = useCallback(async () => {
     try {
-      const params = new URLSearchParams({ activeOnly: 'true', limit: '9999' });
-      if (dept !== 'ALL') params.set('department', dept);
-      const res = await fetch(`/api/admin/kb/items?${params}`);
-      if (!res.ok) throw new Error('Gagal memuat master registry');
+      const res = await fetch('/api/admin/kb/reconcile/sessions');
+      if (!res.ok) throw new Error('Gagal memuat daftar sesi');
       const data = await res.json();
-      setMasters((data.items ?? []) as MasterItem[]);
-    } catch (e: any) {
-      toast.error(e.message ?? 'Gagal memuat data master');
-      setMasters([]);
-    } finally {
-      setLoadingMasters(false);
+      setSessions((data.sessions ?? []) as SessionSummary[]);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Gagal memuat sesi');
     }
   }, []);
 
-  useEffect(() => { fetchMasters(department); }, [department, fetchMasters]);
+  useEffect(() => { fetchSessions(); }, [fetchSessions]);
 
   async function handleFile(file: File) {
     const lower = file.name.toLowerCase();
-    if (!lower.endsWith('.xlsx') && !lower.endsWith('.csv')) {
+    if (!lower.endsWith('.xlsx') && !lower.endsWith('.xls') && !lower.endsWith('.csv')) {
       toast.error('Hanya file .xlsx atau .csv yang didukung.');
       return;
     }
-    setParsing(true);
+    setUploading(true);
     try {
-      const XLSX = await import('xlsx');
-      const buf = await file.arrayBuffer();
-      const wb = XLSX.read(buf, { type: 'array' });
-      const ws = wb.Sheets[wb.SheetNames[0]];
-      const raw = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { raw: false, defval: '' });
-
-      const pick = (row: Record<string, unknown>, keys: string[]): string => {
-        for (const k of Object.keys(row)) {
-          const norm = k.toLowerCase().replace(/[\s_]/g, '');
-          if (keys.includes(norm)) return String(row[k] ?? '').trim();
-        }
-        return '';
-      };
-
-      const cleaned: FisikRow[] = [];
-      for (const row of raw) {
-        const code = pick(row, ['itemcode', 'code', 'kodeitem', 'kode']);
-        const name = pick(row, ['itemname', 'name', 'namaitem', 'nama']);
-        const price = num(pick(row, ['price', 'harga', 'sellprice']));
-        const qty = num(pick(row, ['qty', 'quantity', 'qtyonhand', 'stock', 'stok']));
-        if (!isItemCode(code)) continue;
-        if (!name || name === '-') continue;
-        if (!((qty != null && qty > 0) || (price != null && price > 0))) continue;
-        cleaned.push({ code, name, price, qty });
-      }
-
-      if (cleaned.length === 0) {
-        toast.error('Tidak ada baris valid ditemukan pada file.');
-      } else {
-        toast.success(`${cleaned.length} baris fisik toko dimuat.`);
-      }
-      setFisikRows(cleaned);
-      setFileName(file.name);
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('department', department);
+      fd.append('label', file.name);
+      const res = await fetch('/api/admin/kb/reconcile/upload', { method: 'POST', body: fd });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? 'Upload gagal');
+      const s = data.summary;
+      toast.success(`${s.total} baris diproses · ${s.matched} cocok · ${s.notInCloud} tidak di cloud${s.masterSheetFound ? ` · bridge +${s.bridgeInserted}/~${s.bridgeUpdated}` : ' · sheet Master tidak ditemukan'}`);
+      await fetchSessions();
+      setFilters(EMPTY_FILTERS);
       setTab('cocok');
-    } catch (e: any) {
-      toast.error(e.message ?? 'Gagal membaca file');
+      setActiveId(data.sessionId);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Gagal mengunggah file');
     } finally {
-      setParsing(false);
+      setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
   }
 
-  // ── Reconciliation (runs in the browser against the fetched masters) ──────────
-  const barcodeMap = new Map<string, MasterItem>();
-  for (const m of masters) {
-    const bc = (m.barcode ?? '').trim();
-    if (bc) barcodeMap.set(bc, m);
+  // Fetch the rows / not-in-fisik for the active session whenever the session, tab
+  // or filters change. Debounced so typing in the search box doesn't spam the API.
+  useEffect(() => {
+    if (!activeId) { setRows([]); setNotInFisik([]); setSubGroups([]); return; }
+    const handle = setTimeout(async () => {
+      setLoadingRows(true);
+      try {
+        if (tab === 'fisik') {
+          const p = new URLSearchParams();
+          if (filters.subGroup) p.set('subGroup', filters.subGroup);
+          if (filters.search) p.set('search', filters.search);
+          const res = await fetch(`/api/admin/kb/reconcile/${activeId}/not-in-fisik?${p}`);
+          if (!res.ok) throw new Error('Gagal memuat data');
+          const data = await res.json();
+          setNotInFisik((data.masters ?? []) as NotInFisikMaster[]);
+        } else {
+          const p = new URLSearchParams(filterQuery(filters));
+          p.set('tab', tab === 'cocok' ? 'matched' : 'not_in_cloud');
+          const res = await fetch(`/api/admin/kb/reconcile/${activeId}/rows?${p}`);
+          if (!res.ok) throw new Error('Gagal memuat data');
+          const data = await res.json();
+          setRows((data.rows ?? []) as ReconcileRow[]);
+          setSubGroups((data.subGroups ?? []) as string[]);
+        }
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : 'Gagal memuat baris');
+      } finally {
+        setLoadingRows(false);
+      }
+    }, 250);
+    return () => clearTimeout(handle);
+  }, [activeId, tab, filters]);
+
+  // Unfiltered not-in-fisik count for the summary card (separate from the tab view).
+  useEffect(() => {
+    if (!activeId) { setNotInFisikCount(null); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/admin/kb/reconcile/${activeId}/not-in-fisik?countOnly=1`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled) setNotInFisikCount(Number(data.count ?? 0));
+      } catch { /* card just shows — */ }
+    })();
+    return () => { cancelled = true; };
+  }, [activeId]);
+
+  async function handleExport() {
+    if (!activeId) return;
+    setExporting(true);
+    try {
+      const q = filterQuery(filters);
+      const res = await fetch(`/api/admin/kb/reconcile/${activeId}/export${q ? `?${q}` : ''}`);
+      if (!res.ok) throw new Error('Export gagal');
+      const blob = await res.blob();
+      const disposition = res.headers.get('Content-Disposition') ?? '';
+      const m = disposition.match(/filename="(.+?)"/);
+      downloadBlob(blob, m?.[1] ?? `rekonsiliasi-${new Date().toISOString().slice(0, 10)}.xlsx`);
+      toast.success('XLSX diunduh');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Gagal mengekspor');
+    } finally {
+      setExporting(false);
+    }
   }
 
-  const found: FoundRow[] = [];
-  const notInCloud: FisikRow[] = [];
-  const usedMasterIds = new Set<string>();
-
-  for (const f of fisikRows) {
-    let match: MasterItem | undefined = barcodeMap.get(f.code);
-    let confidence: 'exact' | 'fuzzy' = 'exact';
-    if (!match) {
-      match = masters.find((m) => nameContains(m.name, f.name));
-      confidence = 'fuzzy';
-    }
-    if (match) {
-      usedMasterIds.add(match.id);
-      found.push({
-        fisikCode: f.code, fisikName: f.name,
-        masterCode: match.code, masterName: match.name,
-        fisikPrice: f.price, masterPrice: match.price,
-        priceMatch: f.price != null && match.price != null && f.price === match.price,
-        confidence,
-      });
-    } else {
-      notInCloud.push(f);
-    }
+  function setFilter(key: keyof Filters, value: string) {
+    setFilters((f) => ({ ...f, [key]: value }));
   }
-  const notInFisik = masters.filter((m) => !usedMasterIds.has(m.id));
-  const priceDiscrepancies = found.filter((r) => !r.priceMatch && r.fisikPrice != null && r.masterPrice != null).length;
-
-  const hasResult = fisikRows.length > 0;
-
-  function exportCurrentTab() {
-    const date = new Date().toISOString().slice(0, 10);
-    if (tab === 'cocok') {
-      const csv = toCsv(
-        ['Fisik Code', 'Fisik Name', 'Master Code', 'Master Name', 'Fisik Price', 'Master Price', 'Price Match', 'Confidence'],
-        found.map((r) => [r.fisikCode, r.fisikName, r.masterCode, r.masterName, r.fisikPrice ?? '', r.masterPrice ?? '', r.priceMatch ? 'Yes' : 'No', r.confidence]),
-      );
-      downloadBlob(new Blob([csv], { type: 'text/csv;charset=utf-8' }), `rekonsiliasi-cocok-${date}.csv`);
-    } else if (tab === 'cloud') {
-      const csv = toCsv(
-        ['Fisik Code', 'Fisik Name', 'Fisik Price'],
-        notInCloud.map((r) => [r.code, r.name, r.price ?? '']),
-      );
-      downloadBlob(new Blob([csv], { type: 'text/csv;charset=utf-8' }), `rekonsiliasi-tidak-di-cloud-${date}.csv`);
-    } else {
-      const csv = toCsv(
-        ['Master Code', 'Master Name', 'Master Price', 'Outlets'],
-        notInFisik.map((r) => [r.code, r.name, r.price ?? '', (r.outlets ?? '').split(/[;,]/).filter(Boolean).join(' ')]),
-      );
-      downloadBlob(new Blob([csv], { type: 'text/csv;charset=utf-8' }), `rekonsiliasi-tidak-di-fisik-${date}.csv`);
-    }
-    toast.success('CSV diunduh');
+  function clickPriceMismatchCard() {
+    setTab('cocok');
+    setFilters({ ...EMPTY_FILTERS, priceMatch: 'false' });
   }
 
-  const TABS: { key: TabKey; label: string; count: number }[] = [
-    { key: 'cocok', label: 'Cocok', count: found.length },
-    { key: 'cloud', label: 'Tidak di Cloud', count: notInCloud.length },
-    { key: 'fisik', label: 'Tidak di Fisik', count: notInFisik.length },
+  const hasActiveFilters = Object.values(filters).some(Boolean);
+
+  const TABS: { key: TabKey; label: string; count: number | null }[] = [
+    { key: 'cocok', label: 'Cocok', count: active?.matched ?? null },
+    { key: 'cloud', label: 'Tidak di Cloud', count: active?.notInCloud ?? null },
+    { key: 'fisik', label: 'Tidak di Fisik', count: notInFisikCount },
   ];
 
   return (
@@ -221,17 +222,17 @@ export default function ReconcilePage() {
           <h1 className="page-title">Rekonsiliasi Stok</h1>
         </div>
         <p style={{ marginTop: '0.375rem', fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
-          Bandingkan data fisik toko dengan Master Item Registry.
+          Bandingkan data fisik toko dengan Master Item Registry. Pencocokan, bridge SAP↔XEVLA↔NCK, dan ekspor diproses di server.
         </p>
       </div>
 
-      {/* Upload card */}
+      {/* Upload + session selector */}
       <div className="card" style={{ padding: '1.25rem', marginBottom: '1.25rem' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem', flexWrap: 'wrap', gap: '0.75rem' }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '0.75rem', flexWrap: 'wrap', gap: '0.75rem' }}>
           <div>
             <div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--text-primary)' }}>Upload File Fisik Toko</div>
-            <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.2rem', maxWidth: '520px' }}>
-              Format yang didukung: file ekspor stok fisik dengan kolom Item Code, Item Name, dan Price.
+            <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.2rem', maxWidth: '560px' }}>
+              Sheet pertama = stok fisik (Item Code, Item Name, Price, Qty). Sheet «Master» (opsional) = bridge SAP↔XEVLA↔NCK.
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -239,9 +240,6 @@ export default function ReconcilePage() {
             <select value={department} onChange={(e) => setDepartment(e.target.value)} style={SELECT_STYLE}>
               {DEPARTMENTS.map((d) => <option key={d} value={d}>{d}</option>)}
             </select>
-            {loadingMasters
-              ? <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}><Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> memuat…</span>
-              : <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>{masters.length.toLocaleString('id-ID')} item master</span>}
           </div>
         </div>
 
@@ -249,69 +247,141 @@ export default function ReconcilePage() {
           onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
           onDragLeave={() => setDragOver(false)}
           onDrop={(e) => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files[0]; if (f) handleFile(f); }}
-          onClick={() => fileInputRef.current?.click()}
+          onClick={() => !uploading && fileInputRef.current?.click()}
           style={{
             border: `2px dashed ${dragOver ? '#C9A84C' : 'var(--border)'}`,
             borderRadius: '8px', padding: '1.5rem', textAlign: 'center',
-            cursor: 'pointer', background: dragOver ? 'rgba(201,168,76,0.04)' : 'transparent',
+            cursor: uploading ? 'default' : 'pointer', background: dragOver ? 'rgba(201,168,76,0.04)' : 'transparent',
             transition: 'all 150ms',
           }}
         >
-          {parsing ? (
+          {uploading ? (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', color: 'var(--text-secondary)' }}>
               <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} />
-              <span style={{ fontSize: '0.875rem' }}>Memproses…</span>
+              <span style={{ fontSize: '0.875rem' }}>Mengunggah & mencocokkan di server…</span>
             </div>
           ) : (
             <>
               <Upload size={20} style={{ color: 'var(--text-secondary)', margin: '0 auto 0.5rem' }} />
-              <div style={{ fontSize: '0.875rem', color: 'var(--text-primary)', fontWeight: 500 }}>
-                {fileName ? `${fileName} — klik untuk ganti` : 'Klik untuk unggah atau seret file ke sini'}
-              </div>
-              <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>
-                .xlsx atau .csv
-              </div>
+              <div style={{ fontSize: '0.875rem', color: 'var(--text-primary)', fontWeight: 500 }}>Klik untuk unggah atau seret file ke sini</div>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>.xlsx atau .csv · ditandai sebagai «{department}»</div>
             </>
           )}
         </div>
         <input ref={fileInputRef} type="file" accept=".xlsx,.csv" style={{ display: 'none' }}
           onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
+
+        {/* Session selector */}
+        {sessions.length > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.875rem', flexWrap: 'wrap' }}>
+            <History size={14} style={{ color: 'var(--text-secondary)' }} />
+            <label className="label-caps" style={{ fontSize: '0.62rem' }}>Sesi sebelumnya</label>
+            <select value={activeId ?? ''} onChange={(e) => { setActiveId(e.target.value || null); setFilters(EMPTY_FILTERS); setTab('cocok'); }} style={{ ...SELECT_STYLE, minWidth: '320px', flex: '0 1 auto' }}>
+              <option value="">— pilih sesi —</option>
+              {sessions.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {new Date(s.uploadedAt).toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' })} · {s.label} · [{s.department}] · {s.total} baris
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
       </div>
 
-      {hasResult && (
+      {active && (
         <>
-          {/* Summary bar */}
-          <div className="card" style={{ padding: '0.875rem 1.25rem', marginBottom: '0.875rem', display: 'flex', alignItems: 'center', gap: '1.25rem', flexWrap: 'wrap', fontSize: '0.82rem' }}>
-            <span><strong style={{ color: 'var(--text-primary)' }}>{fisikRows.length}</strong> <span style={{ color: 'var(--text-secondary)' }}>item fisik</span></span>
-            <span style={{ color: 'var(--border)' }}>|</span>
-            <span><strong style={{ color: '#2D4A2E' }}>{found.length}</strong> <span style={{ color: 'var(--text-secondary)' }}>cocok</span></span>
-            <span style={{ color: 'var(--border)' }}>|</span>
-            <span><strong style={{ color: '#7A2E1F' }}>{notInCloud.length}</strong> <span style={{ color: 'var(--text-secondary)' }}>tidak di cloud</span></span>
-            <span style={{ color: 'var(--border)' }}>|</span>
-            <span><strong style={{ color: '#7A2E1F' }}>{notInFisik.length}</strong> <span style={{ color: 'var(--text-secondary)' }}>tidak di fisik</span></span>
-            <span style={{ color: 'var(--border)' }}>|</span>
-            <span><strong style={{ color: '#8B6914' }}>{priceDiscrepancies}</strong> <span style={{ color: 'var(--text-secondary)' }}>selisih harga</span></span>
+          {/* Summary cards */}
+          <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '0.875rem' }}>
+            {[
+              { label: 'Item fisik', value: active.total, color: 'var(--text-primary)', onClick: undefined },
+              { label: 'Cocok', value: active.matched, color: '#2D4A2E', onClick: () => { setTab('cocok'); setFilters(EMPTY_FILTERS); } },
+              { label: 'Tidak di cloud', value: active.notInCloud, color: '#7A2E1F', onClick: () => { setTab('cloud'); setFilters(EMPTY_FILTERS); } },
+              { label: 'Tidak di fisik', value: notInFisikCount ?? '…', color: '#7A2E1F', onClick: () => { setTab('fisik'); setFilters(EMPTY_FILTERS); } },
+              { label: 'Selisih harga', value: active.priceMismatch, color: '#8B6914', onClick: clickPriceMismatchCard },
+            ].map((c) => (
+              <div key={c.label} className="card" onClick={c.onClick}
+                style={{ padding: '0.75rem 1rem', flex: '1 1 130px', cursor: c.onClick ? 'pointer' : 'default', userSelect: 'none' }}>
+                <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginBottom: '0.2rem' }}>{c.label}</div>
+                <div style={{ fontSize: '1.4rem', fontWeight: 700, color: c.color }}>{typeof c.value === 'number' ? c.value.toLocaleString('id-ID') : c.value}</div>
+              </div>
+            ))}
           </div>
 
-          {/* Tabs */}
+          {/* Tabs + export */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem', flexWrap: 'wrap', gap: '0.5rem' }}>
             <div style={{ display: 'flex', gap: '0.375rem' }}>
               {TABS.map((t) => (
-                <button key={t.key} onClick={() => setTab(t.key)}
+                <button key={t.key} onClick={() => { setTab(t.key); }}
                   style={{
                     padding: '0.45rem 0.95rem', borderRadius: '6px', fontSize: '0.8rem', fontWeight: 600,
                     border: `1px solid ${tab === t.key ? 'var(--accent-gold)' : 'var(--border)'}`,
                     background: tab === t.key ? 'rgba(201,168,76,0.12)' : 'transparent',
                     color: tab === t.key ? '#8B6914' : 'var(--text-secondary)', cursor: 'pointer',
                   }}>
-                  {t.label} ({t.count})
+                  {t.label}{t.count != null ? ` (${t.count})` : ''}
                 </button>
               ))}
             </div>
-            <button onClick={exportCurrentTab}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', height: '34px', padding: '0 0.875rem', background: 'var(--bg-dark)', border: 'none', borderRadius: '0.375rem', fontSize: '0.78rem', fontWeight: 600, color: 'var(--accent-gold)', cursor: 'pointer' }}>
-              <Download size={13} /> Download CSV
+            <button onClick={handleExport} disabled={exporting}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', height: '34px', padding: '0 0.875rem', background: 'var(--bg-dark)', border: 'none', borderRadius: '0.375rem', fontSize: '0.78rem', fontWeight: 600, color: 'var(--accent-gold)', cursor: exporting ? 'default' : 'pointer', opacity: exporting ? 0.6 : 1 }}>
+              {exporting ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Download size={13} />} Download XLSX
             </button>
+          </div>
+
+          {/* Filter bar */}
+          <div className="card" style={{ padding: '0.75rem 0.875rem', marginBottom: '0.875rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+            <Filter size={14} style={{ color: 'var(--text-secondary)' }} />
+            <input placeholder="Cari nama…" value={filters.search} onChange={(e) => setFilter('search', e.target.value)} style={{ ...INPUT_STYLE, width: '160px' }} />
+
+            {tab === 'cocok' && (
+              <>
+                <select value={filters.confidence} onChange={(e) => setFilter('confidence', e.target.value)} style={SELECT_STYLE}>
+                  <option value="">Semua confidence</option>
+                  <option value="EXACT">Exact</option>
+                  <option value="FUZZY">Fuzzy</option>
+                </select>
+                <select value={filters.priceMatch} onChange={(e) => setFilter('priceMatch', e.target.value)} style={SELECT_STYLE}>
+                  <option value="">Harga: semua</option>
+                  <option value="true">Harga cocok</option>
+                  <option value="false">Harga selisih</option>
+                </select>
+              </>
+            )}
+
+            {(tab === 'cocok' || tab === 'cloud') && (
+              <select value={filters.codeType} onChange={(e) => setFilter('codeType', e.target.value)} style={SELECT_STYLE}>
+                <option value="">Semua tipe kode</option>
+                <option value="SAP_7">SAP (7)</option>
+                <option value="XEVLA_6">XEVLA (6)</option>
+                <option value="OTHER">Lainnya</option>
+              </select>
+            )}
+
+            {(tab === 'cocok' || tab === 'fisik') && (
+              <select value={filters.subGroup} onChange={(e) => setFilter('subGroup', e.target.value)} style={SELECT_STYLE}>
+                <option value="">Semua sub group</option>
+                {subGroups.map((g) => <option key={g} value={g}>{g}</option>)}
+              </select>
+            )}
+
+            {tab === 'cocok' && (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>
+                <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Selisih</span>
+                <input placeholder="min" inputMode="numeric" value={filters.priceDiffMin} onChange={(e) => setFilter('priceDiffMin', e.target.value.replace(/[^\d]/g, ''))} style={{ ...INPUT_STYLE, width: '80px' }} />
+                <span style={{ color: 'var(--text-secondary)' }}>–</span>
+                <input placeholder="max" inputMode="numeric" value={filters.priceDiffMax} onChange={(e) => setFilter('priceDiffMax', e.target.value.replace(/[^\d]/g, ''))} style={{ ...INPUT_STYLE, width: '80px' }} />
+              </span>
+            )}
+
+            {hasActiveFilters && (
+              <button onClick={() => setFilters(EMPTY_FILTERS)}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', height: '34px', padding: '0 0.6rem', background: 'transparent', border: '1px solid var(--border)', borderRadius: '0.375rem', fontSize: '0.74rem', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+                <X size={12} /> Reset
+              </button>
+            )}
+            <span style={{ marginLeft: 'auto', fontSize: '0.74rem', color: 'var(--text-secondary)' }}>
+              {loadingRows ? 'memuat…' : `${tab === 'fisik' ? notInFisik.length : rows.length} baris`}
+            </span>
           </div>
 
           {/* Tables */}
@@ -321,22 +391,24 @@ export default function ReconcilePage() {
                 <table>
                   <thead>
                     <tr>
-                      <th>Fisik Code</th><th>Fisik Name</th><th>Master Code</th><th>Master Name</th>
-                      <th style={{ textAlign: 'right' }}>Fisik Price</th><th style={{ textAlign: 'right' }}>Master Price</th>
-                      <th>Price Match</th><th>Confidence</th>
+                      <th>Fisik Code</th><th>Tipe</th><th>Fisik Name</th><th>Master Code</th><th>Master Name</th>
+                      <th style={{ textAlign: 'right' }}>Fisik</th><th style={{ textAlign: 'right' }}>Master</th><th style={{ textAlign: 'right' }}>Selisih</th>
+                      <th>Harga</th><th>Confidence</th><th>Metode</th><th>Sub Group</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {found.map((r, i) => {
-                      const discrepancy = !r.priceMatch && r.fisikPrice != null && r.masterPrice != null;
+                    {rows.map((r) => {
+                      const discrepancy = r.priceMatch === false;
                       return (
-                        <tr key={i} style={{ background: discrepancy ? AMBER_BG : undefined }}>
+                        <tr key={r.id} style={{ background: discrepancy ? AMBER_BG : undefined }}>
                           <td style={{ fontFamily: 'monospace', fontSize: '0.74rem', color: 'var(--text-primary)' }}>{r.fisikCode}</td>
-                          <td style={{ maxWidth: '170px' }}><div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.fisikName}</div></td>
-                          <td style={{ fontFamily: 'monospace', fontSize: '0.74rem', fontWeight: 600, color: '#C9A84C' }}>{r.masterCode}</td>
-                          <td style={{ maxWidth: '170px' }}><div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.masterName}</div></td>
+                          <td style={{ fontSize: '0.68rem', color: 'var(--text-secondary)' }}>{r.codeType}</td>
+                          <td style={{ maxWidth: '160px' }}><div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.fisikName}</div></td>
+                          <td style={{ fontFamily: 'monospace', fontSize: '0.74rem', fontWeight: 600, color: '#C9A84C' }}>{r.matchedMasterCode}</td>
+                          <td style={{ maxWidth: '160px' }}><div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.matchedMasterName}</div></td>
                           <td style={{ textAlign: 'right', whiteSpace: 'nowrap', fontWeight: discrepancy ? 700 : 400, color: discrepancy ? '#8B6914' : undefined }}>{r.fisikPrice != null ? formatPrice(r.fisikPrice) : '—'}</td>
-                          <td style={{ textAlign: 'right', whiteSpace: 'nowrap', fontWeight: discrepancy ? 700 : 400, color: discrepancy ? '#8B6914' : undefined }}>{r.masterPrice != null ? formatPrice(r.masterPrice) : '—'}</td>
+                          <td style={{ textAlign: 'right', whiteSpace: 'nowrap', fontWeight: discrepancy ? 700 : 400, color: discrepancy ? '#8B6914' : undefined }}>{r.matchedMasterPrice != null ? formatPrice(r.matchedMasterPrice) : '—'}</td>
+                          <td style={{ textAlign: 'right', whiteSpace: 'nowrap', color: discrepancy ? '#8B6914' : 'var(--text-secondary)' }}>{r.priceDiff != null && r.priceDiff !== 0 ? formatPrice(r.priceDiff) : '—'}</td>
                           <td>
                             <span style={{ fontSize: '0.7rem', fontWeight: 600, padding: '2px 6px', borderRadius: '3px',
                               background: r.priceMatch ? 'rgba(61,90,62,0.1)' : 'rgba(122,46,31,0.08)',
@@ -346,14 +418,16 @@ export default function ReconcilePage() {
                             </span>
                           </td>
                           <td>
-                            {r.confidence === 'fuzzy' ? (
+                            {r.matchConfidence === 'FUZZY' ? (
                               <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.7rem', fontWeight: 600, padding: '2px 6px', borderRadius: '3px', background: AMBER_BG, color: '#8B6914', border: '1px solid rgba(201,168,76,0.3)' }}>
-                                <AlertCircle size={11} /> Nama mirip
+                                <AlertCircle size={11} /> Fuzzy
                               </span>
                             ) : (
                               <span style={{ fontSize: '0.7rem', fontWeight: 600, padding: '2px 6px', borderRadius: '3px', background: 'rgba(61,90,62,0.1)', color: '#2D4A2E', border: '1px solid rgba(61,90,62,0.2)' }}>Exact</span>
                             )}
                           </td>
+                          <td style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{METHOD_LABEL[r.matchMethod] ?? r.matchMethod}</td>
+                          <td style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', maxWidth: '120px' }}><div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.subGroup ?? '—'}</div></td>
                         </tr>
                       );
                     })}
@@ -364,14 +438,16 @@ export default function ReconcilePage() {
               {tab === 'cloud' && (
                 <table>
                   <thead>
-                    <tr><th>Fisik Code</th><th>Fisik Name</th><th style={{ textAlign: 'right' }}>Fisik Price</th></tr>
+                    <tr><th>Fisik Code</th><th>Tipe</th><th>Fisik Name</th><th style={{ textAlign: 'right' }}>Fisik Price</th><th style={{ textAlign: 'right' }}>Qty</th></tr>
                   </thead>
                   <tbody>
-                    {notInCloud.map((r, i) => (
-                      <tr key={i}>
-                        <td style={{ fontFamily: 'monospace', fontSize: '0.74rem', color: 'var(--text-primary)' }}>{r.code}</td>
-                        <td>{r.name}</td>
-                        <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{r.price != null ? formatPrice(r.price) : '—'}</td>
+                    {rows.map((r) => (
+                      <tr key={r.id}>
+                        <td style={{ fontFamily: 'monospace', fontSize: '0.74rem', color: 'var(--text-primary)' }}>{r.fisikCode}</td>
+                        <td style={{ fontSize: '0.68rem', color: 'var(--text-secondary)' }}>{r.codeType}</td>
+                        <td>{r.fisikName}</td>
+                        <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{r.fisikPrice != null ? formatPrice(r.fisikPrice) : '—'}</td>
+                        <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{r.fisikQty ?? '—'}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -381,25 +457,30 @@ export default function ReconcilePage() {
               {tab === 'fisik' && (
                 <table>
                   <thead>
-                    <tr><th>Master Code</th><th>Master Name</th><th style={{ textAlign: 'right' }}>Master Price</th><th>Outlets</th></tr>
+                    <tr><th>Master Code</th><th>Master Name</th><th style={{ textAlign: 'right' }}>Master Price</th><th>Outlets</th><th>Sub Group</th></tr>
                   </thead>
                   <tbody>
-                    {notInFisik.map((r, i) => (
-                      <tr key={i}>
-                        <td style={{ fontFamily: 'monospace', fontSize: '0.74rem', fontWeight: 600, color: '#C9A84C' }}>{r.code}</td>
-                        <td style={{ maxWidth: '240px' }}><div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name}</div></td>
-                        <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{r.price != null ? formatPrice(r.price) : '—'}</td>
+                    {notInFisik.map((m) => (
+                      <tr key={m.code}>
+                        <td style={{ fontFamily: 'monospace', fontSize: '0.74rem', fontWeight: 600, color: '#C9A84C' }}>{m.code}</td>
+                        <td style={{ maxWidth: '240px' }}><div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.name}</div></td>
+                        <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{m.price != null ? formatPrice(m.price) : '—'}</td>
                         <td>
                           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2px', maxWidth: '220px' }}>
-                            {(r.outlets ?? '').split(/[;,]/).map((s) => s.trim()).filter(Boolean).slice(0, 6).map((o) => (
+                            {(m.outlets ?? '').split(/[;,]/).map((s) => s.trim()).filter(Boolean).slice(0, 6).map((o) => (
                               <span key={o} style={{ fontSize: '0.62rem', padding: '1px 4px', borderRadius: '2px', background: 'rgba(201,168,76,0.08)', border: '1px solid rgba(201,168,76,0.2)', color: '#8B6914' }}>{o}</span>
                             ))}
                           </div>
                         </td>
+                        <td style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>{m.category}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
+              )}
+
+              {!loadingRows && ((tab === 'fisik' ? notInFisik.length : rows.length) === 0) && (
+                <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>Tidak ada baris untuk filter ini.</div>
               )}
             </div>
           </div>

@@ -46,7 +46,13 @@
       "Bash(npx tsx *)",
       "PowerShell(npx tsc --noEmit)",
       "PowerShell(npx next lint --file lib/export.ts --file app/api/admin/export/csv/route.ts --file app/api/admin/export/xlsx/route.ts --file app/api/admin/export/batches/csv/route.ts --file app/api/admin/export/batches/xlsx/route.ts)",
-      "Bash(echo \"tsc exit: $?\")"
+      "Bash(echo \"tsc exit: $?\")",
+      "PowerShell(npx tsc --noEmit 2>&1 | Select-Object -First 40)",
+      "PowerShell(node_modules\\\\.bin\\\\ts-node.cmd --compiler-options '{\\\\\"module\\\\\":\\\\\"commonjs\\\\\",\\\\\"moduleResolution\\\\\":\\\\\"node\\\\\"}' __pltest.ts)",
+      "Bash(node_modules/.bin/ts-node --compiler-options '{\"module\":\"commonjs\",\"moduleResolution\":\"node\"}' __pltest.ts)",
+      "PowerShell(Remove-Item *)",
+      "PowerShell(npx next lint --dir app --dir lib --file app/admin/kb/reconcile/page.tsx 2>&1 | Select-Object -First 50)",
+      "PowerShell(npx tsc --noEmit 2>&1 | Select-Object -First 30)"
     ]
   }
 }

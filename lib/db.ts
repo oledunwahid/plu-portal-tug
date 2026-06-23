@@ -272,6 +272,34 @@ async function initDb(): Promise<any> {
     departmentCode INTEGER NOT NULL, categoryCode INTEGER NOT NULL,
     isActive INTEGER NOT NULL DEFAULT 1, createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL
   )`);
+  // ── Reconcile module (physical stock vs Quinos master) ─────────────────────
+  // One row per uploaded physical-stock file. `department` is stored as a label
+  // (the admin's tag for the upload), and also scopes which masters the match
+  // cascade runs against (see the upload route).
+  db.run(`CREATE TABLE IF NOT EXISTS "ReconcileSession" (
+    id TEXT PRIMARY KEY, uploadedAt TEXT NOT NULL, label TEXT NOT NULL, department TEXT NOT NULL
+  )`);
+  // One row per physical-stock item per session, with its server-computed match
+  // outcome persisted (codeType, matched master fields, confidence, method).
+  db.run(`CREATE TABLE IF NOT EXISTS "ReconcileRow" (
+    id TEXT PRIMARY KEY, sessionId TEXT NOT NULL,
+    fisikCode TEXT NOT NULL, fisikName TEXT NOT NULL, fisikPrice REAL, fisikQty REAL,
+    codeType TEXT NOT NULL,
+    matchedMasterCode TEXT, matchedMasterName TEXT, matchedMasterPrice REAL,
+    matchConfidence TEXT NOT NULL, matchMethod TEXT NOT NULL, priceMatch INTEGER
+  )`);
+  db.run(`CREATE INDEX IF NOT EXISTS "idx_reconcilerow_session" ON "ReconcileRow" (sessionId)`);
+  // SAP↔XEVLA↔NCK bridge parsed from the upload's Master sheet. PERSISTENCE CHOICE:
+  // permanent table keyed (UNIQUE) on sapCode and upserted on every upload — mirrors
+  // the existing SapMasterItem pattern (permanent, upsert by natural key), keeps the
+  // mapping fresh, and makes XEVLA→SAP→NCK lookups reusable beyond a single session.
+  // `sessionId` records the upload that last wrote a row; NULL is allowed for rows
+  // seeded by other means.
+  db.run(`CREATE TABLE IF NOT EXISTS "SapXevlaBridge" (
+    id TEXT PRIMARY KEY, sapCode TEXT NOT NULL UNIQUE, xevlaCode TEXT, nckBarcode TEXT,
+    itemName TEXT NOT NULL DEFAULT '', sessionId TEXT
+  )`);
+  db.run(`CREATE INDEX IF NOT EXISTS "idx_sapxevla_xevla" ON "SapXevlaBridge" (xevlaCode)`);
   fs.writeFileSync(dbPath, Buffer.from(db.export()));
   g.__sqljsDb = db;
   return db;
@@ -2210,4 +2238,260 @@ export async function seedCategoryConfigs(
       }
     }
   });
+}
+
+// ── Reconcile module ─────────────────────────────────────────────────────────
+// Persists uploaded physical-stock sessions, their per-row match outcomes, and
+// the SAP↔XEVLA↔NCK bridge. Matching itself lives in lib/reconcile.ts (pure); this
+// layer only stores and queries.
+
+export interface DbReconcileSession {
+  id: string; uploadedAt: string; label: string; department: string;
+}
+
+export interface DbReconcileSessionSummary extends DbReconcileSession {
+  total: number; matched: number; notInCloud: number; priceMismatch: number;
+}
+
+export interface DbReconcileRow {
+  id: string; sessionId: string;
+  fisikCode: string; fisikName: string; fisikPrice: number | null; fisikQty: number | null;
+  codeType: string;
+  matchedMasterCode: string | null; matchedMasterName: string | null; matchedMasterPrice: number | null;
+  matchConfidence: string; matchMethod: string; priceMatch: boolean | null;
+  // Joined / derived (present on query reads, not stored on the row):
+  subGroup?: string | null; priceDiff?: number | null;
+}
+
+export interface ReconcileRowInput {
+  fisikCode: string; fisikName: string; fisikPrice: number | null; fisikQty: number | null;
+  codeType: string;
+  matchedMasterCode: string | null; matchedMasterName: string | null; matchedMasterPrice: number | null;
+  matchConfidence: string; matchMethod: string; priceMatch: boolean | null;
+}
+
+export interface DbSapXevlaBridge {
+  id: string; sapCode: string; xevlaCode: string | null; nckBarcode: string | null;
+  itemName: string; sessionId: string | null;
+}
+
+export interface SapXevlaBridgeUpsertInput {
+  sapCode: string; xevlaCode: string | null; nckBarcode: string | null; itemName: string;
+}
+
+export interface ReconcileRowFilters {
+  tab?: 'matched' | 'not_in_cloud' | 'not_in_fisik';
+  confidence?: string; priceMatch?: boolean; codeType?: string;
+  subGroup?: string; priceDiffMin?: number; priceDiffMax?: number; search?: string;
+}
+
+function rowToReconcileRow(r: Record<string, unknown>): DbReconcileRow {
+  return {
+    id: String(r.id), sessionId: String(r.sessionId),
+    fisikCode: String(r.fisikCode), fisikName: String(r.fisikName),
+    fisikPrice: r.fisikPrice != null ? Number(r.fisikPrice) : null,
+    fisikQty: r.fisikQty != null ? Number(r.fisikQty) : null,
+    codeType: String(r.codeType),
+    matchedMasterCode: normStr(r.matchedMasterCode), matchedMasterName: normStr(r.matchedMasterName),
+    matchedMasterPrice: r.matchedMasterPrice != null ? Number(r.matchedMasterPrice) : null,
+    matchConfidence: String(r.matchConfidence), matchMethod: String(r.matchMethod),
+    priceMatch: r.priceMatch == null ? null : normBool(r.priceMatch),
+    subGroup: normStr(r.subGroup),
+    priceDiff: r.priceDiff != null ? Number(r.priceDiff) : null,
+  };
+}
+
+export async function createReconcileSession(label: string, department: string): Promise<string> {
+  return withWriteLock((db) => {
+    const id = newId();
+    db.run('INSERT INTO "ReconcileSession" (id,uploadedAt,label,department) VALUES (?,?,?,?)',
+      [id, nowIso(), label, department]);
+    return id;
+  });
+}
+
+export async function insertReconcileRows(sessionId: string, rows: ReconcileRowInput[]): Promise<void> {
+  if (rows.length === 0) return;
+  return withWriteLock((db) => {
+    for (const r of rows) {
+      db.run(`INSERT INTO "ReconcileRow"
+        (id,sessionId,fisikCode,fisikName,fisikPrice,fisikQty,codeType,
+         matchedMasterCode,matchedMasterName,matchedMasterPrice,matchConfidence,matchMethod,priceMatch)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        [newId(), sessionId, r.fisikCode, r.fisikName, r.fisikPrice, r.fisikQty, r.codeType,
+         r.matchedMasterCode, r.matchedMasterName, r.matchedMasterPrice,
+         r.matchConfidence, r.matchMethod, r.priceMatch == null ? null : (r.priceMatch ? 1 : 0)]);
+    }
+  });
+}
+
+// Permanent upsert keyed on sapCode (mirrors upsertSapMasterItems). Records the
+// writing session on each touched row.
+export async function upsertSapXevlaBridge(
+  entries: SapXevlaBridgeUpsertInput[], sessionId: string,
+): Promise<{ inserted: number; updated: number }> {
+  if (entries.length === 0) return { inserted: 0, updated: 0 };
+  return withWriteLock((db) => {
+    let inserted = 0, updated = 0;
+    for (const e of entries) {
+      const existing = execFirst(db, 'SELECT id FROM "SapXevlaBridge" WHERE sapCode = ?', [e.sapCode]);
+      if (existing) {
+        db.run('UPDATE "SapXevlaBridge" SET xevlaCode=?, nckBarcode=?, itemName=?, sessionId=? WHERE sapCode=?',
+          [e.xevlaCode, e.nckBarcode, e.itemName, sessionId, e.sapCode]);
+        updated++;
+      } else {
+        db.run('INSERT INTO "SapXevlaBridge" (id,sapCode,xevlaCode,nckBarcode,itemName,sessionId) VALUES (?,?,?,?,?,?)',
+          [newId(), e.sapCode, e.xevlaCode, e.nckBarcode, e.itemName, sessionId]);
+        inserted++;
+      }
+    }
+    return { inserted, updated };
+  });
+}
+
+// Whole bridge table — fed into the match cascade's XEVLA→SAP lookup.
+export async function getAllSapXevlaBridge(): Promise<DbSapXevlaBridge[]> {
+  try {
+    const db = await getDb();
+    const rows = execAll(db, 'SELECT * FROM "SapXevlaBridge" LIMIT 100000');
+    return rows.map((r) => ({
+      id: String(r.id), sapCode: String(r.sapCode), xevlaCode: normStr(r.xevlaCode),
+      nckBarcode: normStr(r.nckBarcode), itemName: String(r.itemName ?? ''), sessionId: normStr(r.sessionId),
+    }));
+  } catch (err) {
+    console.error('[db] getAllSapXevlaBridge failed:', err);
+    return [];
+  }
+}
+
+export async function getReconcileSessions(): Promise<DbReconcileSessionSummary[]> {
+  try {
+    const db = await getDb();
+    const rows = execAll(db, `
+      SELECT s.id, s.uploadedAt, s.label, s.department,
+        COUNT(r.id) AS total,
+        SUM(CASE WHEN r.matchedMasterCode IS NOT NULL THEN 1 ELSE 0 END) AS matched,
+        SUM(CASE WHEN r.matchConfidence = 'UNMATCHED' THEN 1 ELSE 0 END) AS notInCloud,
+        SUM(CASE WHEN r.matchedMasterCode IS NOT NULL AND r.priceMatch = 0 THEN 1 ELSE 0 END) AS priceMismatch
+      FROM "ReconcileSession" s
+      LEFT JOIN "ReconcileRow" r ON r.sessionId = s.id
+      GROUP BY s.id ORDER BY s.uploadedAt DESC`);
+    return rows.map((r) => ({
+      id: String(r.id), uploadedAt: String(r.uploadedAt), label: String(r.label), department: String(r.department),
+      total: Number(r.total ?? 0), matched: Number(r.matched ?? 0),
+      notInCloud: Number(r.notInCloud ?? 0), priceMismatch: Number(r.priceMismatch ?? 0),
+    }));
+  } catch (err) {
+    console.error('[db] getReconcileSessions failed:', err);
+    return [];
+  }
+}
+
+export async function getReconcileSessionById(id: string): Promise<DbReconcileSession | null> {
+  try {
+    const db = await getDb();
+    const row = execFirst(db, 'SELECT * FROM "ReconcileSession" WHERE id = ? LIMIT 1', [id]);
+    return row ? { id: String(row.id), uploadedAt: String(row.uploadedAt), label: String(row.label), department: String(row.department) } : null;
+  } catch (err) {
+    console.error('[db] getReconcileSessionById failed:', err);
+    return null;
+  }
+}
+
+// Matched / not-in-cloud rows for a session, joined to the master's category
+// (exposed as `subGroup`) and an absolute price difference, with optional filters.
+export async function getReconcileRows(sessionId: string, f: ReconcileRowFilters = {}): Promise<DbReconcileRow[]> {
+  try {
+    const db = await getDb();
+    const conditions = ['rr.sessionId = ?'];
+    const params: unknown[] = [sessionId];
+    const priceDiffExpr = 'ABS(rr.fisikPrice - rr.matchedMasterPrice)';
+
+    if (f.tab === 'matched') conditions.push('rr.matchedMasterCode IS NOT NULL');
+    else if (f.tab === 'not_in_cloud') conditions.push("rr.matchConfidence = 'UNMATCHED'");
+    if (f.confidence) { conditions.push('rr.matchConfidence = ?'); params.push(f.confidence); }
+    if (f.priceMatch != null) { conditions.push('rr.priceMatch = ?'); params.push(f.priceMatch ? 1 : 0); }
+    if (f.codeType) { conditions.push('rr.codeType = ?'); params.push(f.codeType); }
+    if (f.subGroup) { conditions.push('mi.category = ?'); params.push(f.subGroup); }
+    if (f.priceDiffMin != null) { conditions.push(`${priceDiffExpr} >= ?`); params.push(f.priceDiffMin); }
+    if (f.priceDiffMax != null) { conditions.push(`${priceDiffExpr} <= ?`); params.push(f.priceDiffMax); }
+    if (f.search) {
+      conditions.push('(rr.fisikName LIKE ? OR rr.matchedMasterName LIKE ?)');
+      const q = `%${f.search}%`; params.push(q, q);
+    }
+
+    const rows = execAll(db, `
+      SELECT rr.*, mi.category AS subGroup,
+        CASE WHEN rr.fisikPrice IS NOT NULL AND rr.matchedMasterPrice IS NOT NULL THEN ${priceDiffExpr} END AS priceDiff
+      FROM "ReconcileRow" rr
+      LEFT JOIN "MasterItem" mi ON mi.code = rr.matchedMasterCode
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY rr.fisikName ASC`, params);
+    return rows.map(rowToReconcileRow);
+  } catch (err) {
+    console.error('[db] getReconcileRows failed:', err);
+    return [];
+  }
+}
+
+// Distinct sub-groups (matched-master categories) present in a session — feeds the
+// Sub Group filter dropdown.
+export async function getReconcileSubGroups(sessionId: string): Promise<string[]> {
+  try {
+    const db = await getDb();
+    const rows = execAll(db, `
+      SELECT DISTINCT mi.category AS c
+      FROM "ReconcileRow" rr JOIN "MasterItem" mi ON mi.code = rr.matchedMasterCode
+      WHERE rr.sessionId = ? AND mi.category IS NOT NULL AND mi.category <> ''
+      ORDER BY mi.category ASC`, [sessionId]);
+    return rows.map((r) => String(r.c));
+  } catch (err) {
+    console.error('[db] getReconcileSubGroups failed:', err);
+    return [];
+  }
+}
+
+// Masters with no matched ReconcileRow for this session ("Tidak di Fisik").
+// Scoped to the session's department when it is not 'ALL' so the list stays
+// meaningful (an unscoped list would surface every unrelated master item).
+export async function getNotInFisikMasters(
+  sessionId: string, department: string, f: { subGroup?: string; search?: string } = {},
+): Promise<DbMasterItem[]> {
+  try {
+    const db = await getDb();
+    const conditions = ['mi.active = 1'];
+    const params: unknown[] = [];
+    if (department && department !== 'ALL') { conditions.push('mi.department = ?'); params.push(department); }
+    conditions.push('mi.code NOT IN (SELECT matchedMasterCode FROM "ReconcileRow" WHERE sessionId = ? AND matchedMasterCode IS NOT NULL)');
+    params.push(sessionId);
+    if (f.subGroup) { conditions.push('mi.category = ?'); params.push(f.subGroup); }
+    if (f.search) {
+      conditions.push('(mi.name LIKE ? OR mi.code LIKE ?)');
+      const q = `%${f.search}%`; params.push(q, q);
+    }
+    const rows = execAll(db,
+      `SELECT mi.* FROM "MasterItem" mi WHERE ${conditions.join(' AND ')} ORDER BY mi.name ASC LIMIT 100000`, params);
+    return rows.map(rowToMasterItem);
+  } catch (err) {
+    console.error('[db] getNotInFisikMasters failed:', err);
+    return [];
+  }
+}
+
+// Count-only variant for the "Tidak di Fisik" summary card — avoids materialising
+// the full master list just to read its length.
+export async function getNotInFisikCount(sessionId: string, department: string): Promise<number> {
+  try {
+    const db = await getDb();
+    const conditions = ['mi.active = 1'];
+    const params: unknown[] = [];
+    if (department && department !== 'ALL') { conditions.push('mi.department = ?'); params.push(department); }
+    conditions.push('mi.code NOT IN (SELECT matchedMasterCode FROM "ReconcileRow" WHERE sessionId = ? AND matchedMasterCode IS NOT NULL)');
+    params.push(sessionId);
+    const row = execFirst(db, `SELECT COUNT(*) AS cnt FROM "MasterItem" mi WHERE ${conditions.join(' AND ')}`, params);
+    return row ? Number(row.cnt) : 0;
+  } catch (err) {
+    console.error('[db] getNotInFisikCount failed:', err);
+    return 0;
+  }
 }

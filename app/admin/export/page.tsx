@@ -173,12 +173,13 @@ const FALLBACK_GROUPS = ['UNION', 'CNS', 'FRENCH', 'IBR', 'IND'];
 
 const VALID_TYPES: RequestType[] = ['NEW_ITEM', 'UPDATE_PRICE', 'UPDATE_NAME', 'UPDATE_PRINTER', 'REMOVE_PLU'];
 
-// The exact 18 columns the export file will contain, in order. The "Export preview" toggle renders
+// The exact 19 columns the export file will contain, in order. The "Export preview" toggle renders
 // these straight from the server-computed rows (same requestToTemplateRow sourcing as the download),
 // so the admin can verify the populated data before committing to the file.
 const EXPORT_PREVIEW_COLUMNS = [
   'Active', 'Code', 'Name', 'Category', 'Department', 'SalesDef', 'Price', 'PLU', 'Barcode', 'UOM',
   'Folder', 'ServiceCharge', 'Tax1', 'Tax2', 'NoDiscount', 'HideReceipt', 'Printers', 'Outlets',
+  'PriceLevels',
 ] as const;
 
 type PreviewRow = { id: string } & Record<string, string | number>;
@@ -312,7 +313,7 @@ function ExportPageContent() {
   useEffect(() => { fetchRequests(); }, [fetchRequests]);
 
   // Fetch the export-preview rows for the currently loaded set. Reuses the export route's preview
-  // mode (preview=1) so the displayed 18 columns are computed by the exact same requestToTemplateRow
+  // mode (preview=1) so the displayed 19 columns are computed by the exact same requestToTemplateRow
   // sourcing the file uses — no logic duplicated client-side. Only runs while the toggle is on.
   const fetchPreview = useCallback(async () => {
     if (requests.length === 0) { setPreviewMap(new Map()); return; }
