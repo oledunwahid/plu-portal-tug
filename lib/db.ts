@@ -1212,6 +1212,24 @@ export async function countMasterItems(filters: MasterItemFilters = {}): Promise
   }
 }
 
+// Exact barcode lookup (case-insensitive, trimmed) over active master items.
+// Used by the cashier barcode-scan search (/api/plu/search-barcode); the caller
+// passes the raw scanned value first and the NCK-derived value as a fallback.
+export async function getMasterItemsByExactBarcode(barcode: string): Promise<DbMasterItem[]> {
+  try {
+    const db = await getDb();
+    const needle = barcode.trim().toLowerCase();
+    if (!needle) return [];
+    const rows = execAll(db,
+      "SELECT * FROM \"MasterItem\" WHERE active = 1 AND LOWER(TRIM(COALESCE(barcode,''))) = ? ORDER BY name ASC LIMIT 25",
+      [needle]);
+    return rows.map(rowToMasterItem);
+  } catch (err) {
+    console.error('[db] getMasterItemsByExactBarcode failed:', err);
+    return [];
+  }
+}
+
 export async function getMasterItemByCode(code: string): Promise<DbMasterItem | null> {
   try {
     const db = await getDb();
@@ -1351,6 +1369,23 @@ export async function countSapMasterItems(filters: SapMasterItemFilters = {}): P
   } catch (err) {
     console.error('[db] countSapMasterItems failed:', err);
     return 0;
+  }
+}
+
+// Exact barcode lookup (case-insensitive, trimmed) over SAP master items — the
+// second source for the cashier barcode-scan search.
+export async function getSapMasterItemsByExactBarcode(barcode: string): Promise<DbSapMasterItem[]> {
+  try {
+    const db = await getDb();
+    const needle = barcode.trim().toLowerCase();
+    if (!needle) return [];
+    const rows = execAll(db,
+      "SELECT * FROM \"SapMasterItem\" WHERE LOWER(TRIM(COALESCE(barcode,''))) = ? ORDER BY description ASC LIMIT 25",
+      [needle]);
+    return rows.map(rowToSapMasterItem);
+  } catch (err) {
+    console.error('[db] getSapMasterItemsByExactBarcode failed:', err);
+    return [];
   }
 }
 

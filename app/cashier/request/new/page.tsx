@@ -127,6 +127,10 @@ export default function NewRequestPage() {
   const [refItem, setRefItem] = useState<{ name: string; price: number | null } | null>(null);
   // Item-name search box text (UPDATE_PRICE & UPDATE_NAME) — kept in sync with the PLU code search
   const [nameQuery, setNameQuery] = useState('');
+  // Barcode-scan search (UPDATE_PRICE only) — independent of the code/name fields.
+  // barcodeSapNotice holds the item name when a scan matched SAP but not the Quinos master.
+  const [barcodeQuery, setBarcodeQuery] = useState('');
+  const [barcodeSapNotice, setBarcodeSapNotice] = useState<string | null>(null);
 
   const sessionUser = session?.user as any;
   const outlet = sessionUser?.outlet ?? '';
@@ -211,6 +215,20 @@ export default function NewRequestPage() {
     setNameQuery(item.name);
     setRefItem({ name: item.name, price: item.price });
     setErrors((e) => ({ ...e, code: undefined }));
+  }
+
+  // Barcode-scan selection (UPDATE_PRICE). A verified master hit fills code/name/price
+  // like the other fields; a SAP-only hit has no master code, so we only echo the name
+  // and warn that it isn't verified in Quinos yet.
+  function handleBarcodeSelect(item: PLUSearchResult) {
+    if (item.sapOnly) {
+      setNameQuery(item.name);
+      setRefItem({ name: item.name, price: null });
+      setBarcodeSapNotice(item.name);
+      return;
+    }
+    setBarcodeSapNotice(null);
+    syncFromItem(item);
   }
 
   useEffect(() => {
@@ -451,6 +469,25 @@ export default function NewRequestPage() {
                 />
                 {errors.code && <p style={{ fontSize: '0.75rem', color: '#8B3A2A' }}>{errors.code}</p>}
               </FieldGroup>
+
+              {/* Barcode scan — UPDATE_PRICE only. Independent alternative to code/name search;
+                  supports physical scanners (auto-submits on Enter). */}
+              {form.requestType === 'UPDATE_PRICE' && (
+                <FieldGroup label="Barcode" hint="Scan or type — searches Quinos master + SAP, independent of code/name">
+                  <PLUCodeSearch
+                    mode="barcode"
+                    value={barcodeQuery}
+                    onChange={(v) => { setBarcodeQuery(v); setBarcodeSapNotice(null); }}
+                    onItemSelect={handleBarcodeSelect}
+                    placeholder="Scan or enter barcode…"
+                  />
+                  {barcodeSapNotice && (
+                    <p style={{ fontSize: '0.72rem', color: '#8B6914', marginTop: '0.25rem' }}>
+                      &ldquo;{barcodeSapNotice}&rdquo; ditemukan di SAP, belum terverifikasi di master — verifikasi item di Quinos sebelum update harga.
+                    </p>
+                  )}
+                </FieldGroup>
+              )}
 
               {/* Item name & current price — name is searchable and bidirectionally linked to the PLU code above */}
               {(form.requestType === 'UPDATE_PRICE' || form.requestType === 'UPDATE_NAME') && (

@@ -8,6 +8,14 @@ export interface PLUSearchResult {
   category: string;
   folder: string | null;
   price: number | null;
+  // Barcode-mode extras (absent for code/name search):
+  barcode?: string | null;
+  source?: 'MASTER' | 'SAP';
+  /** True when the barcode matched only SAP, not the Quinos master — not yet verified. */
+  sapOnly?: boolean;
+  /** 'NCK' means it matched only after the digits+11 derivation fallback. */
+  matchType?: 'EXACT' | 'NCK';
+  sapItemNo?: string | null;
 }
 
 interface PLUCodeSearchProps {
@@ -18,8 +26,12 @@ interface PLUCodeSearchProps {
   placeholder?: string;
   error?: string;
   disabled?: boolean;
-  /** 'code' searches and displays the PLU code; 'name' searches and displays the item name. */
-  mode?: 'code' | 'name';
+  /**
+   * 'code' searches and displays the PLU code; 'name' searches and displays the item name;
+   * 'barcode' scans the dual-source barcode route (Quinos master + SAP, with NCK fallback) and
+   * auto-submits on Enter for physical scanners.
+   */
+  mode?: 'code' | 'name' | 'barcode';
 }
 
 export function PLUCodeSearch({
@@ -35,12 +47,18 @@ export function PLUCodeSearch({
   const [query, setQuery] = useState(value);
   const [results, setResults] = useState<PLUSearchResult[]>([]);
   const [open, setOpen] = useState(false);
+  // Barcode mode only: tracks a completed search that returned no match, so the
+  // dropdown can show "Barcode tidak ditemukan" with the raw scanned input.
+  const [notFound, setNotFound] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+  const onItemSelectRef = useRef(onItemSelect);
+  useEffect(() => { onItemSelectRef.current = onItemSelect; }, [onItemSelect]);
 
   useEffect(() => { setQuery(value); }, [value]);
 
-  const search = useCallback(async (q: string) => {
+  // Name/code type-ahead against the master registry.
+  const searchItems = useCallback(async (q: string) => {
     if (q.length < 2) { setResults([]); setOpen(false); return; }
     try {
       // active=1 so inactive items never surface in cashier type-ahead suggestions.
@@ -62,25 +80,76 @@ export function PLUCodeSearch({
     }
   }, []);
 
+  // Barcode scan against the dual-source route (master + SAP, NCK fallback).
+  // When autoSelect is set (Enter / scanner) and exactly one item matches, it is
+  // selected immediately so the cashier never has to click.
+  const searchBarcode = useCallback(async (q: string, autoSelect = false) => {
+    const trimmed = q.trim();
+    if (!trimmed) { setResults([]); setOpen(false); setNotFound(null); return; }
+    try {
+      const res = await fetch(`/api/plu/search-barcode?barcode=${encodeURIComponent(trimmed)}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const items: PLUSearchResult[] = (data.results ?? []).map((r: any) => ({
+        code: r.code ?? '',
+        name: r.name,
+        category: r.category ?? '',
+        folder: r.folder ?? null,
+        price: r.price ?? null,
+        barcode: r.barcode ?? null,
+        source: r.source,
+        sapOnly: !!r.sapOnly,
+        matchType: r.matchType,
+        sapItemNo: r.sapItemNo ?? null,
+      }));
+      if (autoSelect && items.length === 1) {
+        handleSelect(items[0]);
+        return;
+      }
+      setResults(items);
+      setNotFound(items.length === 0 ? trimmed : null);
+      setOpen(true);
+    } catch {
+      setResults([]);
+    }
+  }, []);
+
   function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
     const val = e.target.value;
     setQuery(val);
     onChange(val);
+    if (mode === 'barcode') setNotFound(null);
     clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => search(val), 300);
+    debounceRef.current = setTimeout(() => {
+      if (mode === 'barcode') searchBarcode(val);
+      else searchItems(val);
+    }, 300);
   }
 
   function handleSelect(item: PLUSearchResult) {
-    const display = mode === 'name' ? item.name : item.code;
-    setQuery(display);
-    onChange(display);
+    // Barcode mode leaves the scanned value in the field; code/name modes echo the
+    // selected code or name so the input reflects the chosen item.
+    if (mode !== 'barcode') {
+      const display = mode === 'name' ? item.name : item.code;
+      setQuery(display);
+      onChange(display);
+    }
     setOpen(false);
     setResults([]);
-    if (onItemSelect) onItemSelect(item);
+    setNotFound(null);
+    if (onItemSelectRef.current) onItemSelectRef.current(item);
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
     if (e.key === 'Escape') setOpen(false);
+    // Scanners send the barcode followed by Enter — submit the search immediately,
+    // bypassing the debounce, and auto-select when there's a single match.
+    if (e.key === 'Enter' && mode === 'barcode') {
+      e.preventDefault();
+      clearTimeout(debounceRef.current);
+      searchBarcode(query, true);
+    }
   }
 
   useEffect(() => {
@@ -114,16 +183,26 @@ export function PLUCodeSearch({
         disabled={disabled}
         style={baseStyle}
       />
-      {open && results.length > 0 && (
+      {open && (mode === 'barcode' ? (results.length > 0 || !!notFound) : results.length > 0) && (
         <div style={{
           position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100,
           background: 'var(--bg-card)', border: '1px solid var(--border)',
           borderRadius: '4px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
-          marginTop: '2px', maxHeight: '220px', overflowY: 'auto',
+          marginTop: '2px', maxHeight: '240px', overflowY: 'auto',
         }}>
+          {/* Barcode mode: no match — show the raw scanned input so the cashier can verify. */}
+          {mode === 'barcode' && results.length === 0 && notFound && (
+            <div style={{ padding: '0.55rem 0.7rem', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+              <span style={{ color: '#8B3A2A', fontWeight: 600 }}>Barcode tidak ditemukan</span>
+              <div style={{ marginTop: '2px' }}>
+                Input: <span style={{ fontFamily: 'monospace', color: 'var(--text-primary)' }}>{notFound}</span>
+              </div>
+            </div>
+          )}
+
           {results.map((item) => (
             <button
-              key={item.code}
+              key={item.sapOnly ? `sap-${item.sapItemNo}` : (item.code || item.name)}
               type="button"
               onMouseDown={() => handleSelect(item)}
               style={{
@@ -135,7 +214,26 @@ export function PLUCodeSearch({
               onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-cream)'; }}
               onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
             >
-              {mode === 'name' ? (
+              {mode === 'barcode' ? (
+                <>
+                  <span style={{ fontSize: '0.78rem', color: 'var(--text-primary)', fontWeight: 600 }}>
+                    {item.name}
+                  </span>
+                  <span style={{ fontSize: '0.71rem', color: 'var(--text-secondary)' }}>
+                    {item.sapOnly ? (
+                      <>SAP <span style={{ fontFamily: 'monospace', color: '#8B6914' }}>{item.sapItemNo}</span></>
+                    ) : (
+                      <><span style={{ fontFamily: 'monospace', color: '#C9A84C' }}>{item.code}</span>{item.category ? ` (${item.category})` : ''}</>
+                    )}
+                    {item.matchType === 'NCK' && <span style={{ marginLeft: '0.4rem', color: 'var(--text-secondary)' }}>· via NCK</span>}
+                  </span>
+                  {item.sapOnly && (
+                    <span style={{ marginTop: '2px', fontSize: '0.68rem', fontWeight: 600, color: '#8B6914', background: 'rgba(251,191,36,0.12)', border: '1px solid rgba(201,168,76,0.35)', borderRadius: '3px', padding: '1px 5px', alignSelf: 'flex-start' }}>
+                      Ditemukan di SAP, belum terverifikasi di master
+                    </span>
+                  )}
+                </>
+              ) : mode === 'name' ? (
                 <>
                   <span style={{ fontSize: '0.78rem', color: 'var(--text-primary)', fontWeight: 600 }}>
                     {item.name}
