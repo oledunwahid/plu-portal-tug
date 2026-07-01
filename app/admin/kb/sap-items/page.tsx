@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useSession } from 'next-auth/react';
 import { toast } from 'sonner';
 import { Upload, ChevronLeft, ChevronRight, Database, Download, Loader2 } from 'lucide-react';
 import TableSkeleton from '@/components/skeletons/TableSkeleton';
@@ -32,6 +33,10 @@ function downloadBlob(blob: Blob, filename: string) {
 
 export default function SapItemsPage() {
   const [items, setItems] = useState<SapItem[]>([]);
+  // COST_CONTROL has read-only access — the upload card is hidden.
+  const { data: session } = useSession();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const isAdmin = ((session?.user as any)?.role ?? '') === 'ADMIN';
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
@@ -136,7 +141,8 @@ export default function SapItemsPage() {
         </p>
       </div>
 
-      {/* Upload card */}
+      {/* Upload card — admin only (cost control is read-only). */}
+      {isAdmin && (
       <div className="card" style={{ padding: '1.25rem', marginBottom: '1.25rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
           <div>
@@ -187,6 +193,7 @@ export default function SapItemsPage() {
         <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }}
           onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUpload(f); }} />
       </div>
+      )}
 
       {/* Filters */}
       <div className="card" style={{ padding: '0.875rem 1.25rem', marginBottom: '0.875rem', display: 'flex', alignItems: 'center', gap: '0.625rem', flexWrap: 'wrap' }}>

@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/session';
-import { getPLURequests, createPLURequest, getMasterItemByCode } from '@/lib/db';
+import { getPLURequests, createPLURequest, getMasterItemByCode, getAllSapItemsForMatch, getMaxExistingBarcode, getBarcodeOccupancy } from '@/lib/db';
 import { createRequestSchema } from '@/lib/validations';
 import { loadOutletPrefixMap, loadCategoryCodeMap } from '@/lib/configLoader';
+import { shouldRouteToCostControl, suggestBarcode, STATUS_PENDING_COST_CONTROL } from '@/lib/costControl';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -46,6 +47,29 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Cost Control routing — only WINE NEW_ITEM from a Cork cashier diverts to PENDING_COST_CONTROL.
+    // Every other path is untouched and follows the normal PENDING flow. When routed, attempt NCK
+    // barcode auto-derivation from the SAP registry; cost control corrects/enters it manually otherwise.
+    const routeToCostControl = shouldRouteToCostControl(
+      data.requestType, data.department, session.user.outlet,
+    );
+    let suggestedBarcode: string | null = null;
+    let suggestedBarcodeSource: string | null = null;
+    if (routeToCostControl) {
+      // Load occupancy as late as possible (immediately before generation + create) to minimise the
+      // window where a concurrent request could claim the same barcode. sql.js writes are serialised
+      // under a single-process write lock, so this plus the persisted-suggestion occupancy check is
+      // the tightest guard available without a cross-request lock.
+      const [saps, maxBarcode, occupancy] = await Promise.all([
+        getAllSapItemsForMatch(),
+        getMaxExistingBarcode(),
+        getBarcodeOccupancy(),
+      ]);
+      const suggestion = suggestBarcode(data.name, saps, maxBarcode, occupancy);
+      suggestedBarcode = suggestion.value;
+      suggestedBarcodeSource = suggestion.source;
+    }
+
     const pluRequest = await createPLURequest({
       requestType: data.requestType,
       code: data.code ?? null,
@@ -63,6 +87,9 @@ export async function POST(request: NextRequest) {
       printers: data.printers,
       outlets: data.outlets,
       barcode: data.department === 'WINE' ? (data.barcode ?? null) : null,
+      status: routeToCostControl ? STATUS_PENDING_COST_CONTROL : undefined,
+      suggestedBarcode,
+      suggestedBarcodeSource,
       salesDef: data.salesDef ?? 'SALES',
       remarks: data.remarks ?? null,
       userId: session.user.id,

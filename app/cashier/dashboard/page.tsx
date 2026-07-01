@@ -20,7 +20,30 @@ const TYPE_LABELS: Record<string, string> = {
 };
 
 // Cashiers don't see the internal EXPORTED state — it reads as PENDING until admin marks it DONE.
-const toCashierStatus = (s: string): string => (s === 'DONE' ? 'DONE' : 'PENDING');
+// PENDING_COST_CONTROL and REJECTED are surfaced verbatim (distinct badges); both lock the Edit
+// button, since the edit/live-badge logic only treats a literal 'PENDING' as editable.
+const toCashierStatus = (s: string): string => {
+  if (s === 'DONE') return 'DONE';
+  if (s === 'PENDING_COST_CONTROL') return 'PENDING_COST_CONTROL';
+  if (s === 'REJECTED') return 'REJECTED';
+  return 'PENDING';
+};
+
+// Outlets are stored as a semicolon-joined string on each request/batch item.
+function splitOutlets(raw: string | null | undefined): string[] {
+  return (raw ?? '').split(';').map((s) => s.trim()).filter(Boolean);
+}
+function formatOutlets(raw: string | null | undefined): string {
+  const list = splitOutlets(raw);
+  return list.length ? list.join(', ') : '—';
+}
+// Aggregate the distinct outlets applied across every row of a batch. When all
+// rows share one outlet it collapses to that single value; differing rows show
+// the distinct codes comma-separated (e.g. "BLCS, CSPP").
+function formatBatchOutlets(items: BatchItem[]): string {
+  const distinct = Array.from(new Set(items.flatMap((i) => splitOutlets(i.outlets))));
+  return distinct.length ? distinct.join(', ') : '—';
+}
 
 interface DiscountRequest {
   id: string;
@@ -39,6 +62,7 @@ interface SingleRequest {
   name: string;
   category: string;
   price: number | null;
+  outlets: string | null;
   adminNote: string | null;
   createdAt: string;
   _source: 'single';
@@ -50,6 +74,8 @@ interface BatchItem {
   category: string;
   price: number | null;
   code: string | null;
+  outlets: string | null;
+  remarks: string | null;
 }
 
 interface BatchRequest {
@@ -172,6 +198,7 @@ export default function CashierDashboard() {
                   <th>Type</th>
                   <th>Item / Batch</th>
                   <th>Category</th>
+                  <th>Outlets</th>
                   <th>Price</th>
                   <th>Status</th>
                   <th>Admin Note</th>
@@ -199,6 +226,7 @@ export default function CashierDashboard() {
                         </td>
                         <td style={{ fontWeight: 500, fontSize: '0.875rem' }}>{req.name}</td>
                         <td style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>{req.category}</td>
+                        <td style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{formatOutlets(req.outlets)}</td>
                         <td style={{ fontSize: '0.8rem' }}>{req.price ? formatPrice(req.price) : '—'}</td>
                         <td>
                           <div className={toCashierStatus(req.status) === 'PENDING' ? 'pending-badge-live' : undefined} style={{ display: 'inline-block' }}>
@@ -252,6 +280,7 @@ export default function CashierDashboard() {
                       </td>
                       <td style={{ fontWeight: 500, fontSize: '0.875rem' }}>{batch.title}</td>
                       <td style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>—</td>
+                      <td style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={formatBatchOutlets(batch.items)}>{formatBatchOutlets(batch.items)}</td>
                       <td style={{ fontSize: '0.8rem' }}>—</td>
                       <td>
                         <div className={toCashierStatus(batch.status) === 'PENDING' ? 'pending-badge-live' : undefined} style={{ display: 'inline-block' }}>
@@ -278,14 +307,16 @@ export default function CashierDashboard() {
                     </tr>,
                     isExpanded && (
                       <tr key={`b-${batch.id}-expanded`} style={{ background: 'rgba(201,168,76,0.02)' }}>
-                        <td colSpan={9} style={{ padding: '0 1.5rem 0.75rem 2.5rem' }}>
+                        <td colSpan={10} style={{ padding: '0 1.5rem 0.75rem 2.5rem' }}>
                           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                             <thead>
                               <tr>
                                 <th style={{ fontSize: '0.65rem', textAlign: 'left', padding: '0.25rem 0.5rem', color: 'var(--text-secondary)', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', borderBottom: '1px solid var(--border)' }}>Name</th>
                                 <th style={{ fontSize: '0.65rem', textAlign: 'left', padding: '0.25rem 0.5rem', color: 'var(--text-secondary)', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', borderBottom: '1px solid var(--border)' }}>Category</th>
                                 <th style={{ fontSize: '0.65rem', textAlign: 'left', padding: '0.25rem 0.5rem', color: 'var(--text-secondary)', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', borderBottom: '1px solid var(--border)' }}>Price</th>
+                                <th style={{ fontSize: '0.65rem', textAlign: 'left', padding: '0.25rem 0.5rem', color: 'var(--text-secondary)', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', borderBottom: '1px solid var(--border)' }}>Outlets</th>
                                 <th style={{ fontSize: '0.65rem', textAlign: 'left', padding: '0.25rem 0.5rem', color: 'var(--text-secondary)', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', borderBottom: '1px solid var(--border)' }}>Code</th>
+                                <th style={{ fontSize: '0.65rem', textAlign: 'left', padding: '0.25rem 0.5rem', color: 'var(--text-secondary)', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', borderBottom: '1px solid var(--border)' }}>Remarks</th>
                               </tr>
                             </thead>
                             <tbody>
@@ -294,7 +325,9 @@ export default function CashierDashboard() {
                                   <td style={{ padding: '0.35rem 0.5rem', fontSize: '0.8rem', fontWeight: 500 }}>{item.name}</td>
                                   <td style={{ padding: '0.35rem 0.5rem', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{item.category}</td>
                                   <td style={{ padding: '0.35rem 0.5rem', fontSize: '0.75rem' }}>{item.price ? formatPrice(item.price) : '—'}</td>
+                                  <td style={{ padding: '0.35rem 0.5rem', fontSize: '0.72rem', color: 'var(--text-secondary)' }}>{formatOutlets(item.outlets)}</td>
                                   <td style={{ padding: '0.35rem 0.5rem', fontSize: '0.72rem', color: 'var(--text-secondary)', fontFamily: 'monospace' }}>{item.code ?? '—'}</td>
+                                  <td style={{ padding: '0.35rem 0.5rem', fontSize: '0.72rem', color: 'var(--text-secondary)' }}>{item.remarks?.trim() ? item.remarks : '—'}</td>
                                 </tr>
                               ))}
                             </tbody>

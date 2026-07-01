@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { PlusCircle, Tag, Type, Printer, Trash2, Check, Download, Loader2, Layers } from 'lucide-react';
 import { formatPrice } from '@/lib/utils';
 import { formatTimestamp } from '@/lib/format';
+import { collapseAdminOutlets } from '@/lib/outlets';
 import StatusBadge from '@/components/StatusBadge';
 import TableSkeleton from '@/components/skeletons/TableSkeleton';
 
@@ -27,6 +28,10 @@ interface PLURequest {
   cashierOutlet: string;
   outletGroup: string;
   createdAt: string;
+  // Cost-control barcodes (WINE NEW_ITEM from Cork outlets). confirmedBarcode is what cost control
+  // saved; suggestedBarcode is the system's NCK-derived guess shown before confirmation.
+  suggestedBarcode?: string | null;
+  confirmedBarcode?: string | null;
   submittedBy: { name: string; outlet: string };
   // Enriched from the master item registry for UPDATE_PRICE / UPDATE_NAME (empty string if not found).
   masterName?: string;
@@ -81,6 +86,11 @@ const DATE_STYLE = {
   outline: 'none',
 };
 
+// Admin "Mark Done" only applies to requests in an admin-actionable status. DONE is already final;
+// PENDING_COST_CONTROL is still with cost control and REJECTED was killed there — both read-only here.
+const isAdminActionable = (status: string): boolean =>
+  status !== 'DONE' && status !== 'PENDING_COST_CONTROL' && status !== 'REJECTED';
+
 type ColumnDef = { key: string; label: string; render: (r: PLURequest) => React.ReactNode };
 
 const ID_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
@@ -124,9 +134,19 @@ const COLUMNS: Record<RequestType, ColumnDef[]> = {
     { key: 'category', label: 'Category', render: (r) => <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>{r.category}</span> },
     { key: 'dept', label: 'Department', render: (r) => <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>{r.department}</span> },
     { key: 'price', label: 'Price', render: (r) => <span style={{ fontSize: '0.8rem' }}>{r.price ? formatPrice(r.price) : '—'}</span> },
+    { key: 'barcode', label: 'Barcode', render: (r) => {
+      const confirmed = r.confirmedBarcode;
+      const value = confirmed ?? r.suggestedBarcode ?? null;
+      if (!value) return <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>—</span>;
+      return (
+        <span style={{ fontFamily: 'monospace', fontSize: '0.75rem', color: confirmed ? 'var(--text-primary)' : 'var(--text-secondary)' }} title={confirmed ? 'Confirmed by cost control' : 'Suggested (awaiting cost control)'}>
+          {value}{!confirmed && r.suggestedBarcode ? ' ?' : ''}
+        </span>
+      );
+    } },
     { key: 'folder', label: 'Folder', render: (r) => <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{r.folder ?? '—'}</span> },
     { key: 'printers', label: 'Printers', render: (r) => <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{r.printers.replace(/;/g, ' · ')}</span> },
-    { key: 'outlets', label: 'Outlets', render: (r) => <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{r.outlets.replace(/;/g, ' · ')}</span> },
+    { key: 'outlets', label: 'Outlets', render: (r) => <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{collapseAdminOutlets(r.outlets).replace(/;/g, ' · ')}</span> },
     { key: 'by', label: 'By', render: (r) => <span style={{ fontSize: '0.8rem' }}>{r.cashierOutlet}</span> },
     { key: 'date', label: 'Date', render: (r) => <div style={{ minWidth: '130px' }}><div style={{ fontSize: '0.8rem', color: 'var(--text-primary)' }}>{formatTimestamp(r.createdAt).split(', ')[0]}</div><div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontVariantNumeric: 'tabular-nums' }}>{formatTimestamp(r.createdAt).split(', ')[1]}</div></div> },
     STATUS_COL,
@@ -154,7 +174,7 @@ const COLUMNS: Record<RequestType, ColumnDef[]> = {
     { key: 'code', label: 'Code', render: (r) => <span style={{ fontFamily: 'monospace', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{r.code ?? '—'}</span> },
     { key: 'name', label: 'Item Name', render: (r) => <span style={{ fontWeight: 500 }}>{r.name}</span> },
     { key: 'printers', label: 'New Printers', render: (r) => <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{r.printers.replace(/;/g, ' · ')}</span> },
-    { key: 'outlets', label: 'Outlets', render: (r) => <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{r.outlets.replace(/;/g, ' · ')}</span> },
+    { key: 'outlets', label: 'Outlets', render: (r) => <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{collapseAdminOutlets(r.outlets).replace(/;/g, ' · ')}</span> },
     { key: 'by', label: 'By', render: (r) => <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{r.submittedBy.name}</span> },
     { key: 'date', label: 'Date', render: (r) => <div style={{ minWidth: '130px' }}><div style={{ fontSize: '0.8rem', color: 'var(--text-primary)' }}>{formatTimestamp(r.createdAt).split(', ')[0]}</div><div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontVariantNumeric: 'tabular-nums' }}>{formatTimestamp(r.createdAt).split(', ')[1]}</div></div> },
     STATUS_COL,
@@ -446,7 +466,7 @@ function ExportPageContent() {
   }
 
   async function bulkMarkDone() {
-    const actionable = requests.filter((r) => selectedIds.has(r.id) && r.status !== 'DONE');
+    const actionable = requests.filter((r) => selectedIds.has(r.id) && isAdminActionable(r.status));
     if (actionable.length === 0) return;
     const singleIds = actionable.filter((r) => !r.id.includes(':')).map((r) => r.id);
     const batchIds = Array.from(new Set(actionable.filter((r) => r.id.includes(':')).map((r) => r.id.split(':')[0])));
@@ -471,7 +491,7 @@ function ExportPageContent() {
     }
   }
 
-  const selectedActionableCount = requests.filter((r) => selectedIds.has(r.id) && r.status !== 'DONE').length;
+  const selectedActionableCount = requests.filter((r) => selectedIds.has(r.id) && isAdminActionable(r.status)).length;
 
   async function handleDownload(format: 'XLSX' | 'CSV') {
     const toDownload = selectedIds.size > 0 ? Array.from(selectedIds) : requests.map((r) => r.id);
@@ -690,9 +710,13 @@ function ExportPageContent() {
               </span>
             )}
           </div>
-          {/* Status sub-filter */}
+          {/* Status sub-filter. NEW_ITEM gets a read-only "Menunggu Cost Control" view so admin can
+              see (but not act on) requests still awaiting cost-control review. */}
           <div style={{ display: 'flex', gap: '0.375rem' }}>
-            {(['PENDING', 'EXPORTED', 'DONE', 'ALL'] as const).map((s) => (
+            {([
+              'PENDING', 'EXPORTED', 'DONE', 'ALL',
+              ...(activeType === 'NEW_ITEM' ? ['PENDING_COST_CONTROL'] : []),
+            ] as string[]).map((s) => (
               <button
                 key={s}
                 onClick={() => setStatusFilter(s)}
@@ -700,9 +724,11 @@ function ExportPageContent() {
               >
                 {s === 'ALL'
                   ? 'All'
-                  : s === 'DONE'
-                    ? `Done${doneCount != null ? ` (${doneCount})` : ''}`
-                    : s.charAt(0) + s.slice(1).toLowerCase()}
+                  : s === 'PENDING_COST_CONTROL'
+                    ? 'Menunggu Cost Control'
+                    : s === 'DONE'
+                      ? `Done${doneCount != null ? ` (${doneCount})` : ''}`
+                      : s.charAt(0) + s.slice(1).toLowerCase()}
               </button>
             ))}
           </div>
@@ -815,7 +841,7 @@ function ExportPageContent() {
                         })
                       : columns.map((col) => <td key={col.key}>{col.render(req)}</td>)}
                     <td style={{ textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
-                      {req.status !== 'DONE' && (
+                      {isAdminActionable(req.status) && (
                         <button
                           onClick={() => markRowDone(req)}
                           disabled={markingDone}
@@ -838,8 +864,15 @@ function ExportPageContent() {
           <DonePagination page={safeDonePage} totalPages={doneTotalPages} onPage={setDonePage} />
         )}
 
-        {/* Bottom download bar */}
-        {!loading && requests.length > 0 && (
+        {/* Read-only notice for the cost-control queue — admin can see but not export/act yet. */}
+        {!loading && requests.length > 0 && statusFilter === 'PENDING_COST_CONTROL' && (
+          <div style={{ padding: '0.875rem 1.5rem', borderTop: '1px solid var(--border)', background: 'rgba(124,58,237,0.06)', fontSize: '0.8rem', color: '#6D28D9' }}>
+            Menunggu konfirmasi Cost Control — belum dapat diproses atau diekspor oleh admin.
+          </div>
+        )}
+
+        {/* Bottom download bar — hidden for the read-only cost-control queue. */}
+        {!loading && requests.length > 0 && statusFilter !== 'PENDING_COST_CONTROL' && (
           <div style={{ padding: '0.875rem 1.5rem', borderTop: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--bg-cream)' }}>
             <span style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
               {selectedIds.size > 0 ? `${selectedIds.size} selected` : `All ${requests.length} shown`}

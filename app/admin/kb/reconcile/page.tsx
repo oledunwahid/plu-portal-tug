@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useSession } from 'next-auth/react';
 import { toast } from 'sonner';
 import { Upload, ArrowLeftRight, Loader2, Download, AlertCircle, History, Filter, X } from 'lucide-react';
 import { formatPrice } from '@/lib/utils';
@@ -71,6 +72,10 @@ function filterQuery(f: Filters): string {
 }
 
 export default function ReconcilePage() {
+  // COST_CONTROL has read-only access — the upload control is hidden (session viewing stays).
+  const { data: session } = useSession();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const isAdmin = ((session?.user as any)?.role ?? '') === 'ADMIN';
   const [department, setDepartment] = useState('WINE');
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -228,6 +233,8 @@ export default function ReconcilePage() {
 
       {/* Upload + session selector */}
       <div className="card" style={{ padding: '1.25rem', marginBottom: '1.25rem' }}>
+        {/* Upload controls — admin only (cost control views sessions read-only). */}
+        {isAdmin && (<>
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '0.75rem', flexWrap: 'wrap', gap: '0.75rem' }}>
           <div>
             <div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--text-primary)' }}>Upload File Fisik Toko</div>
@@ -270,6 +277,7 @@ export default function ReconcilePage() {
         </div>
         <input ref={fileInputRef} type="file" accept=".xlsx,.csv" style={{ display: 'none' }}
           onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
+        </>)}
 
         {/* Session selector */}
         {sessions.length > 0 && (

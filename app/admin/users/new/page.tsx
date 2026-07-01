@@ -10,7 +10,7 @@ interface FormState {
   email: string;
   password: string;
   name: string;
-  role: 'CASHIER' | 'ADMIN';
+  role: 'CASHIER' | 'ADMIN' | 'COST_CONTROL';
   outlet: string;
 }
 
@@ -143,6 +143,7 @@ export default function NewUserPage() {
                 >
                   <option value="CASHIER">Cashier</option>
                   <option value="ADMIN">Admin</option>
+                  <option value="COST_CONTROL">Cost Control</option>
                 </select>
               </FieldGroup>
 

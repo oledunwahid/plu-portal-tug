@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
 import { Clock } from 'lucide-react';
+import { NotificationBell } from '@/components/NotificationBell';
 
 export function TopBar() {
   const { data: session } = useSession();
@@ -53,9 +54,12 @@ export function TopBar() {
         <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>{dateStr}</span>
       </div>
 
-      {/* Right: user */}
+      {/* Right: notifications (admin only) + user */}
       {user && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.875rem' }}>
+          {user.role === 'ADMIN' && <NotificationBell />}
+          {user.role === 'COST_CONTROL' && <NotificationBell variant="cost-control" />}
+          {user.role === 'CASHIER' && <NotificationBell variant="cashier" />}
           <div style={{ textAlign: 'right' }}>
             <div style={{ fontSize: '0.8rem', fontWeight: 500, color: 'var(--text-primary)', lineHeight: 1.3 }}>
               {user.name}

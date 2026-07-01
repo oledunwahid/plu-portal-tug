@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx';
 import type { DbMasterItem } from '@/lib/db';
+import { collapseAdminOutlets } from '@/lib/outlets';
 
 // ── Unified 19-column export ────────────────────────────────────────────────
 // Every admin export — regardless of request type — emits this exact column set, in this order.
@@ -58,6 +59,9 @@ export interface TemplateSource {
   price: number | null; folder: string | null;
   serviceCharge: boolean; tax1: boolean; tax2: boolean; noDiscount: boolean; hideReceipt: boolean;
   printers: string; outlets: string; salesDef: string; barcode: string | null;
+  // Cost-control confirmed barcode (WINE NEW_ITEM from Cork outlets). When present it wins over the
+  // cashier-submitted `barcode` for the export's Barcode column; null/absent → fall back to `barcode`.
+  confirmedBarcode?: string | null;
   // Set only when the admin explicitly edited PriceLevels for this request during review/approval.
   // When present (even as ''), it overrides the master's verbatim PriceLevels on master-sourced
   // exports; when undefined, the master value is used as-is. No request type recomputes this —
@@ -80,7 +84,7 @@ function masterRow(
     Price: m?.price ?? '', PLU: str(m?.plu), Barcode: str(m?.barcode), UOM: str(m?.uom),
     Folder: str(m?.folder), ServiceCharge: flag(m?.serviceCharge), Tax1: flag(m?.tax1),
     Tax2: flag(m?.tax2), NoDiscount: flag(m?.noDiscount), HideReceipt: flag(m?.hideReceipt),
-    Printers: str(m?.printers), Outlets: str(m?.outlets),
+    Printers: str(m?.printers), Outlets: collapseAdminOutlets(str(m?.outlets)),
     PriceLevels: priceLevelsOverride != null ? priceLevelsOverride : str(m?.priceLevels),
   };
 }
@@ -92,10 +96,10 @@ export function newItemToTemplateRow(r: TemplateSource): TemplateRow {
   return {
     Active: 1, Code: str(r.code), Name: r.name, Category: r.category, Department: r.department,
     SalesDef: r.salesDef === 'MODIFIER' ? 'MODIFIER' : 'SALES', Price: r.price ?? '',
-    PLU: '', Barcode: str(r.barcode), UOM: '', Folder: str(r.folder),
+    PLU: '', Barcode: str(r.confirmedBarcode ?? r.barcode), UOM: '', Folder: str(r.folder),
     ServiceCharge: flag(r.serviceCharge), Tax1: flag(r.tax1), Tax2: flag(r.tax2),
     NoDiscount: flag(r.noDiscount), HideReceipt: flag(r.hideReceipt),
-    Printers: r.printers, Outlets: r.outlets,
+    Printers: r.printers, Outlets: collapseAdminOutlets(r.outlets),
     PriceLevels: newItemPriceLevels(r.outlets, r.price),
   };
 }

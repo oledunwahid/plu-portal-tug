@@ -64,7 +64,7 @@ export const createUserSchema = z.object({
   email: z.string().email('Valid email required'),
   password: z.string().min(8, 'Password must be at least 8 characters'),
   name: z.string().min(1, 'Name is required'),
-  role: z.enum(['CASHIER', 'ADMIN']),
+  role: z.enum(['CASHIER', 'ADMIN', 'COST_CONTROL']),
   outlet: z.string().min(1, 'Outlet is required'),
 });
 
@@ -72,7 +72,18 @@ export const updateUserSchema = z.object({
   name: z.string().min(1).optional(),
   email: z.string().email().optional(),
   password: z.string().min(8).optional(),
-  role: z.enum(['CASHIER', 'ADMIN']).optional(),
+  role: z.enum(['CASHIER', 'ADMIN', 'COST_CONTROL']).optional(),
   outlet: z.string().optional(),
   active: z.boolean().optional(),
+});
+
+// Cost Control review actions on a PENDING_COST_CONTROL NEW_ITEM request.
+export const costControlConfirmSchema = z.object({
+  // The barcode cost control confirmed (auto-derived value, optionally corrected). May be blank
+  // if no NCK barcode applies — stored as null then.
+  confirmedBarcode: z.string().trim().optional(),
+});
+
+export const costControlRejectSchema = z.object({
+  reason: z.string().trim().min(1, 'Rejection reason is required'),
 });

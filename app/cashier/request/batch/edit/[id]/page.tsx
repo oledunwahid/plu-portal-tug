@@ -382,6 +382,9 @@ export default function BatchEditPage() {
       toast.success('Batch updated successfully');
       router.push('/cashier/dashboard');
     } catch (err: any) {
+      // Diagnostics: log the full error (incl. stack) to the console so an intermittent
+      // save failure can be inspected; the toast still shows the server's real message.
+      console.error('[batch edit] save failed:', err);
       toast.error(err.message ?? 'Something went wrong');
     } finally {
       setSaving(false);

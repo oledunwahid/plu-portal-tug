@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useSession } from 'next-auth/react';
 import { toast } from 'sonner';
 import { Upload, X, ChevronLeft, ChevronRight, Database, Pencil, Trash2, Download, Loader2, FileSpreadsheet } from 'lucide-react';
 import { formatPrice } from '@/lib/utils';
@@ -316,6 +317,10 @@ const SELECT_STYLE: React.CSSProperties = {
 };
 
 export default function MasterItemsPage() {
+  // COST_CONTROL has read-only access — write controls (upload, edit, delete, toggle) are hidden.
+  const { data: session } = useSession();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const isAdmin = ((session?.user as any)?.role ?? '') === 'ADMIN';
   const [items, setItems] = useState<MasterItem[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -562,7 +567,8 @@ export default function MasterItemsPage() {
         </p>
       </div>
 
-      {/* Upload card */}
+      {/* Upload card — admin only (cost control is read-only). */}
+      {isAdmin && (
       <div className="card" style={{ padding: '1.25rem', marginBottom: '1.25rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
           <div>
@@ -613,6 +619,7 @@ export default function MasterItemsPage() {
         <input ref={fileInputRef} type="file" accept=".csv" style={{ display: 'none' }}
           onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUpload(f); }} />
       </div>
+      )}
 
       {/* Filters */}
       <div className="card" style={{ padding: '0.875rem 1.25rem', marginBottom: '0.875rem', display: 'flex', alignItems: 'center', gap: '0.625rem', flexWrap: 'wrap' }}>
@@ -729,35 +736,52 @@ export default function MasterItemsPage() {
                       ) : '—'}
                     </td>
                     <td onClick={(e) => e.stopPropagation()}>
-                      <button
-                        onClick={() => handleToggleActive(item)}
-                        disabled={togglingId === item.id}
-                        title="Klik untuk mengubah status"
-                        style={{
+                      {isAdmin ? (
+                        <button
+                          onClick={() => handleToggleActive(item)}
+                          disabled={togglingId === item.id}
+                          title="Klik untuk mengubah status"
+                          style={{
+                            fontSize: '0.7rem', padding: '2px 6px', borderRadius: '3px', fontWeight: 600,
+                            background: item.active ? 'rgba(61,90,62,0.1)' : 'rgba(122,46,31,0.08)',
+                            color: item.active ? '#2D4A2E' : '#7A2E1F',
+                            border: `1px solid ${item.active ? 'rgba(61,90,62,0.2)' : 'rgba(122,46,31,0.15)'}`,
+                            cursor: togglingId === item.id ? 'wait' : 'pointer', opacity: togglingId === item.id ? 0.6 : 1
+                          }}>
+                          {item.active ? 'Active' : 'Inactive'}
+                        </button>
+                      ) : (
+                        <span style={{
                           fontSize: '0.7rem', padding: '2px 6px', borderRadius: '3px', fontWeight: 600,
                           background: item.active ? 'rgba(61,90,62,0.1)' : 'rgba(122,46,31,0.08)',
                           color: item.active ? '#2D4A2E' : '#7A2E1F',
                           border: `1px solid ${item.active ? 'rgba(61,90,62,0.2)' : 'rgba(122,46,31,0.15)'}`,
-                          cursor: togglingId === item.id ? 'wait' : 'pointer', opacity: togglingId === item.id ? 0.6 : 1
                         }}>
-                        {item.active ? 'Active' : 'Inactive'}
-                      </button>
+                          {item.active ? 'Active' : 'Inactive'}
+                        </span>
+                      )}
                     </td>
                     <td onClick={(e) => e.stopPropagation()}>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '0.25rem' }}>
-                        <button
-                          onClick={() => setEditItem(item)}
-                          title="Edit item"
-                          style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '28px', height: '28px', background: 'transparent', border: '1px solid var(--border)', borderRadius: '4px', cursor: 'pointer', color: 'var(--text-secondary)' }}>
-                          <Pencil size={13} />
-                        </button>
-                        <button
-                          onClick={() => setConfirmDelete(item)}
-                          disabled={deletingId === item.id}
-                          title="Hapus item"
-                          style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '28px', height: '28px', background: 'transparent', border: '1px solid rgba(122,46,31,0.25)', borderRadius: '4px', cursor: deletingId === item.id ? 'not-allowed' : 'pointer', color: '#7A2E1F', opacity: deletingId === item.id ? 0.5 : 1 }}>
-                          <Trash2 size={13} />
-                        </button>
+                        {isAdmin ? (
+                          <>
+                            <button
+                              onClick={() => setEditItem(item)}
+                              title="Edit item"
+                              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '28px', height: '28px', background: 'transparent', border: '1px solid var(--border)', borderRadius: '4px', cursor: 'pointer', color: 'var(--text-secondary)' }}>
+                              <Pencil size={13} />
+                            </button>
+                            <button
+                              onClick={() => setConfirmDelete(item)}
+                              disabled={deletingId === item.id}
+                              title="Hapus item"
+                              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '28px', height: '28px', background: 'transparent', border: '1px solid rgba(122,46,31,0.25)', borderRadius: '4px', cursor: deletingId === item.id ? 'not-allowed' : 'pointer', color: '#7A2E1F', opacity: deletingId === item.id ? 0.5 : 1 }}>
+                              <Trash2 size={13} />
+                            </button>
+                          </>
+                        ) : (
+                          <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>—</span>
+                        )}
                       </div>
                     </td>
                   </tr>

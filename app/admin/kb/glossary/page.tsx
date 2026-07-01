@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { useSession } from 'next-auth/react';
 import { toast } from 'sonner';
 import { Lock, Pencil, Trash2, Plus, RotateCcw, ChevronDown, ChevronRight, X, Check } from 'lucide-react';
 
@@ -24,11 +25,12 @@ function groupBy<T>(arr: T[], key: (item: T) => string): Record<string, T[]> {
   return out;
 }
 
-function EntryRow({ entry, onEdit, onDelete, onReset }: {
+function EntryRow({ entry, onEdit, onDelete, onReset, canEdit }: {
   entry: GlossaryEntry;
   onEdit: (e: GlossaryEntry) => void;
   onDelete: (id: string) => void;
   onReset: (e: GlossaryEntry) => void;
+  canEdit: boolean;
 }) {
   const [delConfirm, setDelConfirm] = useState(false);
   return (
@@ -43,6 +45,7 @@ function EntryRow({ entry, onEdit, onDelete, onReset }: {
         </div>
         <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>{entry.definition}</div>
       </div>
+      {canEdit && (
       <div style={{ display: 'flex', gap: '0.25rem', flexShrink: 0, alignItems: 'center' }}>
         {entry.isSeeded && entry.definition !== entry.defaultDefinition && (
           <button onClick={() => onReset(entry)} title="Reset to default"
@@ -70,13 +73,15 @@ function EntryRow({ entry, onEdit, onDelete, onReset }: {
           )
         )}
       </div>
+      )}
     </div>
   );
 }
 
-function AccordionGroup({ title, entries, onEdit, onDelete, onReset }: {
+function AccordionGroup({ title, entries, onEdit, onDelete, onReset, canEdit }: {
   title: string; entries: GlossaryEntry[];
   onEdit: (e: GlossaryEntry) => void; onDelete: (id: string) => void; onReset: (e: GlossaryEntry) => void;
+  canEdit: boolean;
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -89,7 +94,7 @@ function AccordionGroup({ title, entries, onEdit, onDelete, onReset }: {
       </button>
       {open && (
         <div style={{ padding: '0 0.875rem', background: 'var(--bg-cream)' }}>
-          {entries.map((e) => <EntryRow key={e.id} entry={e} onEdit={onEdit} onDelete={onDelete} onReset={onReset} />)}
+          {entries.map((e) => <EntryRow key={e.id} entry={e} onEdit={onEdit} onDelete={onDelete} onReset={onReset} canEdit={canEdit} />)}
         </div>
       )}
     </div>
@@ -194,6 +199,10 @@ function AddModal({ onSave, onClose, saving }: AddModalProps) {
 }
 
 export default function GlossaryPage() {
+  // COST_CONTROL has read-only access — add/edit/delete/reset controls are hidden.
+  const { data: session } = useSession();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const isAdmin = ((session?.user as any)?.role ?? '') === 'ADMIN';
   const [entries, setEntries] = useState<GlossaryEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [seeding, setSeeding] = useState(false);
@@ -311,10 +320,12 @@ export default function GlossaryPage() {
           <h1 className="page-title">Glossary</h1>
           <p style={{ marginTop: '0.375rem', fontSize: '0.875rem', color: 'var(--text-secondary)' }}>Reference guide for categories, printers, outlets, and terminology.</p>
         </div>
-        <button onClick={() => setAddOpen(true)}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: '0.375rem', padding: '0.5rem 0.875rem', background: 'var(--accent-gold)', color: '#1A1008', border: 'none', borderRadius: '4px', fontWeight: 600, fontSize: '0.8rem', cursor: 'pointer' }}>
-          <Plus size={14} /> Add Entry
-        </button>
+        {isAdmin && (
+          <button onClick={() => setAddOpen(true)}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '0.375rem', padding: '0.5rem 0.875rem', background: 'var(--accent-gold)', color: '#1A1008', border: 'none', borderRadius: '4px', fontWeight: 600, fontSize: '0.8rem', cursor: 'pointer' }}>
+            <Plus size={14} /> Add Entry
+          </button>
+        )}
       </div>
 
       {/* Search + tabs */}
@@ -343,7 +354,7 @@ export default function GlossaryPage() {
                 <EmptyState message="No category entries found." />
               ) : (
                 Object.entries(catByDept).sort(([a], [b]) => a.localeCompare(b)).map(([dept, ents]) => (
-                  <AccordionGroup key={dept} title={dept} entries={ents} onEdit={setEditEntry} onDelete={handleDelete} onReset={handleReset} />
+                  <AccordionGroup key={dept} title={dept} entries={ents} onEdit={setEditEntry} onDelete={handleDelete} onReset={handleReset} canEdit={isAdmin} />
                 ))
               )}
             </>
@@ -354,7 +365,7 @@ export default function GlossaryPage() {
               {printers.length > 0 && (
                 <div style={{ marginBottom: '1.5rem' }}>
                   <div className="label-caps" style={{ marginBottom: '0.5rem' }}>Printers</div>
-                  {printers.map((e) => <EntryRow key={e.id} entry={e} onEdit={setEditEntry} onDelete={handleDelete} onReset={handleReset} />)}
+                  {printers.map((e) => <EntryRow key={e.id} entry={e} onEdit={setEditEntry} onDelete={handleDelete} onReset={handleReset} canEdit={isAdmin} />)}
                 </div>
               )}
               {Object.keys(outletByGroup).length > 0 && (
@@ -363,7 +374,7 @@ export default function GlossaryPage() {
                   {Object.entries(outletByGroup).sort(([a], [b]) => a.localeCompare(b)).map(([grp, ents]) => (
                     <div key={grp} style={{ marginBottom: '1rem' }}>
                       <div style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '0.25rem', letterSpacing: '0.05em' }}>{grp}</div>
-                      {ents.map((e) => <EntryRow key={e.id} entry={e} onEdit={setEditEntry} onDelete={handleDelete} onReset={handleReset} />)}
+                      {ents.map((e) => <EntryRow key={e.id} entry={e} onEdit={setEditEntry} onDelete={handleDelete} onReset={handleReset} canEdit={isAdmin} />)}
                     </div>
                   ))}
                 </div>
@@ -374,7 +385,7 @@ export default function GlossaryPage() {
 
           {activeTab === 'GENERAL' && (
             general.length === 0 ? <EmptyState message="No general entries found." /> :
-            general.map((e) => <EntryRow key={e.id} entry={e} onEdit={setEditEntry} onDelete={handleDelete} onReset={handleReset} />)
+            general.map((e) => <EntryRow key={e.id} entry={e} onEdit={setEditEntry} onDelete={handleDelete} onReset={handleReset} canEdit={isAdmin} />)
           )}
         </div>
       )}

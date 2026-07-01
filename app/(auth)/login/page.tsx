@@ -30,8 +30,11 @@ function LoginForm() {
   useEffect(() => {
     if (status === 'authenticated' && session?.user) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      if ((session.user as any).role === 'ADMIN') {
+      const role = (session.user as any).role;
+      if (role === 'ADMIN') {
         router.replace('/admin/dashboard');
+      } else if (role === 'COST_CONTROL') {
+        router.replace('/cost-control/dashboard');
       } else {
         router.replace('/cashier/dashboard');
       }

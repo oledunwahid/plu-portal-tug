@@ -73,8 +73,12 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     if (!updated) return NextResponse.json({ error: 'Not found' }, { status: 404 });
     return NextResponse.json(updated);
   } catch (error) {
-    console.error('[PATCH /api/batches/:id]', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    // Diagnostics: surface the actual failure (message + stack) so a recurrence of the
+    // intermittent "save failed" on this route can be pinned to a concrete cause. The
+    // real message is also returned to the client so it shows in the cashier's toast.
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('[PATCH /api/batches/:id] save failed:', message, error instanceof Error ? error.stack : '');
+    return NextResponse.json({ error: `Save failed: ${message}` }, { status: 500 });
   }
 }
 

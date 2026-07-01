@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSession } from 'next-auth/react';
-import { Search, Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Search, Loader2, ChevronLeft, ChevronRight, X } from 'lucide-react';
+import { parsePriceLevels } from '@/lib/priceLevels';
 
 interface MasterItem {
   id: string;
@@ -13,6 +14,16 @@ interface MasterItem {
   price: number | null;
   outlets: string | null;
   active: boolean;
+  barcode: string | null;
+  folder: string | null;
+  salesDef: string;
+  serviceCharge: boolean;
+  tax1: boolean;
+  tax2: boolean;
+  noDiscount: boolean;
+  hideReceipt: boolean;
+  printers: string | null;
+  priceLevels: string | null;
 }
 
 interface ConfigCategory {
@@ -42,6 +53,116 @@ function StatusBadge({ active }: { active: boolean }) {
   );
 }
 
+function BoolPill({ value }: { value: boolean }) {
+  return (
+    <span style={{
+      fontSize: '0.7rem', padding: '1px 6px', borderRadius: '3px', fontWeight: 600,
+      background: value ? 'rgba(61,90,62,0.1)' : 'rgba(122,46,31,0.08)',
+      color: value ? '#2D4A2E' : '#7A2E1F',
+      border: `1px solid ${value ? 'rgba(61,90,62,0.2)' : 'rgba(122,46,31,0.15)'}`,
+    }}>
+      {value ? 'Yes' : 'No'}
+    </span>
+  );
+}
+
+// Read-only detail panel — cashiers can inspect but never edit an item.
+function ItemDetailSlideOver({ item, onClose }: { item: MasterItem; onClose: () => void }) {
+  const priceLevels = parsePriceLevels(item.priceLevels);
+  const outletList = item.outlets ? item.outlets.split(/[;,]/).map((s) => s.trim()).filter(Boolean) : [];
+  const printerList = item.printers ? item.printers.split(/[;,]/).map((s) => s.trim()).filter(Boolean) : [];
+
+  return (
+    <>
+      <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.3)', zIndex: 40 }} />
+      <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, width: '440px', maxWidth: '92vw', background: 'var(--bg-card)', zIndex: 50, borderLeft: '1px solid var(--border)', overflowY: 'auto', padding: '1.5rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
+          <h2 style={{ fontSize: '1rem', fontWeight: 600, fontFamily: 'var(--font-display)', color: 'var(--text-primary)', margin: 0 }}>Item Detail</h2>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)' }}><X size={16} /></button>
+        </div>
+
+        <div style={{ fontFamily: 'monospace', fontSize: '0.8rem', fontWeight: 700, color: '#C9A84C', letterSpacing: '0.05em', marginBottom: '0.5rem' }}>{item.code}</div>
+        <div style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.25rem' }}>{item.name}</div>
+        <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '0.5rem' }}>{item.category} · {item.department}</div>
+        <div style={{ marginBottom: '1rem' }}><StatusBadge active={item.active} /></div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '1rem' }}>
+          {[
+            { label: 'Price', value: item.price != null ? `Rp ${item.price.toLocaleString('id-ID')}` : '—' },
+            { label: 'Sales Def', value: item.salesDef || '—' },
+            { label: 'Barcode', value: item.barcode || '—' },
+            { label: 'Folder', value: item.folder || '—' },
+          ].map(({ label, value }) => (
+            <div key={label} className="card" style={{ padding: '0.5rem 0.75rem' }}>
+              <div className="label-caps" style={{ fontSize: '0.6rem', marginBottom: '0.25rem' }}>{label}</div>
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-primary)', fontWeight: 500, wordBreak: 'break-word' }}>{value}</div>
+            </div>
+          ))}
+        </div>
+
+        <div style={{ marginBottom: '1rem' }}>
+          <div className="label-caps" style={{ marginBottom: '0.375rem' }}>Flags</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem 0.75rem' }}>
+            <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>Service Charge <BoolPill value={item.serviceCharge} /></span>
+            <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>Tax 1 <BoolPill value={item.tax1} /></span>
+            <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>Tax 2 <BoolPill value={item.tax2} /></span>
+            <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>No Discount <BoolPill value={item.noDiscount} /></span>
+            <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>Hide Receipt <BoolPill value={item.hideReceipt} /></span>
+          </div>
+        </div>
+
+        <div style={{ marginBottom: '1rem' }}>
+          <div className="label-caps" style={{ marginBottom: '0.375rem' }}>Printers</div>
+          {printerList.length ? (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem' }}>
+              {printerList.map((p) => (
+                <span key={p} style={{ fontSize: '0.7rem', padding: '1px 6px', borderRadius: '3px', background: 'var(--bg-cream)', border: '1px solid var(--border)', color: 'var(--text-secondary)' }}>{p}</span>
+              ))}
+            </div>
+          ) : <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>—</span>}
+        </div>
+
+        <div style={{ marginBottom: '1rem' }}>
+          <div className="label-caps" style={{ marginBottom: '0.375rem' }}>Outlets</div>
+          {outletList.length ? (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem' }}>
+              {outletList.map((o) => (
+                <span key={o} style={{ fontSize: '0.7rem', padding: '1px 6px', borderRadius: '3px', background: 'rgba(201,168,76,0.08)', border: '1px solid rgba(201,168,76,0.2)', color: '#8B6914' }}>{o}</span>
+              ))}
+            </div>
+          ) : <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>—</span>}
+        </div>
+
+        {priceLevels.entries.length > 0 && (
+          <div style={{ marginBottom: '0.5rem' }}>
+            <div className="label-caps" style={{ marginBottom: '0.375rem' }}>Price Levels</div>
+            <div className="card" style={{ overflow: 'hidden' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr>
+                    <th style={{ fontSize: '0.6rem', textAlign: 'left', padding: '0.3rem 0.5rem', color: 'var(--text-secondary)', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', borderBottom: '1px solid var(--border)' }}>Outlet Type</th>
+                    <th style={{ fontSize: '0.6rem', textAlign: 'left', padding: '0.3rem 0.5rem', color: 'var(--text-secondary)', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', borderBottom: '1px solid var(--border)' }}>Outlet Group</th>
+                    <th style={{ fontSize: '0.6rem', textAlign: 'right', padding: '0.3rem 0.5rem', color: 'var(--text-secondary)', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', borderBottom: '1px solid var(--border)' }}>Price</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {priceLevels.entries.map((e, i) => (
+                    <tr key={i}>
+                      <td style={{ fontSize: '0.72rem', padding: '0.3rem 0.5rem', color: 'var(--text-primary)' }}>{e.outletType || '—'}</td>
+                      <td style={{ fontSize: '0.72rem', padding: '0.3rem 0.5rem', color: 'var(--text-secondary)' }}>{e.outletGroup || '—'}</td>
+                      <td style={{ fontSize: '0.72rem', padding: '0.3rem 0.5rem', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{e.price.toLocaleString('id-ID')}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
 export default function CashierItemLookupPage() {
   const { data: session } = useSession();
   const sessionUser = session?.user as any;
@@ -51,6 +172,7 @@ export default function CashierItemLookupPage() {
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
+  const [activeItem, setActiveItem] = useState<MasterItem | null>(null);
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('');
@@ -228,7 +350,7 @@ export default function CashierItemLookupPage() {
               </thead>
               <tbody>
                 {items.map((item) => (
-                  <tr key={item.id}>
+                  <tr key={item.id} onClick={() => setActiveItem(item)} style={{ cursor: 'pointer' }}>
                     <td>
                       <span style={{ fontFamily: 'monospace', fontSize: '0.78rem', color: '#C9A84C', fontWeight: 600, letterSpacing: '0.03em' }}>
                         {item.code}
@@ -274,6 +396,8 @@ export default function CashierItemLookupPage() {
           </button>
         </div>
       )}
+
+      {activeItem && <ItemDetailSlideOver item={activeItem} onClose={() => setActiveItem(null)} />}
 
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>

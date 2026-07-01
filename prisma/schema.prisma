@@ -197,6 +197,14 @@ model PLURequest {
   barcode              String?
   remarks              String?
 
+  // Cost Control approval stage (WINE NEW_ITEM from Cork outlets). suggestedBarcode is the
+  // system-derived SAP NCK barcode, suggestedBarcodeSource its human-readable origin label, and
+  // confirmedBarcode the value cost control commits. No unique constraint: legacy rows may hold
+  // duplicate bad barcodes (e.g. old +11 arithmetic results) that would break a unique migration.
+  suggestedBarcode        String?
+  suggestedBarcodeSource  String?
+  confirmedBarcode        String?
+
   submittedBy   User     @relation(fields: [userId], references: [id])
   userId        String
   outletGroup   String

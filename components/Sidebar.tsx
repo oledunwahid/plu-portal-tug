@@ -6,7 +6,7 @@ import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard, Download, Users, Plus, Layers, Menu, X,
   BookOpen, Database, ScanBarcode, BookMarked, ChevronDown, ChevronRight, Tag, Settings, Search, Trash2,
-  AlertTriangle, ArrowLeftRight, FileSpreadsheet, BadgeDollarSign,
+  AlertTriangle, ArrowLeftRight, FileSpreadsheet, BadgeDollarSign, ClipboardCheck,
 } from 'lucide-react';
 import { useSession } from 'next-auth/react';
 import { SignOutButton } from '@/components/SignOutButton';
@@ -16,7 +16,7 @@ interface NavItem {
   label: string;
   href: string;
   icon: React.ReactNode;
-  roles: ('ADMIN' | 'CASHIER')[];
+  roles: ('ADMIN' | 'CASHIER' | 'COST_CONTROL')[];
 }
 
 const NAV_ITEMS: NavItem[] = [
@@ -31,6 +31,8 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Discount', href: '/admin/discount', icon: <Tag size={15} />, roles: ['ADMIN'] },
   { label: 'Request Removal', href: '/admin/removal', icon: <Trash2 size={15} />, roles: ['ADMIN'] },
   { label: 'Users', href: '/admin/users', icon: <Users size={15} />, roles: ['ADMIN'] },
+  { label: 'Dashboard', href: '/cost-control/dashboard', icon: <ClipboardCheck size={15} />, roles: ['COST_CONTROL'] },
+  { label: 'Price Check', href: '/admin/price-check', icon: <BadgeDollarSign size={15} />, roles: ['COST_CONTROL'] },
 ];
 
 const KB_ITEMS = [
@@ -55,7 +57,7 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
   const { data: session } = useSession();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sessionUser = session?.user as any;
-  const role = (sessionUser?.role ?? 'CASHIER') as 'ADMIN' | 'CASHIER';
+  const role = (sessionUser?.role ?? 'CASHIER') as 'ADMIN' | 'CASHIER' | 'COST_CONTROL';
   const items = NAV_ITEMS.filter((i) => i.roles.includes(role));
 
   const isOnKB = pathname.startsWith('/admin/kb');
@@ -75,7 +77,7 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
           </Link>
         ))}
 
-        {role === 'ADMIN' && (
+        {(role === 'ADMIN' || role === 'COST_CONTROL') && (
           <>
             <div style={{ padding: '10px 10px 4px', marginTop: '6px' }}>
               <span style={{ fontSize: '0.6rem', letterSpacing: '0.1em', color: 'rgba(255,255,255,0.2)', fontWeight: 700, textTransform: 'uppercase' }}>
@@ -109,10 +111,12 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
               </div>
             )}
 
-            <Link href="/admin/config" onClick={onClose} style={LINK_STYLE(pathname === '/admin/config')}>
-              <Settings size={15} />
-              Config
-            </Link>
+            {role === 'ADMIN' && (
+              <Link href="/admin/config" onClick={onClose} style={LINK_STYLE(pathname === '/admin/config')}>
+                <Settings size={15} />
+                Config
+              </Link>
+            )}
           </>
         )}
       </nav>
@@ -129,6 +133,11 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
             {role === 'ADMIN' && (
               <div style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.35)' }}>
                 ADMIN · HEAD OFFICE
+              </div>
+            )}
+            {role === 'COST_CONTROL' && (
+              <div style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.35)' }}>
+                COST CONTROL
               </div>
             )}
           </div>

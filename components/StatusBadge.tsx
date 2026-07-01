@@ -11,6 +11,18 @@ const STATUS_CONFIG: Record<string, { label: string; bg: string; color: string; 
     color: '#1e40af',
     border: 'rgba(59, 130, 246, 0.25)',
   },
+  PENDING_COST_CONTROL: {
+    label: 'Menunggu Cost Control',
+    bg: 'rgba(124, 58, 237, 0.10)',
+    color: '#6D28D9',
+    border: 'rgba(124, 58, 237, 0.28)',
+  },
+  REJECTED: {
+    label: 'Ditolak',
+    bg: 'rgba(180, 35, 24, 0.10)',
+    color: '#B42318',
+    border: 'rgba(180, 35, 24, 0.28)',
+  },
   DONE: {
     label: 'Done',
     bg: 'var(--status-done-bg)',

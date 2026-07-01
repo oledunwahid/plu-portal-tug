@@ -31,6 +31,20 @@ export const ALL_OUTLETS = Object.keys(OUTLET_TO_GROUP);
 
 export const MILAN_OUTLETS = ['MILGI', 'MILPIK'];
 
+// "Cork" outlets — the CNS wine-bar outlets whose WINE NEW_ITEM requests route through the
+// Cost Control approval stage. NOTE: BLCS is a CNS outlet but is NOT a Cork outlet (excluded).
+// Mirrors the CORK_OUTLETS set used for NEW_ITEM price-level pre-population in lib/export.ts.
+export const CORK_OUTLETS = ['CSPP', 'CSPI', 'CSSG', 'CSPP-B', 'CSPI-B', 'CSSG-B'];
+
+// Case-insensitive + trimmed so a stored outlet like " cspp " or "cspp" still matches. The exact
+// codes are uppercase, but cashier/session outlet values shouldn't fail the Cost Control trigger
+// over casing or stray whitespace.
+const CORK_OUTLET_SET = new Set(CORK_OUTLETS.map((o) => o.toUpperCase()));
+
+export function isCorkOutlet(outlet: string | null | undefined): boolean {
+  return CORK_OUTLET_SET.has(String(outlet ?? '').trim().toUpperCase());
+}
+
 export const ALL_PRINTERS: string[] = [
   'KITCHEN1','KITCHEN2','KITCHEN3','KITCHEN4','KITCHEN5','KITCHEN6',
   'CK KITCHEN','CK KITCHEN 2','CK BAR',
@@ -80,4 +94,20 @@ export const PRINTER_GROUPS: { label: string; printers: string[] }[] = [
 
 export function getOutletGroup(outlet: string): OutletGroup {
   return OUTLET_TO_GROUP[outlet] ?? 'UNION';
+}
+
+// Admin-side outlet rename (display + export only). A cashier selects BISPIK and/or MILPIK (both
+// IBR) as distinct outlets, but admin/export always presents either as the combined outlet
+// "MILBISPIK": selecting BISPIK alone → MILBISPIK, MILPIK alone → MILBISPIK, both → a single
+// MILBISPIK (de-duplicated). Other outlets and order are preserved. Cashier-facing views are
+// intentionally NOT passed through this — they keep the raw selections.
+export function collapseAdminOutlets(outlets: string): string {
+  if (!outlets) return outlets;
+  const tokens = outlets.split(';').map((t) => t.trim()).filter(Boolean);
+  const result: string[] = [];
+  for (const t of tokens) {
+    const mapped = (t === 'BISPIK' || t === 'MILPIK') ? 'MILBISPIK' : t;
+    if (!result.includes(mapped)) result.push(mapped);
+  }
+  return result.join(';');
 }

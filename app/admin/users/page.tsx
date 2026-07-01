@@ -270,6 +270,7 @@ export default function UsersPage() {
                 >
                   <option value="CASHIER">CASHIER</option>
                   <option value="ADMIN">ADMIN</option>
+                  <option value="COST_CONTROL">COST_CONTROL</option>
                 </select>
               </div>
 
