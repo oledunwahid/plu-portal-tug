@@ -14,13 +14,25 @@ import { isNckCode } from './barcode';
 // The status a routed request enters at creation, instead of PENDING.
 export const STATUS_PENDING_COST_CONTROL = 'PENDING_COST_CONTROL';
 
+// "Wine Event" items do not need a barcode, so they never generate a suggestedBarcode, never consume
+// the NCK suffix sequence, and bypass cost control (which exists to verify barcodes).
+export function isWineEventCategory(category: string | null | undefined): boolean {
+  return String(category ?? '').trim().toLowerCase() === 'wine event';
+}
+
 // True when a request must enter the cost-control stage rather than going straight to admin.
 export function shouldRouteToCostControl(
   requestType: string,
   department: string,
   cashierOutlet: string,
+  category?: string | null,
 ): boolean {
-  return requestType === 'NEW_ITEM' && isWineDepartment(department) && isCorkOutlet(cashierOutlet);
+  return (
+    requestType === 'NEW_ITEM' &&
+    isWineDepartment(department) &&
+    isCorkOutlet(cashierOutlet) &&
+    !isWineEventCategory(category)
+  );
 }
 
 type MaybeString = string | null | undefined;

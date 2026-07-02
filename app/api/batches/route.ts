@@ -3,7 +3,7 @@ import { getSession } from '@/lib/session';
 import { getRequestBatches, createRequestBatch, getMasterItemByCode, createPLURequest, getAllSapItemsForMatch, getMaxExistingBarcode, getBarcodeOccupancy } from '@/lib/db';
 import { OUTLET_TO_GROUP } from '@/lib/outlets';
 import { loadOutletPrefixMap, loadCategoryCodeMap } from '@/lib/configLoader';
-import { shouldRouteToCostControl, suggestBarcode, STATUS_PENDING_COST_CONTROL } from '@/lib/costControl';
+import { shouldRouteToCostControl, suggestBarcode, isWineEventCategory, STATUS_PENDING_COST_CONTROL } from '@/lib/costControl';
 import type { BatchItemInput } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
@@ -84,9 +84,9 @@ export async function POST(req: NextRequest) {
     // PLURequest); the remaining items stay in the batch and follow the normal PENDING flow.
     // Same predicate as the single-request route — no duplicated condition.
     const costControlItems = items.filter((it) =>
-      shouldRouteToCostControl(requestType, it.department, session.user.outlet));
+      shouldRouteToCostControl(requestType, it.department, session.user.outlet, it.category));
     const batchItems = items.filter((it) =>
-      !shouldRouteToCostControl(requestType, it.department, session.user.outlet));
+      !shouldRouteToCostControl(requestType, it.department, session.user.outlet, it.category));
 
     let costControlCount = 0;
     if (costControlItems.length > 0) {
@@ -101,10 +101,14 @@ export async function POST(req: NextRequest) {
       ]);
       const generatedBarcodes: string[] = [];
       for (const it of costControlItems) {
-        const suggestion = suggestBarcode(it.name, saps, maxBarcode, {
-          ...occupancy,
-          extraBarcodes: generatedBarcodes,
-        });
+        // Defensive: Wine Event never generates a barcode nor consumes/reserves the NCK sequence,
+        // even if it somehow reaches this loop. The filter above already excludes it.
+        const suggestion = isWineEventCategory(it.category)
+          ? { value: null, source: null }
+          : suggestBarcode(it.name, saps, maxBarcode, {
+              ...occupancy,
+              extraBarcodes: generatedBarcodes,
+            });
         if (suggestion.value) generatedBarcodes.push(suggestion.value);
         await createPLURequest({
           requestType,
@@ -122,7 +126,9 @@ export async function POST(req: NextRequest) {
           hideReceipt: it.hideReceipt ?? false,
           printers: it.printers,
           outlets: it.outlets,
-          barcode: it.department === 'WINE' ? (it.barcode ?? null) : null,
+          barcode: isWineEventCategory(it.category)
+            ? null
+            : it.department === 'WINE' ? (it.barcode ?? null) : null,
           status: STATUS_PENDING_COST_CONTROL,
           suggestedBarcode: suggestion.value,
           suggestedBarcodeSource: suggestion.source,
