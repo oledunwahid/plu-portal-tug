@@ -1673,6 +1673,19 @@ export async function getAllSapItemsForMatch(): Promise<DbSapMasterItem[]> {
   }
 }
 
+// Every master item, unpaginated — for whole-registry analysis passes such as the
+// Data Quality duplicate/SAP-evidence engine (lib/dupAnalysis.ts). Capped high.
+export async function getAllMasterItemsForMatch(): Promise<DbMasterItem[]> {
+  try {
+    const db = await getDb();
+    const rows = execAll(db, 'SELECT * FROM "MasterItem" LIMIT 200000');
+    return rows.map(rowToMasterItem);
+  } catch (err) {
+    console.error('[db] getAllMasterItemsForMatch failed:', err);
+    return [];
+  }
+}
+
 // Highest numeric barcode across both registries (MasterItem + SapMasterItem). Non-digit
 // characters are stripped and the remainder parsed as an integer; the max across all rows is
 // returned (0 when neither table has a usable barcode). Used by the Cost Control sequential

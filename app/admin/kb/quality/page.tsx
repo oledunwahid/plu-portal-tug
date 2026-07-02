@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { toast } from 'sonner';
-import { AlertTriangle, Loader2, ChevronDown, X } from 'lucide-react';
+import { AlertTriangle, Loader2, ChevronDown, X, Download, Filter } from 'lucide-react';
 import { formatPrice } from '@/lib/utils';
 import { parsePriceLevels } from '@/lib/masterReport';
 import TableSkeleton from '@/components/skeletons/TableSkeleton';
@@ -353,166 +353,372 @@ function ItemDetailSlideOver({ code, onClose }: { code: string; onClose: () => v
   );
 }
 
-// ── Panel 1: Duplicate accordion ─────────────────────────────────────────────
+// ── Panel 1: Duplicate analysis + SAP evidence ───────────────────────────────
 
+type Classification = 'LIKELY_DUPLICATE' | 'SAP_SEPARATED' | 'AMBIGUOUS' | 'NO_SAP_EVIDENCE';
+
+interface SapMatch {
+  itemNo: string; description: string; subGroup: string | null; barcode: string | null;
+  score: number; reason: string; isNck: boolean; normalizedBase: string;
+}
+interface DupMaster {
+  id: string; code: string; name: string; category: string; department: string;
+  price: number | null; barcode: string | null; outlets: string | null;
+  outletGroup: string | null; folder: string | null;
+}
 interface DupGroup {
-  key: string; prefix: string; department: string; category: string;
-  price: number | null; items: MasterItem[]; folderDiffers: boolean;
+  id: string; classification: Classification; confidence: number; reason: string;
+  recommendedAction: string; key: string; prefix: string; department: string;
+  category: string; outlets: string[]; price: number | null;
+  masterItems: DupMaster[]; sapMatches: SapMatch[];
+  sizeDiff: boolean; typeDiff: boolean; nckVariance: boolean; distinctSapBases: number;
 }
+interface DupCounts { total: number; likelyDuplicate: number; sapSeparated: number; ambiguous: number; noSapEvidence: number; }
+interface DupFilterOptions { departments: string[]; categories: string[]; outlets: string[]; prefixes: string[]; }
+interface DupResponse { groups: DupGroup[]; counts: DupCounts; filterOptions: DupFilterOptions; }
 
-function buildDupGroups(duplicates: MasterItem[][]): DupGroup[] {
-  return duplicates.filter((g) => g.length > 0).map((group) => {
-    const folders = new Set(group.map((it) => (it.folder ?? '').trim()));
-    return {
-      key: group[0].id,
-      prefix: group[0].code.substring(0, 3),
-      department: group[0].department,
-      category: group[0].category,
-      price: group[0].price,
-      items: group,
-      folderDiffers: folders.size > 1,
-    };
-  });
-}
+const CLS_META: Record<Classification, { label: string; color: string; bg: string; border: string }> = {
+  LIKELY_DUPLICATE: { label: 'Kemungkinan Duplikat', color: '#7A2E1F', bg: 'rgba(122,46,31,0.08)', border: 'rgba(122,46,31,0.25)' },
+  SAP_SEPARATED: { label: 'Terpisah oleh SAP', color: '#2D4A2E', bg: 'rgba(61,90,62,0.1)', border: 'rgba(61,90,62,0.25)' },
+  AMBIGUOUS: { label: 'Ambigu', color: '#8B6914', bg: AMBER_BG, border: 'rgba(201,168,76,0.3)' },
+  NO_SAP_EVIDENCE: { label: 'Tanpa Bukti SAP', color: 'var(--text-secondary)', bg: 'rgba(26,16,8,0.05)', border: 'var(--border)' },
+};
+const ACTION_LABEL: Record<string, string> = {
+  MERGE_OR_REMOVE: 'Gabung / Hapus', KEEP_SEPARATE_SAP_EVIDENCE: 'Biarkan terpisah (bukti SAP)',
+  REVIEW_MANUALLY: 'Tinjau manual', NEED_SAP_CHECK: 'Cek SAP',
+};
+const REASON_LABEL: Record<string, string> = {
+  'exact-barcode': 'Barcode sama', 'exact-name': 'Nama sama', 'fuzzy-name': 'Mirip nama',
+  'nck-related': 'Terkait NCK', weak: 'Lemah',
+};
 
-function DupSortBtn({ label, col, sort, setSort }: { label: string; col: string; sort: SortState; setSort: (s: SortState) => void }) {
-  const active = sort.key === col;
+const CLASS_FILTERS: { value: string; label: string }[] = [
+  { value: 'ALL', label: 'Semua' },
+  { value: 'LIKELY_DUPLICATE', label: 'Kemungkinan Duplikat' },
+  { value: 'SAP_SEPARATED', label: 'Terpisah oleh SAP' },
+  { value: 'AMBIGUOUS', label: 'Ambigu' },
+  { value: 'NO_SAP_EVIDENCE', label: 'Tanpa Bukti SAP' },
+];
+
+const SELECT_STYLE: React.CSSProperties = {
+  height: '34px', border: '1px solid var(--input-border)', borderRadius: '4px',
+  background: 'var(--bg-card)', color: 'var(--text-primary)', padding: '0 0.5rem',
+  fontSize: '0.78rem', outline: 'none', minWidth: '130px',
+};
+
+function FilterSelect({ label, value, options, onChange }: { label: string; value: string; options: string[]; onChange: (v: string) => void }) {
   return (
-    <button
-      onClick={() => setSort(active ? { key: col, dir: sort.dir === 'asc' ? 'desc' : 'asc' } : { key: col, dir: 'asc' })}
-      style={{
-        padding: '0.25rem 0.6rem', borderRadius: '3px', fontSize: '0.72rem', fontWeight: 600,
-        border: `1px solid ${active ? 'var(--accent-gold)' : 'var(--border)'}`,
-        background: active ? 'rgba(201,168,76,0.08)' : 'transparent',
-        color: active ? '#8B6914' : 'var(--text-secondary)', cursor: 'pointer',
-      }}
-    >
-      {label}{active ? (sort.dir === 'asc' ? ' ↑' : ' ↓') : ''}
-    </button>
+    <label style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+      <span style={{ fontSize: '0.66rem', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{label}</span>
+      <select value={value} onChange={(e) => onChange(e.target.value)} style={SELECT_STYLE}>
+        <option value="ALL">Semua</option>
+        {options.map((o) => <option key={o} value={o}>{o}</option>)}
+      </select>
+    </label>
   );
 }
 
-function DuplicatePanel({ loading, duplicates, onOpenDetail }: { loading: boolean; duplicates: MasterItem[][]; onOpenDetail: (code: string) => void }) {
+function ClassBadge({ cls, confidence }: { cls: Classification; confidence?: number }) {
+  const m = CLS_META[cls];
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.68rem', fontWeight: 700, padding: '2px 8px', borderRadius: '999px', background: m.bg, color: m.color, border: `1px solid ${m.border}`, whiteSpace: 'nowrap' }}>
+      {m.label}{confidence != null ? <span style={{ opacity: 0.7, fontWeight: 600 }}>{Math.round(confidence * 100)}%</span> : null}
+    </span>
+  );
+}
+
+function csvEscape(v: string | number | null | undefined): string {
+  const s = String(v ?? '');
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+function exportDuplicatesCsv(groups: DupGroup[]) {
+  const headers = [
+    'duplicateGroupId', 'classification', 'confidence', 'reason', 'masterItemCodes',
+    'masterItemNames', 'department', 'category', 'outlets', 'prices',
+    'sapItemNosMatched', 'sapDescriptionsMatched', 'sapMatchScores', 'recommendedAction',
+  ];
+  const rows = groups.map((g) => {
+    const prices = Array.from(new Set(g.masterItems.map((it) => (it.price != null ? String(it.price) : '')))).filter(Boolean).join(' | ');
+    return [
+      g.key, g.classification, g.confidence, g.reason,
+      g.masterItems.map((it) => it.code).join(' | '),
+      g.masterItems.map((it) => it.name).join(' | '),
+      g.department, g.category, g.outlets.join(' | '), prices,
+      g.sapMatches.map((m) => m.itemNo).join(' | '),
+      g.sapMatches.map((m) => m.description).join(' | '),
+      g.sapMatches.map((m) => m.score).join(' | '),
+      g.recommendedAction,
+    ];
+  });
+  const csv = [headers.join(','), ...rows.map((r) => r.map(csvEscape).join(','))].join('\n');
+  const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `duplicate-analysis-${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function SapMatchTable({ matches }: { matches: SapMatch[] }) {
+  if (matches.length === 0) {
+    return <div style={{ padding: '0.75rem 0', fontSize: '0.78rem', color: 'var(--text-secondary)', fontStyle: 'italic' }}>Tidak ada baris SAP yang cocok.</div>;
+  }
+  return (
+    <div style={{ overflowX: 'auto' }}>
+      <table>
+        <thead>
+          <tr><th>SAP ItemNo</th><th>Description</th><th>SubGroup</th><th style={{ textAlign: 'right' }}>Score</th><th>Alasan</th></tr>
+        </thead>
+        <tbody>
+          {matches.map((m) => (
+            <tr key={m.itemNo}>
+              <td style={{ ...TD_CODE, color: m.isNck ? '#8B6914' : '#C9A84C' }}>
+                {m.itemNo}{m.isNck && <span style={{ fontSize: '0.6rem', marginLeft: 4, padding: '0 4px', borderRadius: 3, background: AMBER_BG, color: '#8B6914', border: '1px solid rgba(201,168,76,0.3)' }}>NCK</span>}
+              </td>
+              <td style={{ fontSize: '0.78rem', maxWidth: '320px', whiteSpace: 'normal', wordBreak: 'break-word' }}>{m.description}</td>
+              <td style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{m.subGroup ?? '—'}</td>
+              <td style={{ ...TD_NUM, fontWeight: 700, color: m.score >= 0.7 ? '#2D4A2E' : m.score >= 0.5 ? '#8B6914' : 'var(--text-secondary)' }}>{Math.round(m.score * 100)}%</td>
+              <td style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>{REASON_LABEL[m.reason] ?? m.reason}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function DiffChips({ g }: { g: DupGroup }) {
+  const chips: string[] = [];
+  if (g.nckVariance) chips.push('NCK vs non-NCK');
+  if (g.sizeDiff) chips.push('Ukuran berbeda');
+  if (g.typeDiff) chips.push('Tipe BT/SG');
+  if (g.distinctSapBases >= 2) chips.push(`${g.distinctSapBases} itemNo SAP`);
+  if (chips.length === 0) return null;
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem', marginTop: '0.5rem' }}>
+      {chips.map((c) => (
+        <span key={c} style={{ fontSize: '0.66rem', fontWeight: 600, padding: '2px 7px', borderRadius: '3px', background: AMBER_BG, color: '#8B6914', border: '1px solid rgba(201,168,76,0.3)' }}>{c}</span>
+      ))}
+    </div>
+  );
+}
+
+function DuplicateAnalysisPanel({ onOpenDetail }: { onOpenDetail: (code: string) => void }) {
+  const [department, setDepartment] = useState('ALL');
+  const [category, setCategory] = useState('ALL');
+  const [outlet, setOutlet] = useState('ALL');
+  const [prefix, setPrefix] = useState('ALL');
+  const [classification, setClassification] = useState('ALL');
+  const [minPrice, setMinPrice] = useState('');
+  const [maxPrice, setMaxPrice] = useState('');
   const [searchInput, setSearchInput] = useState('');
-  const search = useDebounced(searchInput, 300);
+  const [sort, setSort] = useState('default');
+  const search = useDebounced(searchInput, 350);
+  const dMinPrice = useDebounced(minPrice, 400);
+  const dMaxPrice = useDebounced(maxPrice, 400);
+
+  const [data, setData] = useState<DupResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [options, setOptions] = useState<DupFilterOptions>({ departments: [], categories: [], outlets: [], prefixes: [] });
   const [page, setPage] = useState(1);
-  const [sort, setSort] = useState<SortState>({ key: 'prefix', dir: 'asc' });
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
-  const groups = useMemo(() => buildDupGroups(duplicates), [duplicates]);
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    const params = new URLSearchParams();
+    if (department !== 'ALL') params.set('department', department);
+    if (category !== 'ALL') params.set('category', category);
+    if (outlet !== 'ALL') params.set('outlet', outlet);
+    if (prefix !== 'ALL') params.set('prefix', prefix);
+    if (classification !== 'ALL') params.set('classification', classification);
+    if (search.trim()) params.set('search', search.trim());
+    if (dMinPrice.trim()) params.set('minPrice', dMinPrice.trim());
+    if (dMaxPrice.trim()) params.set('maxPrice', dMaxPrice.trim());
+    if (sort !== 'default') params.set('sort', sort);
+    fetch(`/api/admin/kb/quality/duplicates?${params.toString()}`)
+      .then((r) => r.ok ? r.json() : Promise.reject(new Error('Gagal memuat analisis duplikat')))
+      .then((d: DupResponse) => {
+        if (cancelled) return;
+        setData(d);
+        // filterOptions are global (computed pre-filter) — keep the fullest set seen.
+        setOptions((prev) => ({
+          departments: d.filterOptions.departments.length ? d.filterOptions.departments : prev.departments,
+          categories: d.filterOptions.categories.length ? d.filterOptions.categories : prev.categories,
+          outlets: d.filterOptions.outlets.length ? d.filterOptions.outlets : prev.outlets,
+          prefixes: d.filterOptions.prefixes.length ? d.filterOptions.prefixes : prev.prefixes,
+        }));
+      })
+      .catch((e) => { if (!cancelled) toast.error(e.message ?? 'Gagal memuat analisis duplikat'); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [department, category, outlet, prefix, classification, search, dMinPrice, dMaxPrice, sort]);
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    let list = groups;
-    if (q) list = groups.filter((g) => g.items.some((it) => it.code.toLowerCase().includes(q) || it.name.toLowerCase().includes(q)));
-    const acc = (g: DupGroup): string | number | null =>
-      sort.key === 'price' ? (g.price ?? -1)
-        : sort.key === 'count' ? g.items.length
-          : (g as unknown as Record<string, string>)[sort.key];
-    return sortRows(list, acc, sort.dir);
-  }, [groups, search, sort]);
+  useEffect(() => { setPage(1); }, [department, category, outlet, prefix, classification, search, dMinPrice, dMaxPrice, sort]);
 
-  useEffect(() => { setPage(1); }, [search]);
-
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const groups = data?.groups ?? [];
+  const counts = data?.counts ?? { total: 0, likelyDuplicate: 0, sapSeparated: 0, ambiguous: 0, noSapEvidence: 0 };
+  const totalPages = Math.max(1, Math.ceil(groups.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
-  const pageGroups = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+  const pageGroups = groups.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
 
-  const allOpen = pageGroups.length > 0 && pageGroups.every((g) => expanded.has(g.key));
-  function toggleAll() {
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      if (allOpen) pageGroups.forEach((g) => next.delete(g.key));
-      else pageGroups.forEach((g) => next.add(g.key));
-      return next;
-    });
-  }
   function toggleGroup(key: string) {
     setExpanded((prev) => {
       const next = new Set(prev);
-      next.has(key) ? next.delete(key) : next.add(key);
+      if (next.has(key)) next.delete(key); else next.add(key);
       return next;
     });
   }
 
+  const countChips: { value: string; label: string; n: number; cls?: Classification }[] = [
+    { value: 'ALL', label: 'Semua', n: counts.total },
+    { value: 'LIKELY_DUPLICATE', label: 'Kemungkinan Duplikat', n: counts.likelyDuplicate, cls: 'LIKELY_DUPLICATE' },
+    { value: 'SAP_SEPARATED', label: 'Terpisah oleh SAP', n: counts.sapSeparated, cls: 'SAP_SEPARATED' },
+    { value: 'AMBIGUOUS', label: 'Ambigu', n: counts.ambiguous, cls: 'AMBIGUOUS' },
+    { value: 'NO_SAP_EVIDENCE', label: 'Tanpa Bukti SAP', n: counts.noSapEvidence, cls: 'NO_SAP_EVIDENCE' },
+  ];
+
   return (
     <PanelCard
-      title="Kandidat Duplikat"
-      description="Item dengan prefix, kategori, department, harga, dan price level yang sama berpotensi digabung."
-      count={groups.length}
+      title="Analisis Duplikat + Bukti SAP"
+      description="Kelompok Master Item yang tampak duplikat, diklasifikasikan dengan bukti dari SAP (itemNo / NCK / ukuran / tipe). Alat bukti & tinjauan — tidak mengubah data."
+      count={counts.total}
     >
+      {/* Filter bar */}
+      <div style={{ padding: '0.85rem 1.25rem', borderBottom: '1px solid var(--border)', display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+        <FilterSelect label="Department" value={department} options={options.departments} onChange={setDepartment} />
+        <FilterSelect label="Kategori" value={category} options={options.categories} onChange={setCategory} />
+        <FilterSelect label="Outlet" value={outlet} options={options.outlets} onChange={setOutlet} />
+        <FilterSelect label="Prefix" value={prefix} options={options.prefixes} onChange={setPrefix} />
+        <label style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+          <span style={{ fontSize: '0.66rem', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Harga</span>
+          <div style={{ display: 'flex', gap: '0.3rem', alignItems: 'center' }}>
+            <input value={minPrice} onChange={(e) => setMinPrice(e.target.value)} placeholder="Min" inputMode="numeric" style={{ ...SELECT_STYLE, minWidth: '80px', width: '80px' }} />
+            <span style={{ color: 'var(--text-secondary)' }}>–</span>
+            <input value={maxPrice} onChange={(e) => setMaxPrice(e.target.value)} placeholder="Max" inputMode="numeric" style={{ ...SELECT_STYLE, minWidth: '80px', width: '80px' }} />
+          </div>
+        </label>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+          <span style={{ fontSize: '0.66rem', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Urut</span>
+          <select value={sort} onChange={(e) => setSort(e.target.value)} style={SELECT_STYLE}>
+            <option value="default">Prioritas (default)</option>
+            <option value="confidence">Confidence</option>
+            <option value="prefix">Prefix</option>
+            <option value="count">Jumlah item</option>
+          </select>
+        </label>
+        <div style={{ flex: 1 }} />
+        <button
+          onClick={() => exportDuplicatesCsv(groups)}
+          disabled={groups.length === 0}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', height: '34px', padding: '0 0.85rem', background: 'transparent', border: '1px solid var(--border)', borderRadius: '4px', fontSize: '0.78rem', fontWeight: 600, color: groups.length ? '#8B6914' : 'var(--text-secondary)', cursor: groups.length ? 'pointer' : 'not-allowed', opacity: groups.length ? 1 : 0.5 }}
+        >
+          <Download size={13} /> Export CSV
+        </button>
+      </div>
+
+      {/* Search + classification chips */}
+      <div style={{ padding: '0.75rem 1.25rem', borderBottom: '1px solid var(--border)', display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
+        <div style={{ position: 'relative', flex: '1 1 260px', maxWidth: '420px' }}>
+          <input value={searchInput} onChange={(e) => setSearchInput(e.target.value)} placeholder="Cari kode, nama, barcode, kategori, SAP itemNo..." style={SEARCH_INPUT} />
+        </div>
+        <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+          {countChips.map((c) => {
+            const active = classification === c.value;
+            const meta = c.cls ? CLS_META[c.cls] : null;
+            return (
+              <button
+                key={c.value}
+                onClick={() => setClassification(c.value)}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: '0.35rem', padding: '0.3rem 0.7rem', borderRadius: '999px',
+                  fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer',
+                  background: active ? (meta ? meta.bg : 'rgba(201,168,76,0.14)') : 'transparent',
+                  color: active ? (meta ? meta.color : '#8B6914') : 'var(--text-secondary)',
+                  border: `1px solid ${active ? (meta ? meta.border : 'rgba(201,168,76,0.4)') : 'var(--border)'}`,
+                }}
+              >
+                {c.label}
+                <span style={{ fontWeight: 700, opacity: 0.85 }}>{c.n.toLocaleString('id-ID')}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       {loading ? (
         <TableSkeleton rows={4} cols={5} />
       ) : groups.length === 0 ? (
         <div style={{ padding: '2.5rem', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
-          Tidak ada kandidat duplikat ditemukan.
+          <Filter size={20} style={{ opacity: 0.4, marginBottom: '0.5rem' }} /><br />
+          Tidak ada kandidat duplikat untuk filter ini.
         </div>
       ) : (
         <>
-          <SearchRow
-            value={searchInput} onChange={setSearchInput} placeholder="Cari kode atau nama item..."
-            filtered={filtered.length} total={groups.length}
-            extra={
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-                <button onClick={toggleAll} style={{ ...DETAIL_BTN, color: '#8B6914', borderColor: 'rgba(201,168,76,0.3)' }}>
-                  {allOpen ? 'Tutup Semua' : 'Buka Semua'}
-                </button>
-                <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Urut:</span>
-                <DupSortBtn label="Prefix" col="prefix" sort={sort} setSort={setSort} />
-                <DupSortBtn label="Price" col="price" sort={sort} setSort={setSort} />
-                <DupSortBtn label="Jumlah" col="count" sort={sort} setSort={setSort} />
-              </div>
-            }
-          />
           <div>
             {pageGroups.map((g) => {
               const open = expanded.has(g.key);
+              const meta = CLS_META[g.classification];
+              const repName = g.masterItems[0]?.name ?? '';
               return (
                 <div key={g.key} style={{ borderBottom: '1px solid var(--border)' }}>
-                  {/* Accordion header */}
-                  <div
-                    onClick={() => toggleGroup(g.key)}
-                    style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.75rem 1.25rem', cursor: 'pointer', background: open ? AMBER_BG : 'transparent' }}
-                  >
-                    <div style={{ flex: 1, fontSize: '0.82rem', color: 'var(--text-primary)' }}>
-                      <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#C9A84C' }}>PREFIX {g.prefix}</span>
-                      <span style={{ color: 'var(--text-secondary)' }}>
-                        {' • '}{g.department || '—'}{' • '}{g.category || '—'}{' • '}{g.items.length} item
-                      </span>
+                  {/* Group header */}
+                  <div onClick={() => toggleGroup(g.key)} style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem', padding: '0.85rem 1.25rem', cursor: 'pointer', background: open ? meta.bg : 'transparent' }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.3rem' }}>
+                        <ClassBadge cls={g.classification} confidence={g.confidence} />
+                        <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#C9A84C', fontSize: '0.76rem' }}>{g.prefix}</span>
+                        <span style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-primary)' }}>{repName}</span>
+                        <span style={{ fontSize: '0.74rem', color: 'var(--text-secondary)' }}>
+                          {' • '}{g.masterItems.length} master{' • '}{g.sapMatches.length} SAP
+                        </span>
+                      </div>
+                      <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', lineHeight: 1.45, maxWidth: '760px' }}>{g.reason}</div>
+                      <DiffChips g={g} />
                     </div>
-                    {g.folderDiffers && (
-                      <span style={{ fontSize: '0.68rem', fontWeight: 600, padding: '2px 7px', borderRadius: '3px', background: AMBER_BG, color: '#8B6914', border: '1px solid rgba(201,168,76,0.3)', whiteSpace: 'nowrap' }}>
-                        Folder berbeda
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.25rem', whiteSpace: 'nowrap' }}>
+                      <span style={{ fontSize: '0.66rem', fontWeight: 600, padding: '2px 7px', borderRadius: '3px', background: 'var(--bg-cream)', border: '1px solid var(--border)', color: 'var(--text-secondary)' }}>
+                        {ACTION_LABEL[g.recommendedAction] ?? g.recommendedAction}
                       </span>
-                    )}
-                    <span style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-primary)', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
-                      {g.price != null ? formatPrice(g.price) : '—'}
-                    </span>
-                    <ChevronDown size={16} style={{ color: 'var(--text-secondary)', transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 150ms', flexShrink: 0 }} />
+                      <span style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-primary)', fontVariantNumeric: 'tabular-nums' }}>{g.price != null ? formatPrice(g.price) : '—'}</span>
+                    </div>
+                    <ChevronDown size={16} style={{ color: 'var(--text-secondary)', transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 150ms', flexShrink: 0, marginTop: '0.15rem' }} />
                   </div>
-                  {/* Accordion body */}
+
+                  {/* Expanded detail */}
                   {open && (
-                    <div style={{ overflowX: 'auto', borderTop: '1px solid var(--border)' }}>
-                      <table>
-                        <thead>
-                          <tr>
-                            <th>Code</th><th>Name</th><th>Folder</th><th>Outlets</th><th style={{ textAlign: 'right' }}>Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {g.items.map((it) => (
-                            <tr key={it.id}>
-                              <td style={TD_CODE}>{it.code}</td>
-                              <td style={NAME_CELL}>{it.name}</td>
-                              <td style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>{it.folder ?? '—'}</td>
-                              <td><OutletChips outlets={splitList(it.outlets)} /></td>
-                              <td style={{ textAlign: 'right' }}>
-                                <button onClick={() => onOpenDetail(it.code)} style={DETAIL_BTN}>Lihat Detail</button>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                    <div style={{ borderTop: '1px solid var(--border)', background: 'rgba(0,0,0,0.01)' }}>
+                      <div style={{ padding: '0.75rem 1.25rem 0.25rem', fontSize: '0.66rem', fontWeight: 700, letterSpacing: '0.05em', color: '#8B6914', textTransform: 'uppercase' }}>Master Item ({g.masterItems.length})</div>
+                      <div style={{ overflowX: 'auto' }}>
+                        <table>
+                          <thead>
+                            <tr><th>Code</th><th>Name</th><th>Kategori</th><th>Dept</th><th style={{ textAlign: 'right' }}>Price</th><th>Barcode</th><th>Outlets</th><th style={{ textAlign: 'right' }}>Aksi</th></tr>
+                          </thead>
+                          <tbody>
+                            {g.masterItems.map((it) => (
+                              <tr key={it.id}>
+                                <td style={TD_CODE}>{it.code}</td>
+                                <td style={NAME_CELL}>{it.name}</td>
+                                <td style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>{it.category}</td>
+                                <td style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>{it.department}</td>
+                                <td style={TD_NUM}>{it.price != null ? formatPrice(it.price) : '—'}</td>
+                                <td style={{ fontFamily: 'monospace', fontSize: '0.72rem', color: it.barcode ? 'var(--text-primary)' : 'var(--text-secondary)' }}>{it.barcode || '—'}</td>
+                                <td><OutletChips outlets={splitList(it.outlets)} /></td>
+                                <td style={{ textAlign: 'right' }}>
+                                  <button onClick={(e) => { e.stopPropagation(); onOpenDetail(it.code); }} style={DETAIL_BTN}>Lihat Detail</button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      <div style={{ padding: '0.75rem 1.25rem 0.25rem', fontSize: '0.66rem', fontWeight: 700, letterSpacing: '0.05em', color: '#8B6914', textTransform: 'uppercase' }}>Bukti SAP ({g.sapMatches.length})</div>
+                      <div style={{ padding: '0 1.25rem 1rem' }}>
+                        <SapMatchTable matches={g.sapMatches} />
+                      </div>
                     </div>
                   )}
                 </div>
@@ -845,7 +1051,6 @@ export default function DataQualityPage() {
     }
   }
 
-  const duplicates = report?.duplicates ?? [];
   const priceGaps = report?.priceGaps ?? [];
   const duplicateBarcodes = report?.duplicateBarcodes ?? [];
   const trialItems = report?.trialItems ?? [];
@@ -862,7 +1067,7 @@ export default function DataQualityPage() {
         </p>
       </div>
 
-      <DuplicatePanel loading={loading} duplicates={duplicates} onOpenDetail={setDetailCode} />
+      <DuplicateAnalysisPanel onOpenDetail={setDetailCode} />
       <PriceGapPanel loading={loading} rows={priceGaps} onOpenDetail={setDetailCode} />
       <BarcodePanel loading={loading} rows={duplicateBarcodes} onOpenDetail={setDetailCode} />
       <TrialPanel
