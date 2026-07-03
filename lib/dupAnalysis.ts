@@ -56,6 +56,7 @@ export interface DupGroup {
   reason: string;
   recommendedAction: RecommendedAction;
   key: string;
+  base: string; // internal grouping base name — used to seed lazy SAP evidence
   prefix: string;
   department: string;
   category: string;
@@ -110,8 +111,19 @@ const WEAK_MIN = 0.32;     // keep as weak evidence only
 const STRONG_SIM = 0.7;    // SAP evidence considered strong at/above this
 const INTRA_SIMILAR = 0.72;// members "look duplicated" at/above this pairwise sim
 const INTRA_IDENTICAL = 0.9;
-const MAX_SAP_MATCHES = 12;
-const MAX_SAP_CANDIDATES = 1200; // guard against pathologically common tokens
+const MAX_SAP_MATCHES = 10;      // top matches returned per group
+const MAX_SAP_CANDIDATES = 200;  // SAP rows scored per group before ranking (cap)
+
+// Common / low-signal tokens dropped from the SAP candidate prefilter so a group
+// isn't compared against every "bottle"/"glass" SAP row. Also drop tokens < 3 chars.
+const STOP_TOKENS = new Set([
+  'bt', 'sg', 'ml', 'btl', 'bottle', 'glass', 'nck', 'yo', 'yr', 'years',
+  'the', 'and', 'of',
+]);
+
+function significantTokens(s: string): string[] {
+  return tokenize(s).filter((t) => t.length >= 3 && !STOP_TOKENS.has(t));
+}
 
 // Size tokens: 750ml, 70cl, 1l, 700 ml, 40g …
 const SIZE_SRC = '(\\d{1,4})\\s?(ml|cl|ltr|liter|litre|l|g|gr|gram|kg|oz)\\b';
@@ -205,12 +217,34 @@ function buildBuckets(masters: DupMasterInput[]): Bucket[] {
     if (arr) arr.push(i); else partitions.set(pk, [i]);
   });
 
+  // Fuzzy-union within each partition. A naive all-pairs Dice comparison is
+  // O(buckets²) and dominates runtime (codes all share the "TUG" prefix, so a
+  // partition ≈ a whole department = ~1k buckets). Instead we block on shared
+  // significant tokens: only buckets that co-occur under some meaningful token
+  // are candidate pairs, since two names with Dice ≥ MERGE_SIM almost always
+  // share a real word. This cuts comparisons by orders of magnitude.
   const uf = new UF(buckets.length);
+  const HUGE_POSTING = 500; // skip pathologically common tokens
   for (const idxs of Array.from(partitions.values())) {
-    for (let a = 0; a < idxs.length; a++) {
-      for (let b = a + 1; b < idxs.length; b++) {
-        if (diceCoefficient(buckets[idxs[a]].base, buckets[idxs[b]].base) >= MERGE_SIM) {
-          uf.union(idxs[a], idxs[b]);
+    if (idxs.length < 2) continue;
+    const postings = new Map<string, number[]>();
+    for (const i of idxs) {
+      for (const t of significantTokens(buckets[i].base)) {
+        const arr = postings.get(t);
+        if (arr) arr.push(i); else postings.set(t, [i]);
+      }
+    }
+    const seen = new Set<number>();
+    for (const arr of Array.from(postings.values())) {
+      if (arr.length < 2 || arr.length > HUGE_POSTING) continue;
+      for (let a = 0; a < arr.length; a++) {
+        for (let b = a + 1; b < arr.length; b++) {
+          const x = arr[a], y = arr[b];
+          if (uf.find(x) === uf.find(y)) continue;
+          const pk = x < y ? x * buckets.length + y : y * buckets.length + x;
+          if (seen.has(pk)) continue;
+          seen.add(pk);
+          if (diceCoefficient(buckets[x].base, buckets[y].base) >= MERGE_SIM) uf.union(x, y);
         }
       }
     }
@@ -228,9 +262,9 @@ function buildBuckets(masters: DupMasterInput[]): Bucket[] {
 }
 
 // ── SAP evidence matching ────────────────────────────────────────────────────
-interface SapIndex { saps: DupSapInput[]; tokenIndex: Map<string, number[]>; }
+export interface SapIndex { saps: DupSapInput[]; tokenIndex: Map<string, number[]>; }
 
-function buildSapIndex(saps: DupSapInput[]): SapIndex {
+export function buildSapIndex(saps: DupSapInput[]): SapIndex {
   const tokenIndex = new Map<string, number[]>();
   saps.forEach((s, i) => {
     for (const t of tokenize(s.description)) {
@@ -242,10 +276,11 @@ function buildSapIndex(saps: DupSapInput[]): SapIndex {
 }
 
 function matchSapForGroup(items: DupMasterInput[], base: string, idx: SapIndex): SapMatch[] {
-  // Candidate SAP rows share at least one token with a member name or the base.
+  // Candidate SAP rows share at least one *meaningful* token with a member name
+  // or the base (stopwords + <3-char tokens dropped to avoid huge candidate sets).
   const candidateIdx = new Set<number>();
-  const nameTokens = new Set<string>(tokenize(base));
-  for (const it of items) for (const t of tokenize(it.name)) nameTokens.add(t);
+  const nameTokens = new Set<string>(significantTokens(base));
+  for (const it of items) for (const t of significantTokens(it.name)) nameTokens.add(t);
   for (const t of Array.from(nameTokens)) {
     const posting = idx.tokenIndex.get(t);
     if (!posting) continue;
@@ -460,6 +495,7 @@ export function buildAllGroups(masters: DupMasterInput[], saps: DupSapInput[]): 
       reason: cls.reason,
       recommendedAction: cls.recommendedAction,
       key: b.key,
+      base: b.base,
       prefix: b.prefix,
       department: items[0].department,
       category: items[0].category,
@@ -474,10 +510,17 @@ export function buildAllGroups(masters: DupMasterInput[], saps: DupSapInput[]): 
     };
   });
 
-  // Sort default: worst first (Likely Duplicate), then by confidence.
-  const order: Record<Classification, number> = { LIKELY_DUPLICATE: 0, AMBIGUOUS: 1, NO_SAP_EVIDENCE: 2, SAP_SEPARATED: 3 };
-  groups.sort((a, b) => (order[a.classification] - order[b.classification]) || (b.confidence - a.confidence));
+  sortGroupsDefault(groups);
+  return { groups, filterOptions: buildFilterOptions(groups) };
+}
 
+// Default order: worst first (Likely Duplicate), then by confidence.
+const CLASS_ORDER: Record<Classification, number> = { LIKELY_DUPLICATE: 0, AMBIGUOUS: 1, NO_SAP_EVIDENCE: 2, SAP_SEPARATED: 3 };
+function sortGroupsDefault(groups: DupGroup[]): void {
+  groups.sort((a, b) => (CLASS_ORDER[a.classification] - CLASS_ORDER[b.classification]) || (b.confidence - a.confidence));
+}
+
+function buildFilterOptions(groups: DupGroup[]): DupFilterOptions {
   const departments = new Set<string>();
   const categories = new Set<string>();
   const outlets = new Set<string>();
@@ -491,15 +534,130 @@ export function buildAllGroups(masters: DupMasterInput[], saps: DupSapInput[]): 
     if (g.prefix) prefixes.add(g.prefix);
   }
   const sortStr = (a: string, b: string) => a.localeCompare(b, 'id');
+  return {
+    departments: Array.from(departments).sort(sortStr),
+    categories: Array.from(categories).sort(sortStr),
+    outlets: Array.from(outlets).sort(sortStr),
+    prefixes: Array.from(prefixes).sort(sortStr),
+  };
+}
+
+// ── Lightweight pass (no SAP) ─────────────────────────────────────────────────
+// Cheap classification from MasterItem evidence only — no SAP fuzzy matching.
+// This is what the initial/paginated Data Quality load uses; SAP evidence is
+// filled in lazily per-group on expand via computeGroupEvidence().
+function classifyLight(items: DupMasterInput[], base: string): Classified {
+  const sizes = new Set<string>();
+  for (const it of items) for (const z of extractSizes(it.name)) sizes.add(z);
+  const sizeDiff = sizes.size > 1;
+
+  const types = new Set<string>();
+  for (const it of items) { const t = extractType(it.name); if (t) types.add(t); }
+  const typeDiff = types.size > 1;
+
+  const barcodeDigits = items.map((it) => digitsOnly(it.barcode)).filter(Boolean);
+  const barcodeCollision = new Set(barcodeDigits).size < barcodeDigits.length;
+  const cats = new Set(items.map((it) => normalizeText(it.category)));
+  const depts = new Set(items.map((it) => normalizeText(it.department)));
+  const prices = new Set(items.map((it) => it.price ?? -1));
+  const sameKey = cats.size === 1 && depts.size === 1 && prices.size === 1;
+
+  let minSim = 1;
+  for (const it of items) { const s = diceCoefficient(it.name, base); if (s < minSim) minSim = s; }
+  const intraIdentical = minSim >= INTRA_IDENTICAL;
+  const intraSimilar = minSim >= INTRA_SIMILAR;
+
+  let classification: Classification;
+  let confidence: number;
+  if (barcodeCollision && !typeDiff) { classification = 'LIKELY_DUPLICATE'; confidence = 0.9; }
+  else if (typeDiff) { classification = 'AMBIGUOUS'; confidence = 0.5; }
+  else if (intraIdentical && sameKey) { classification = 'LIKELY_DUPLICATE'; confidence = 0.6 + 0.25 * minSim; }
+  else if (intraSimilar && sameKey) { classification = 'LIKELY_DUPLICATE'; confidence = 0.55 + 0.2 * minSim; }
+  else { classification = 'NO_SAP_EVIDENCE'; confidence = round2(0.3 + 0.2 * minSim); }
+
+  let reason: string;
+  if (classification === 'LIKELY_DUPLICATE') {
+    reason = 'Nama sangat mirip, department/kategori/harga sama' + (barcodeCollision ? ', barcode sama' : '') +
+      '. Buka grup untuk memuat bukti SAP.';
+  } else if (classification === 'AMBIGUOUS') {
+    reason = 'Perbedaan tipe/ukuran terdeteksi. Buka grup untuk memuat bukti SAP.';
+  } else {
+    reason = 'Belum ada bukti SAP dimuat. Buka grup untuk mengecek baris SAP terkait.';
+  }
 
   return {
-    groups,
-    filterOptions: {
-      departments: Array.from(departments).sort(sortStr),
-      categories: Array.from(categories).sort(sortStr),
-      outlets: Array.from(outlets).sort(sortStr),
-      prefixes: Array.from(prefixes).sort(sortStr),
-    },
+    classification,
+    confidence: round2(Math.max(0, Math.min(1, confidence))),
+    reason,
+    recommendedAction: ACTION[classification],
+    sizeDiff, typeDiff, nckVariance: false, distinctSapBases: 0,
+  };
+}
+
+// Build all duplicate groups with cheap (SAP-free) classification. Fast: only
+// grouping + intra-group similarity, no per-group SAP scoring.
+export function buildLightGroups(masters: DupMasterInput[]): { groups: DupGroup[]; filterOptions: DupFilterOptions } {
+  const buckets = buildBuckets(masters);
+  const groups: DupGroup[] = buckets.map((b) => {
+    const items = [...b.items].sort((a, c) => a.code.localeCompare(c.code));
+    const cls = classifyLight(items, b.base);
+    const outlets = Array.from(new Set(items.flatMap((it) => splitOutlets(it.outlets)))).sort();
+    return {
+      id: items[0].id,
+      classification: cls.classification,
+      confidence: cls.confidence,
+      reason: cls.reason,
+      recommendedAction: cls.recommendedAction,
+      key: b.key,
+      base: b.base,
+      prefix: b.prefix,
+      department: items[0].department,
+      category: items[0].category,
+      outlets,
+      price: items[0].price,
+      masterItems: items,
+      sapMatches: [],
+      sizeDiff: cls.sizeDiff,
+      typeDiff: cls.typeDiff,
+      nckVariance: cls.nckVariance,
+      distinctSapBases: cls.distinctSapBases,
+    };
+  });
+  sortGroupsDefault(groups);
+  return { groups, filterOptions: buildFilterOptions(groups) };
+}
+
+export interface GroupEvidence {
+  sapMatches: SapMatch[];
+  classification: Classification;
+  confidence: number;
+  reason: string;
+  recommendedAction: RecommendedAction;
+  sizeDiff: boolean;
+  typeDiff: boolean;
+  nckVariance: boolean;
+  distinctSapBases: number;
+}
+
+// Lazy SAP evidence for a single group. SAP eligibility is gated by candidate
+// presence, not department: the token prefilter yields SAP rows only when a
+// member name actually overlaps the (WINE-heavy) SAP registry, so groups in
+// departments SAP doesn't cover return an empty match set almost instantly.
+export function computeGroupEvidence(
+  items: DupMasterInput[], base: string, sapIndex: SapIndex | null,
+): GroupEvidence {
+  const sapMatches = sapIndex ? matchSapForGroup(items, base, sapIndex) : [];
+  const cls = classifyGroup(items, base, sapMatches);
+  return {
+    sapMatches,
+    classification: cls.classification,
+    confidence: cls.confidence,
+    reason: cls.reason,
+    recommendedAction: cls.recommendedAction,
+    sizeDiff: cls.sizeDiff,
+    typeDiff: cls.typeDiff,
+    nckVariance: cls.nckVariance,
+    distinctSapBases: cls.distinctSapBases,
   };
 }
 

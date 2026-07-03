@@ -368,14 +368,25 @@ interface DupMaster {
 }
 interface DupGroup {
   id: string; classification: Classification; confidence: number; reason: string;
-  recommendedAction: string; key: string; prefix: string; department: string;
+  recommendedAction: string; key: string; base: string; prefix: string; department: string;
   category: string; outlets: string[]; price: number | null;
   masterItems: DupMaster[]; sapMatches: SapMatch[];
   sizeDiff: boolean; typeDiff: boolean; nckVariance: boolean; distinctSapBases: number;
 }
+interface GroupEvidence {
+  sapMatches: SapMatch[]; classification: Classification; confidence: number; reason: string;
+  recommendedAction: string; sizeDiff: boolean; typeDiff: boolean; nckVariance: boolean; distinctSapBases: number;
+}
 interface DupCounts { total: number; likelyDuplicate: number; sapSeparated: number; ambiguous: number; noSapEvidence: number; }
 interface DupFilterOptions { departments: string[]; categories: string[]; outlets: string[]; prefixes: string[]; }
-interface DupResponse { groups: DupGroup[]; counts: DupCounts; filterOptions: DupFilterOptions; }
+interface DupResponse {
+  groups: DupGroup[]; page: number; limit: number; totalGroups: number; totalPages: number;
+  counts: DupCounts; filterOptions: DupFilterOptions;
+}
+
+type EvidenceState = { loading: boolean; error: boolean; data: GroupEvidence | null };
+const SAP_SCOPE_NOTE = 'Bukti SAP dimuat per grup saat dibuka, dan hanya muncul bila ada baris SAP yang cocok (registry SAP saat ini paling lengkap untuk WINE).';
+const DUP_PAGE_LIMIT = 50;
 
 const CLS_META: Record<Classification, { label: string; color: string; bg: string; border: string }> = {
   LIKELY_DUPLICATE: { label: 'Kemungkinan Duplikat', color: '#7A2E1F', bg: 'rgba(122,46,31,0.08)', border: 'rgba(122,46,31,0.25)' },
@@ -522,13 +533,19 @@ function DuplicateAnalysisPanel({ onOpenDetail }: { onOpenDetail: (code: string)
 
   const [data, setData] = useState<DupResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [slow, setSlow] = useState(false);
+  const [error, setError] = useState(false);
   const [options, setOptions] = useState<DupFilterOptions>({ departments: [], categories: [], outlets: [], prefixes: [] });
   const [page, setPage] = useState(1);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [evidence, setEvidence] = useState<Record<string, EvidenceState>>({});
 
   useEffect(() => {
-    let cancelled = false;
+    const ctrl = new AbortController();
     setLoading(true);
+    setSlow(false);
+    setError(false);
+    const slowTimer = setTimeout(() => setSlow(true), 3000);
     const params = new URLSearchParams();
     if (department !== 'ALL') params.set('department', department);
     if (category !== 'ALL') params.set('category', category);
@@ -539,10 +556,11 @@ function DuplicateAnalysisPanel({ onOpenDetail }: { onOpenDetail: (code: string)
     if (dMinPrice.trim()) params.set('minPrice', dMinPrice.trim());
     if (dMaxPrice.trim()) params.set('maxPrice', dMaxPrice.trim());
     if (sort !== 'default') params.set('sort', sort);
-    fetch(`/api/admin/kb/quality/duplicates?${params.toString()}`)
+    params.set('page', String(page));
+    params.set('limit', String(DUP_PAGE_LIMIT));
+    fetch(`/api/admin/kb/quality/duplicates?${params.toString()}`, { signal: ctrl.signal })
       .then((r) => r.ok ? r.json() : Promise.reject(new Error('Gagal memuat analisis duplikat')))
       .then((d: DupResponse) => {
-        if (cancelled) return;
         setData(d);
         // filterOptions are global (computed pre-filter) — keep the fullest set seen.
         setOptions((prev) => ({
@@ -551,26 +569,55 @@ function DuplicateAnalysisPanel({ onOpenDetail }: { onOpenDetail: (code: string)
           outlets: d.filterOptions.outlets.length ? d.filterOptions.outlets : prev.outlets,
           prefixes: d.filterOptions.prefixes.length ? d.filterOptions.prefixes : prev.prefixes,
         }));
+        setLoading(false);
+        setSlow(false);
       })
-      .catch((e) => { if (!cancelled) toast.error(e.message ?? 'Gagal memuat analisis duplikat'); })
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-  }, [department, category, outlet, prefix, classification, search, dMinPrice, dMaxPrice, sort]);
+      .catch((e) => {
+        if (e?.name === 'AbortError') return;
+        setError(true);
+        setLoading(false);
+        setSlow(false);
+      });
+    return () => { clearTimeout(slowTimer); ctrl.abort(); };
+  }, [department, category, outlet, prefix, classification, search, dMinPrice, dMaxPrice, sort, page]);
 
+  // Reset to page 1 whenever the filter/search/sort selection changes.
   useEffect(() => { setPage(1); }, [department, category, outlet, prefix, classification, search, dMinPrice, dMaxPrice, sort]);
 
   const groups = data?.groups ?? [];
   const counts = data?.counts ?? { total: 0, likelyDuplicate: 0, sapSeparated: 0, ambiguous: 0, noSapEvidence: 0 };
-  const totalPages = Math.max(1, Math.ceil(groups.length / PAGE_SIZE));
-  const safePage = Math.min(page, totalPages);
-  const pageGroups = groups.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+  const totalPages = data?.totalPages ?? 1;
+  const safePage = data?.page ?? page;
 
-  function toggleGroup(key: string) {
+  // Overlay any lazily-loaded SAP evidence onto its group.
+  const pageGroups = groups.map((g) => {
+    const ev = evidence[g.key]?.data;
+    return ev ? { ...g, ...ev } : g;
+  });
+
+  async function fetchEvidence(g: DupGroup) {
+    const key = g.key;
+    setEvidence((prev) => ({ ...prev, [key]: { loading: true, error: false, data: null } }));
+    try {
+      const res = await fetch(`/api/admin/kb/quality/duplicates/evidence?groupId=${encodeURIComponent(key)}`);
+      if (!res.ok) throw new Error();
+      const d: GroupEvidence = await res.json();
+      setEvidence((prev) => ({ ...prev, [key]: { loading: false, error: false, data: d } }));
+    } catch {
+      setEvidence((prev) => ({ ...prev, [key]: { loading: false, error: true, data: null } }));
+    }
+  }
+
+  function toggleGroup(g: DupGroup) {
+    const key = g.key;
+    const opening = !expanded.has(key);
     setExpanded((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key); else next.add(key);
       return next;
     });
+    // Lazy-load SAP evidence on first expand (unless already inlined by search).
+    if (opening && !evidence[key] && g.sapMatches.length === 0) fetchEvidence(g);
   }
 
   const countChips: { value: string; label: string; n: number; cls?: Classification }[] = [
@@ -612,9 +659,10 @@ function DuplicateAnalysisPanel({ onOpenDetail }: { onOpenDetail: (code: string)
         </label>
         <div style={{ flex: 1 }} />
         <button
-          onClick={() => exportDuplicatesCsv(groups)}
-          disabled={groups.length === 0}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', height: '34px', padding: '0 0.85rem', background: 'transparent', border: '1px solid var(--border)', borderRadius: '4px', fontSize: '0.78rem', fontWeight: 600, color: groups.length ? '#8B6914' : 'var(--text-secondary)', cursor: groups.length ? 'pointer' : 'not-allowed', opacity: groups.length ? 1 : 0.5 }}
+          onClick={() => exportDuplicatesCsv(pageGroups)}
+          disabled={pageGroups.length === 0}
+          title="Ekspor halaman yang sedang tampil"
+          style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', height: '34px', padding: '0 0.85rem', background: 'transparent', border: '1px solid var(--border)', borderRadius: '4px', fontSize: '0.78rem', fontWeight: 600, color: pageGroups.length ? '#8B6914' : 'var(--text-secondary)', cursor: pageGroups.length ? 'pointer' : 'not-allowed', opacity: pageGroups.length ? 1 : 0.5 }}
         >
           <Download size={13} /> Export CSV
         </button>
@@ -649,8 +697,28 @@ function DuplicateAnalysisPanel({ onOpenDetail }: { onOpenDetail: (code: string)
         </div>
       </div>
 
+      {/* SAP scope note */}
+      <div style={{ padding: '0.5rem 1.25rem', borderBottom: '1px solid var(--border)', fontSize: '0.72rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+        <span style={{ fontSize: '0.62rem', fontWeight: 700, padding: '1px 6px', borderRadius: '3px', background: AMBER_BG, color: '#8B6914', border: '1px solid rgba(201,168,76,0.3)' }}>SAP</span>
+        {SAP_SCOPE_NOTE}
+      </div>
+
       {loading ? (
-        <TableSkeleton rows={4} cols={5} />
+        <div>
+          <TableSkeleton rows={4} cols={5} />
+          {slow && (
+            <div style={{ padding: '0.5rem 1.25rem 1rem', fontSize: '0.75rem', color: 'var(--text-secondary)', fontStyle: 'italic' }}>
+              Analisis masih diproses…
+            </div>
+          )}
+        </div>
+      ) : error ? (
+        <div style={{ padding: '1.5rem 1.25rem' }}>
+          <div style={{ padding: '1rem 1.25rem', borderRadius: '6px', background: 'rgba(122,46,31,0.06)', border: '1px solid rgba(122,46,31,0.25)', color: '#7A2E1F', fontSize: '0.82rem', lineHeight: 1.5 }}>
+            <strong>Gagal memuat analisis data quality.</strong><br />
+            Coba refresh atau kecilkan filter.
+          </div>
+        </div>
       ) : groups.length === 0 ? (
         <div style={{ padding: '2.5rem', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
           <Filter size={20} style={{ opacity: 0.4, marginBottom: '0.5rem' }} /><br />
@@ -666,7 +734,7 @@ function DuplicateAnalysisPanel({ onOpenDetail }: { onOpenDetail: (code: string)
               return (
                 <div key={g.key} style={{ borderBottom: '1px solid var(--border)' }}>
                   {/* Group header */}
-                  <div onClick={() => toggleGroup(g.key)} style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem', padding: '0.85rem 1.25rem', cursor: 'pointer', background: open ? meta.bg : 'transparent' }}>
+                  <div onClick={() => toggleGroup(g)} style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem', padding: '0.85rem 1.25rem', cursor: 'pointer', background: open ? meta.bg : 'transparent' }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.3rem' }}>
                         <ClassBadge cls={g.classification} confidence={g.confidence} />
@@ -717,7 +785,17 @@ function DuplicateAnalysisPanel({ onOpenDetail }: { onOpenDetail: (code: string)
                       </div>
                       <div style={{ padding: '0.75rem 1.25rem 0.25rem', fontSize: '0.66rem', fontWeight: 700, letterSpacing: '0.05em', color: '#8B6914', textTransform: 'uppercase' }}>Bukti SAP ({g.sapMatches.length})</div>
                       <div style={{ padding: '0 1.25rem 1rem' }}>
-                        <SapMatchTable matches={g.sapMatches} />
+                        {evidence[g.key]?.loading ? (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.75rem 0', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                            <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> Memuat bukti SAP…
+                          </div>
+                        ) : evidence[g.key]?.error ? (
+                          <div style={{ padding: '0.75rem 0', fontSize: '0.78rem', color: '#7A2E1F' }}>
+                            Gagal memuat bukti SAP. Coba buka ulang grup ini.
+                          </div>
+                        ) : (
+                          <SapMatchTable matches={g.sapMatches} />
+                        )}
                       </div>
                     </div>
                   )}

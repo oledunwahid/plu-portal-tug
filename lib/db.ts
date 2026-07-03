@@ -1673,6 +1673,30 @@ export async function getAllSapItemsForMatch(): Promise<DbSapMasterItem[]> {
   }
 }
 
+// Cheap fingerprints (row count + latest timestamp) for cache invalidation, so a
+// warm cache can be validated without re-reading/mapping the whole registry.
+export async function getMasterItemsStamp(): Promise<{ count: number; maxUpdatedAt: string }> {
+  try {
+    const db = await getDb();
+    const row = execFirst(db, `SELECT COUNT(*) AS c, COALESCE(MAX(updatedAt),'') AS u FROM "MasterItem"`);
+    return { count: Number(row?.c ?? 0), maxUpdatedAt: String(row?.u ?? '') };
+  } catch (err) {
+    console.error('[db] getMasterItemsStamp failed:', err);
+    return { count: 0, maxUpdatedAt: '' };
+  }
+}
+
+export async function getSapItemsStamp(): Promise<{ count: number; maxImportedAt: string }> {
+  try {
+    const db = await getDb();
+    const row = execFirst(db, `SELECT COUNT(*) AS c, COALESCE(MAX(importedAt),'') AS u FROM "SapMasterItem"`);
+    return { count: Number(row?.c ?? 0), maxImportedAt: String(row?.u ?? '') };
+  } catch (err) {
+    console.error('[db] getSapItemsStamp failed:', err);
+    return { count: 0, maxImportedAt: '' };
+  }
+}
+
 // Every master item, unpaginated — for whole-registry analysis passes such as the
 // Data Quality duplicate/SAP-evidence engine (lib/dupAnalysis.ts). Capped high.
 export async function getAllMasterItemsForMatch(): Promise<DbMasterItem[]> {
