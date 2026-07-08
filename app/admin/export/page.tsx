@@ -710,13 +710,9 @@ function ExportPageContent() {
               </span>
             )}
           </div>
-          {/* Status sub-filter. NEW_ITEM gets a read-only "Menunggu Cost Control" view so admin can
-              see (but not act on) requests still awaiting cost-control review. */}
+          {/* Status sub-filter. */}
           <div style={{ display: 'flex', gap: '0.375rem' }}>
-            {([
-              'PENDING', 'EXPORTED', 'DONE', 'ALL',
-              ...(activeType === 'NEW_ITEM' ? ['PENDING_COST_CONTROL'] : []),
-            ] as string[]).map((s) => (
+            {(['PENDING', 'EXPORTED', 'DONE', 'ALL'] as string[]).map((s) => (
               <button
                 key={s}
                 onClick={() => setStatusFilter(s)}
@@ -724,11 +720,9 @@ function ExportPageContent() {
               >
                 {s === 'ALL'
                   ? 'All'
-                  : s === 'PENDING_COST_CONTROL'
-                    ? 'Menunggu Cost Control'
-                    : s === 'DONE'
-                      ? `Done${doneCount != null ? ` (${doneCount})` : ''}`
-                      : s.charAt(0) + s.slice(1).toLowerCase()}
+                  : s === 'DONE'
+                    ? `Done${doneCount != null ? ` (${doneCount})` : ''}`
+                    : s.charAt(0) + s.slice(1).toLowerCase()}
               </button>
             ))}
           </div>
@@ -864,15 +858,8 @@ function ExportPageContent() {
           <DonePagination page={safeDonePage} totalPages={doneTotalPages} onPage={setDonePage} />
         )}
 
-        {/* Read-only notice for the cost-control queue — admin can see but not export/act yet. */}
-        {!loading && requests.length > 0 && statusFilter === 'PENDING_COST_CONTROL' && (
-          <div style={{ padding: '0.875rem 1.5rem', borderTop: '1px solid var(--border)', background: 'rgba(124,58,237,0.06)', fontSize: '0.8rem', color: '#6D28D9' }}>
-            Menunggu konfirmasi Cost Control — belum dapat diproses atau diekspor oleh admin.
-          </div>
-        )}
-
-        {/* Bottom download bar — hidden for the read-only cost-control queue. */}
-        {!loading && requests.length > 0 && statusFilter !== 'PENDING_COST_CONTROL' && (
+        {/* Bottom download bar */}
+        {!loading && requests.length > 0 && (
           <div style={{ padding: '0.875rem 1.5rem', borderTop: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--bg-cream)' }}>
             <span style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
               {selectedIds.size > 0 ? `${selectedIds.size} selected` : `All ${requests.length} shown`}

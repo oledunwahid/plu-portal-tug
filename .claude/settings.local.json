@@ -55,7 +55,8 @@
       "PowerShell(npx tsc --noEmit 2>&1 | Select-Object -First 30)",
       "Bash(git log *)",
       "PowerShell(npm run *)",
-      "PowerShell(npx tsc --noEmit 2>&1 | Select-Object -First 30; if \\($?\\) { \"TSC_CLEAN\" } else { \"TSC_HAD_OUTPUT\" })"
+      "PowerShell(npx tsc --noEmit 2>&1 | Select-Object -First 30; if \\($?\\) { \"TSC_CLEAN\" } else { \"TSC_HAD_OUTPUT\" })",
+      "Bash(APPLY=1 node _tmp_migrate.mjs prisma/dev.db prisma/prod-server.db)"
     ]
   }
 }

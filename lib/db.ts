@@ -1214,8 +1214,8 @@ export interface AdminNotification {
   submittedByOutlet: string;
 }
 
-// Notification feed scope. ADMIN sees the normal queue (everything EXCEPT items still awaiting cost
-// control); COST_CONTROL sees ONLY the items awaiting it (single PENDING_COST_CONTROL requests —
+// Notification feed scope. ADMIN sees the full queue (every request/batch, including any edge-case
+// PENDING_COST_CONTROL rows); COST_CONTROL sees ONLY the items awaiting it (single PENDING_COST_CONTROL requests —
 // cost control never handles batches); CASHIER sees ONLY their own DONE requests/batches ("ready to
 // sync"). All three reuse the same NotificationRead read-state mechanism. For CASHIER, `userId` MUST
 // be supplied so the feed is strictly scoped to the requester's own items.
@@ -1288,7 +1288,6 @@ export async function getAdminNotificationFeed(
         SELECT pr.id AS id, 'single' AS source, pr.requestType AS requestType,
                pr.name AS title, 0 AS itemCount, pr.createdAt AS createdAt, pr.userId AS userId
         FROM "PLURequest" pr
-        WHERE pr.status != 'PENDING_COST_CONTROL'
         UNION ALL
         SELECT rb.id, 'batch', rb.requestType, rb.title,
                (SELECT COUNT(*) FROM "RequestBatchItem" ri WHERE ri.batchId = rb.id),
@@ -1341,7 +1340,7 @@ export async function getRecentRequestIds(
     }
     const rows = execAll(db, `
       SELECT id FROM (
-        SELECT id, createdAt FROM "PLURequest" WHERE status != 'PENDING_COST_CONTROL'
+        SELECT id, createdAt FROM "PLURequest"
         UNION ALL
         SELECT id, createdAt FROM "RequestBatch"
       ) ORDER BY createdAt DESC LIMIT ?
