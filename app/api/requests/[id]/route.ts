@@ -41,7 +41,15 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     const body = await req.json();
     const parsed = createRequestSchema.safeParse({ ...body, requestType: existing.requestType });
     if (!parsed.success) {
-      return NextResponse.json({ error: 'Validation failed', issues: parsed.error.issues }, { status: 400 });
+      // Log the exact failing field(s)/rule(s) so a future 400 can be diagnosed without guessing.
+      console.error('[PATCH /api/requests/:id] validation failed:', JSON.stringify(parsed.error.issues));
+      // First message per top-level field, keyed by field name so the client can render it inline.
+      const fieldErrors: Record<string, string> = {};
+      for (const issue of parsed.error.issues) {
+        const key = String(issue.path[0] ?? '');
+        if (key && !(key in fieldErrors)) fieldErrors[key] = issue.message;
+      }
+      return NextResponse.json({ error: 'Validation failed', fieldErrors }, { status: 400 });
     }
 
     const updated = await updatePLURequest(params.id, {

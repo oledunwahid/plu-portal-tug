@@ -17,6 +17,20 @@ function formatIDR(value: number): string {
   return 'Rp ' + value.toLocaleString('id-ID');
 }
 
+// Indonesian, user-facing labels for server-side field validation errors — never surface raw Zod
+// messages/paths to the cashier. Falls back to a generic message for any unmapped field.
+const FIELD_ERROR_ID: Record<string, string> = {
+  name: 'Nama item harus diisi',
+  category: 'Kategori harus dipilih',
+  department: 'Department harus diisi',
+  price: 'Harga harus diisi dan lebih dari 0',
+  folder: 'Folder tidak valid',
+  outlets: 'Pilih minimal satu outlet',
+  printers: 'Pilih minimal satu printer',
+  barcode: 'Barcode tidak valid',
+  remarks: 'Alasan penghapusan harus diisi',
+};
+
 interface ConfigCategory {
   id: string; name: string; department: string; departmentCode: number; categoryCode: number; isActive: boolean;
 }
@@ -254,14 +268,39 @@ export default function EditRequestPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
-      if (!res.ok) {
+
+      if (res.ok) {
         const data = await res.json();
-        throw new Error(data.error ?? 'Update failed');
+        setSuccessModal({ open: true, itemName: data.name || requestCode || 'item' });
+        return;
       }
-      const data = await res.json();
-      setSuccessModal({ open: true, itemName: data.name || requestCode || 'item' });
-    } catch (err: any) {
-      toast.error(err.message ?? 'Something went wrong');
+
+      // Error handling — never expose raw Zod paths, HTTP status codes, or technical detail.
+      if (res.status === 400) {
+        const data = await res.json().catch(() => ({} as Record<string, unknown>));
+        const rawFieldErrors = (data as { fieldErrors?: Record<string, string> }).fieldErrors;
+        // Map only to fields this form actually renders, using Indonesian labels.
+        const mapped: Partial<Record<keyof FormState, string>> = {};
+        if (rawFieldErrors) {
+          for (const key of Object.keys(rawFieldErrors)) {
+            if (form && key in form) {
+              mapped[key as keyof FormState] = FIELD_ERROR_ID[key] ?? 'Field ini tidak valid';
+            }
+          }
+        }
+        if (Object.keys(mapped).length > 0) {
+          setErrors(mapped);
+          toast.error('Periksa kembali field yang ditandai.');
+        } else {
+          // A 400 we can't tie to a fixable field — not something the cashier can resolve.
+          toast.error('Permintaan tidak valid. Hubungi admin jika masalah berlanjut.');
+        }
+      } else {
+        toast.error('Terjadi kesalahan sistem. Coba lagi beberapa saat.');
+      }
+    } catch {
+      // Network / parse failure.
+      toast.error('Terjadi kesalahan sistem. Coba lagi beberapa saat.');
     } finally {
       setLoading(false);
     }

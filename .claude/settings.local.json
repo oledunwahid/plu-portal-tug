@@ -56,7 +56,10 @@
       "Bash(git log *)",
       "PowerShell(npm run *)",
       "PowerShell(npx tsc --noEmit 2>&1 | Select-Object -First 30; if \\($?\\) { \"TSC_CLEAN\" } else { \"TSC_HAD_OUTPUT\" })",
-      "Bash(APPLY=1 node _tmp_migrate.mjs prisma/dev.db prisma/prod-server.db)"
+      "Bash(APPLY=1 node _tmp_migrate.mjs prisma/dev.db prisma/prod-server.db)",
+      "Bash(rm -f _tmp_zodtest.mjs)",
+      "Bash(ls app/api/batches/\\\\[id\\\\]/)",
+      "Bash(ls \"app/api/batches/[id]/items/[itemId]/\")"
     ]
   }
 }

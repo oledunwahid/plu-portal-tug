@@ -8,7 +8,9 @@ export const createRequestSchema = z.object({
   category: z.string(),
   department: z.string(),
   price: z.number().min(0, 'Price must be 0 or greater').optional().nullable(),
-  folder: z.string().optional(),
+  // Optional string fields the edit form sends as `null` when left blank (folder/barcode/remarks) —
+  // must accept null, not just undefined, or a blank optional field 400s the whole request.
+  folder: z.string().nullable().optional(),
   serviceCharge: z.boolean().default(true),
   tax1: z.boolean().default(true),
   tax2: z.boolean().default(true),
@@ -16,9 +18,9 @@ export const createRequestSchema = z.object({
   hideReceipt: z.boolean().default(false),
   printers: z.string(),
   outlets: z.string(),
-  barcode: z.string().optional(),
+  barcode: z.string().nullable().optional(),
   salesDef: z.enum(['SALES', 'MODIFIER']).default('SALES'),
-  remarks: z.string().optional(),
+  remarks: z.string().nullable().optional(),
 }).superRefine((d, ctx) => {
   if (d.requestType !== 'NEW_ITEM' && !d.code) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'PLU code is required for update requests', path: ['code'] });
