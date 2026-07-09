@@ -59,7 +59,8 @@
       "Bash(APPLY=1 node _tmp_migrate.mjs prisma/dev.db prisma/prod-server.db)",
       "Bash(rm -f _tmp_zodtest.mjs)",
       "Bash(ls app/api/batches/\\\\[id\\\\]/)",
-      "Bash(ls \"app/api/batches/[id]/items/[itemId]/\")"
+      "Bash(ls \"app/api/batches/[id]/items/[itemId]/\")",
+      "Bash(npx ts-node *)"
     ]
   }
 }

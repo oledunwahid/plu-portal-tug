@@ -252,7 +252,7 @@ function sanitizePrice(raw: string): string {
 function buildPriceRow(rowNum: number, data: Record<string, string>, match: RowMatch): PriceMatchRow {
   const price = sanitizePrice(data['Price'] ?? '');
   // Clean exact match (no category/department mismatch) auto-fills the code.
-  const isExact = match.type === 'barcode' || match.type === 'namecat';
+  const isExact = match.type === 'code' || match.type === 'barcode' || match.type === 'namecat';
   const cleanExact = isExact && !!match.resolvedCode && !match.categoryMismatch && !match.departmentMismatch;
   return {
     rowNum,
@@ -275,7 +275,7 @@ function priceIsValid(price: string): boolean {
 // True for a clean exact match (barcode or name+category) with no category/department
 // mismatch — these auto-fill the code and are ready without user action.
 function isCleanExact(m: RowMatch): boolean {
-  return (m.type === 'barcode' || m.type === 'namecat')
+  return (m.type === 'code' || m.type === 'barcode' || m.type === 'namecat')
     && !!m.resolvedCode && !m.categoryMismatch && !m.departmentMismatch;
 }
 
@@ -785,7 +785,7 @@ export default function BatchNewPage() {
         setMatching(true);
         try {
           const inputs = rows.map((r) => ({
-            name: r['Name'] ?? '', category: r['Category'] ?? '',
+            code: r['Code'] ?? '', name: r['Name'] ?? '', category: r['Category'] ?? '',
             department: r['Department'] ?? '', barcode: r['Barcode'] ?? '',
           }));
           const res = await fetch('/api/plu/match-batch', {
@@ -1062,7 +1062,7 @@ export default function BatchNewPage() {
           </span>
         );
 
-        const matchBasisLabel = (t: string) => t === 'barcode' ? 'Cocok via barcode' : t === 'namecat' ? 'Cocok via nama + kategori' : t === 'fuzzy' ? 'Nama mirip' : '';
+        const matchBasisLabel = (t: string) => t === 'code' ? 'Cocok via kode' : t === 'barcode' ? 'Cocok via barcode' : t === 'namecat' ? 'Cocok via nama + kategori' : t === 'fuzzy' ? 'Nama mirip' : '';
 
         return (
           <>
@@ -1094,7 +1094,7 @@ export default function BatchNewPage() {
 
                 {matched.map((r) => {
                   const m = r.match;
-                  const isExact = m.type === 'barcode' || m.type === 'namecat';
+                  const isExact = m.type === 'code' || m.type === 'barcode' || m.type === 'namecat';
                   const cleanExact = isCleanExact(m);
                   const mismatchExact = isExact && !!m.resolvedCode && (m.categoryMismatch || m.departmentMismatch);
                   const needsCandidate = (isExact && !m.resolvedCode) || m.type === 'fuzzy'; // ambiguous or fuzzy

@@ -56,6 +56,9 @@ export interface SuggestedBarcodeResult {
 // Human-readable source labels surfaced to cost control under the barcode field.
 export const BARCODE_SOURCE_NCK_SEQ = 'Dibuat otomatis dari SAP NCK suffix 11';
 export const BARCODE_SOURCE_AUTO = 'Dibuat otomatis — verifikasi sebelum konfirmasi';
+// Cashier supplied the barcode — it is trusted verbatim, no derivation ran. Labelled so the review
+// modal's source line stays accurate (otherwise a null source reads as "not found — fill manually").
+export const BARCODE_SOURCE_CASHIER = 'Barcode dari kasir';
 
 function digitsOnly(value: MaybeString): string | null {
   const digits = String(value ?? '').replace(/\D/g, '');
