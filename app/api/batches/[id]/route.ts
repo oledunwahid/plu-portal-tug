@@ -93,6 +93,10 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
     if (session.user.role === 'CASHIER' && batch.userId !== session.user.id) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
+    // A processed batch is part of the export record and must not be removed.
+    if (batch.status === 'DONE') {
+      return NextResponse.json({ error: 'Cannot delete a completed batch' }, { status: 409 });
+    }
 
     const deleted = await deleteRequestBatch(params.id);
     if (!deleted) return NextResponse.json({ error: 'Not found' }, { status: 404 });

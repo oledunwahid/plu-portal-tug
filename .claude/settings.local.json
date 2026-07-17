@@ -60,7 +60,18 @@
       "Bash(rm -f _tmp_zodtest.mjs)",
       "Bash(ls app/api/batches/\\\\[id\\\\]/)",
       "Bash(ls \"app/api/batches/[id]/items/[itemId]/\")",
-      "Bash(npx ts-node *)"
+      "Bash(npx ts-node *)",
+      "Bash(PORT=3999 npx next dev -p 3999)",
+      "Bash(echo \"started pid $!\")",
+      "Bash(curl -s -o /dev/null -w \"login: %{http_code}\\\\n\" http://localhost:3999/login)",
+      "Bash(curl -s -o /dev/null -w \"api/requests: %{http_code}\\\\n\" http://localhost:3999/api/requests)",
+      "Bash(curl -s -o /dev/null -w \"root: %{http_code}\\\\n\" http://localhost:3999/)",
+      "Bash(taskkill //F //IM node.exe //FI \"WINDOWTITLE eq *\")",
+      "Bash(break)",
+      "Bash(curl -s -o /dev/null -w \"DELETE /api/requests/xx : %{http_code}\\\\n\" -X DELETE http://localhost:3998/api/requests/nonexistent)",
+      "Bash(curl -s -o /dev/null -w \"DELETE /api/batches/xx  : %{http_code}\\\\n\" -X DELETE http://localhost:3998/api/batches/nonexistent)",
+      "Bash(curl -s -o /dev/null -w \"GET /cashier/dashboard  : %{http_code}\\\\n\" http://localhost:3998/cashier/dashboard)",
+      "PowerShell($c = Get-NetTCPConnection -LocalPort 3998 -State Listen -ErrorAction SilentlyContinue; if \\($c\\) { Stop-Process -Id $c.OwningProcess -Force -ErrorAction SilentlyContinue; \"stopped 3998\" } else { \"nothing on 3998\" })"
     ]
   }
 }

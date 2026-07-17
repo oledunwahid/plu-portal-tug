@@ -7,7 +7,7 @@ import StatusBadge from '@/components/StatusBadge';
 import Link from 'next/link';
 import { formatPrice } from '@/lib/utils';
 import { formatTimestamp } from '@/lib/format';
-import { PlusCircle, Pencil, Lock, Layers, ChevronDown, ChevronRight, Loader2, Tag } from 'lucide-react';
+import { PlusCircle, Pencil, Lock, Layers, ChevronDown, ChevronRight, ChevronLeft, Loader2, Tag, Search, Trash2, X, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 
 const TYPE_LABELS: Record<string, string> = {
@@ -101,9 +101,21 @@ export default function CashierDashboard() {
   const [loading, setLoading] = useState(true);
   const [expandedBatches, setExpandedBatches] = useState<Set<string>>(new Set());
 
+  // Search / filter / pagination for the requests table.
+  const PAGE_SIZE = 10;
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'ALL' | 'PENDING' | 'DONE' | 'REJECTED'>('ALL');
+  const [typeFilter, setTypeFilter] = useState<string>('ALL');
+  const [page, setPage] = useState(1);
+  const [confirmDelete, setConfirmDelete] = useState<DashboardRow | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
   useEffect(() => {
     if (status === 'unauthenticated') router.replace('/login');
   }, [status, router]);
+
+  // Any filter change resets to the first page so the view never lands on an empty page.
+  useEffect(() => { setPage(1); }, [search, statusFilter, typeFilter]);
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
@@ -127,6 +139,28 @@ export default function CashierDashboard() {
     if (status === 'authenticated') fetchAll();
   }, [status, fetchAll]);
 
+  async function handleDelete() {
+    if (!confirmDelete) return;
+    const row = confirmDelete;
+    setDeleting(true);
+    try {
+      const url = row._source === 'single' ? `/api/requests/${row.id}` : `/api/batches/${row.id}`;
+      const res = await fetch(url, { method: 'DELETE' });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error || 'Delete failed');
+      }
+      if (row._source === 'single') setSingles((prev) => prev.filter((s) => s.id !== row.id));
+      else setBatches((prev) => prev.filter((b) => b.id !== row.id));
+      toast.success('Request deleted');
+      setConfirmDelete(null);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Delete failed');
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   if (status === 'loading') return null;
 
   const allRows: DashboardRow[] = [
@@ -135,6 +169,28 @@ export default function CashierDashboard() {
   ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
   const totalCount = allRows.length;
+
+  // Apply the status/type filters and free-text search, then page the result 10 at a time.
+  const q = search.trim().toLowerCase();
+  const filteredRows = allRows.filter((row) => {
+    if (statusFilter !== 'ALL' && toCashierStatus(row.status) !== statusFilter) return false;
+    if (typeFilter !== 'ALL' && row.requestType !== typeFilter) return false;
+    if (!q) return true;
+    const parts: string[] = [TYPE_LABELS[row.requestType] ?? row.requestType];
+    if (row._source === 'single') {
+      const r = row as SingleRequest;
+      parts.push(r.name, r.category, r.outlets ?? '');
+    } else {
+      const b = row as BatchRequest;
+      parts.push(b.title, formatBatchOutlets(b.items));
+      for (const it of b.items) parts.push(it.name, it.category, it.code ?? '');
+    }
+    return parts.join(' ').toLowerCase().includes(q);
+  });
+
+  const totalPages = Math.max(1, Math.ceil(filteredRows.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const pagedRows = filteredRows.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
 
   function toggleExpand(id: string) {
     setExpandedBatches((prev) => {
@@ -170,6 +226,49 @@ export default function CashierDashboard() {
           </Link>
         </div>
       </div>
+
+      {!loading && allRows.length > 0 && (
+        <div style={{ display: 'flex', gap: '0.625rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '1rem' }}>
+          <div style={{ position: 'relative', flex: '1 1 240px', minWidth: '200px' }}>
+            <Search size={14} style={{ position: 'absolute', left: '0.65rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)', pointerEvents: 'none' }} />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search name, category, outlet, code…"
+              style={{ width: '100%', padding: '0.5rem 0.75rem 0.5rem 2rem', fontSize: '0.8rem', border: '1px solid var(--border)', borderRadius: '0.375rem', background: 'var(--bg-card)', color: 'var(--text-primary)', fontFamily: 'var(--font-body)' }}
+            />
+            {search && (
+              <button onClick={() => setSearch('')} title="Clear" style={{ position: 'absolute', right: '0.5rem', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', display: 'flex', padding: '0.15rem' }}>
+                <X size={13} />
+              </button>
+            )}
+          </div>
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
+            style={{ padding: '0.5rem 0.75rem', fontSize: '0.8rem', border: '1px solid var(--border)', borderRadius: '0.375rem', background: 'var(--bg-card)', color: 'var(--text-primary)', fontFamily: 'var(--font-body)', cursor: 'pointer' }}
+          >
+            <option value="ALL">All statuses</option>
+            <option value="PENDING">Pending</option>
+            <option value="DONE">Done</option>
+            <option value="REJECTED">Rejected</option>
+          </select>
+          <select
+            value={typeFilter}
+            onChange={(e) => setTypeFilter(e.target.value)}
+            style={{ padding: '0.5rem 0.75rem', fontSize: '0.8rem', border: '1px solid var(--border)', borderRadius: '0.375rem', background: 'var(--bg-card)', color: 'var(--text-primary)', fontFamily: 'var(--font-body)', cursor: 'pointer' }}
+          >
+            <option value="ALL">All types</option>
+            {Object.entries(TYPE_LABELS).map(([val, label]) => (
+              <option key={val} value={val}>{label}</option>
+            ))}
+          </select>
+          <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginLeft: 'auto' }}>
+            {filteredRows.length} result{filteredRows.length !== 1 ? 's' : ''}
+          </span>
+        </div>
+      )}
 
       {loading ? (
         <div className="card" style={{ padding: '3rem', textAlign: 'center' }}>
@@ -207,7 +306,14 @@ export default function CashierDashboard() {
                 </tr>
               </thead>
               <tbody>
-                {allRows.map((row) => {
+                {filteredRows.length === 0 && (
+                  <tr>
+                    <td colSpan={10} style={{ padding: '2.5rem', textAlign: 'center', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                      No requests match your search or filters.
+                    </td>
+                  </tr>
+                )}
+                {pagedRows.map((row) => {
                   if (row._source === 'single') {
                     const req = row as SingleRequest;
                     return (
@@ -238,18 +344,30 @@ export default function CashierDashboard() {
                           {req.adminNote ?? '—'}
                         </td>
                         <td>
-                          {toCashierStatus(req.status) === 'PENDING' ? (
-                            <Link
-                              href={`/cashier/request/edit/${req.id}`}
-                              style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.75rem', color: 'var(--text-secondary)', border: '1px solid var(--border)', borderRadius: '3px', padding: '0.2rem 0.45rem', textDecoration: 'none' }}
-                            >
-                              <Pencil size={11} /> Edit
-                            </Link>
-                          ) : (
-                            <span title="Request has been processed" style={{ cursor: 'help', color: 'var(--text-secondary)', display: 'inline-flex', padding: '0.2rem' }}>
-                              <Lock size={12} />
-                            </span>
-                          )}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                            {toCashierStatus(req.status) === 'PENDING' && (
+                              <Link
+                                href={`/cashier/request/edit/${req.id}`}
+                                style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.75rem', color: 'var(--text-secondary)', border: '1px solid var(--border)', borderRadius: '3px', padding: '0.2rem 0.45rem', textDecoration: 'none' }}
+                              >
+                                <Pencil size={11} /> Edit
+                              </Link>
+                            )}
+                            {toCashierStatus(req.status) === 'DONE' && (
+                              <span title="Request has been processed" style={{ cursor: 'help', color: 'var(--text-secondary)', display: 'inline-flex', padding: '0.2rem' }}>
+                                <Lock size={12} />
+                              </span>
+                            )}
+                            {toCashierStatus(req.status) !== 'DONE' && (
+                              <button
+                                onClick={() => setConfirmDelete(req)}
+                                title="Delete request"
+                                style={{ display: 'inline-flex', alignItems: 'center', background: 'none', border: '1px solid var(--border)', borderRadius: '3px', padding: '0.25rem', cursor: 'pointer', color: '#8B3A2A' }}
+                              >
+                                <Trash2 size={12} />
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     );
@@ -292,18 +410,30 @@ export default function CashierDashboard() {
                         {batch.adminNote ?? '—'}
                       </td>
                       <td>
-                        {toCashierStatus(batch.status) === 'PENDING' ? (
-                          <Link
-                            href={`/cashier/request/batch/edit/${batch.id}`}
-                            style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.75rem', color: 'var(--text-secondary)', border: '1px solid var(--border)', borderRadius: '3px', padding: '0.2rem 0.45rem', textDecoration: 'none' }}
-                          >
-                            <Pencil size={11} /> Edit
-                          </Link>
-                        ) : (
-                          <span title="Batch has been processed" style={{ cursor: 'help', color: 'var(--text-secondary)', display: 'inline-flex', padding: '0.2rem' }}>
-                            <Lock size={12} />
-                          </span>
-                        )}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                          {toCashierStatus(batch.status) === 'PENDING' && (
+                            <Link
+                              href={`/cashier/request/batch/edit/${batch.id}`}
+                              style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.75rem', color: 'var(--text-secondary)', border: '1px solid var(--border)', borderRadius: '3px', padding: '0.2rem 0.45rem', textDecoration: 'none' }}
+                            >
+                              <Pencil size={11} /> Edit
+                            </Link>
+                          )}
+                          {toCashierStatus(batch.status) === 'DONE' && (
+                            <span title="Batch has been processed" style={{ cursor: 'help', color: 'var(--text-secondary)', display: 'inline-flex', padding: '0.2rem' }}>
+                              <Lock size={12} />
+                            </span>
+                          )}
+                          {toCashierStatus(batch.status) !== 'DONE' && (
+                            <button
+                              onClick={() => setConfirmDelete(batch)}
+                              title="Delete batch"
+                              style={{ display: 'inline-flex', alignItems: 'center', background: 'none', border: '1px solid var(--border)', borderRadius: '3px', padding: '0.25rem', cursor: 'pointer', color: '#8B3A2A' }}
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>,
                     isExpanded && (
@@ -340,6 +470,71 @@ export default function CashierDashboard() {
                 })}
               </tbody>
             </table>
+          </div>
+          {totalPages > 1 && (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem 1.25rem', borderTop: '1px solid var(--border)' }}>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                Page {safePage} of {totalPages}
+              </span>
+              <div style={{ display: 'flex', gap: '0.375rem' }}>
+                <button
+                  onClick={() => setPage(Math.max(1, safePage - 1))}
+                  disabled={safePage <= 1}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.75rem', color: 'var(--text-secondary)', border: '1px solid var(--border)', borderRadius: '4px', padding: '0.3rem 0.6rem', background: 'var(--bg-card)', cursor: safePage <= 1 ? 'not-allowed' : 'pointer', opacity: safePage <= 1 ? 0.4 : 1 }}
+                >
+                  <ChevronLeft size={13} /> Prev
+                </button>
+                <button
+                  onClick={() => setPage(Math.min(totalPages, safePage + 1))}
+                  disabled={safePage >= totalPages}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.75rem', color: 'var(--text-secondary)', border: '1px solid var(--border)', borderRadius: '4px', padding: '0.3rem 0.6rem', background: 'var(--bg-card)', cursor: safePage >= totalPages ? 'not-allowed' : 'pointer', opacity: safePage >= totalPages ? 0.4 : 1 }}
+                >
+                  Next <ChevronRight size={13} />
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Delete confirmation modal */}
+      {confirmDelete && (
+        <div
+          onClick={() => !deleting && setConfirmDelete(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="card"
+            style={{ maxWidth: '400px', width: '100%', padding: '1.5rem' }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', marginBottom: '0.75rem' }}>
+              <AlertTriangle size={20} style={{ color: '#8B3A2A' }} />
+              <h3 style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>Delete this request?</h3>
+            </div>
+            <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: '1.25rem' }}>
+              {confirmDelete._source === 'single'
+                ? `"${(confirmDelete as SingleRequest).name}" will be permanently removed.`
+                : `Batch "${(confirmDelete as BatchRequest).title}" and its ${(confirmDelete as BatchRequest).items.length} item${(confirmDelete as BatchRequest).items.length !== 1 ? 's' : ''} will be permanently removed.`}
+              {' '}This cannot be undone.
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.625rem' }}>
+              <button
+                onClick={() => setConfirmDelete(null)}
+                disabled={deleting}
+                style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', border: '1px solid var(--border)', borderRadius: '0.375rem', padding: '0.5rem 1rem', background: 'var(--bg-card)', cursor: deleting ? 'not-allowed' : 'pointer' }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDelete}
+                disabled={deleting}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', color: '#fff', border: 'none', borderRadius: '0.375rem', padding: '0.5rem 1rem', background: '#8B3A2A', cursor: deleting ? 'not-allowed' : 'pointer', opacity: deleting ? 0.7 : 1 }}
+              >
+                {deleting ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Trash2 size={13} />}
+                {deleting ? 'Deleting…' : 'Delete'}
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -30,7 +30,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         <Providers>{children}</Providers>
         <Toaster
-          position="bottom-right"
+          position="top-right"
           toastOptions={{ style: { fontFamily: 'var(--font-body)' } }}
         />
       </body>
