@@ -4,14 +4,25 @@ import { useState, useRef } from 'react';
 import { toast } from 'sonner';
 import { Upload, Loader2, BadgeDollarSign, ScanBarcode, AlertTriangle, CheckCircle2, Filter } from 'lucide-react';
 import { WineWarnings } from '@/components/WineWarnings';
-import type { RowMatch, MatchCandidate, BarcodeMismatch, PriceLevelsWarning } from '@/lib/itemMatch';
+import type { RowMatch, BarcodeMismatch, PriceLevelsWarning } from '@/lib/itemMatch';
 
-// Read-only admin verification view: upload a price-change export and inspect the
-// wine dual-lookup (barcode integrity) + price-levels warnings before the change
-// is actioned. Reuses /api/plu/match-batch — no request is created here.
+// Read-only admin verification view: upload a price-change export, resolve every
+// row against the Quinos master, and show the current name/price next to the
+// requested price. Wine rows additionally carry the dual-lookup (barcode
+// integrity) + price-levels advisories. Reuses /api/plu/match-batch — no request
+// is created here.
+//
+// Identity rules (all departments, not just wine):
+//   - Code column is the primary identity for EVERY row. It resolves exactly via
+//     the matcher's Phase-1 code lookup, no fuzzy scan involved.
+//   - Barcode is only meaningful for WINE (CNS), where Quinos stores the SAP Item
+//     No. as the "barcode". For any other department the barcode column is not a
+//     reliable key, so we don't feed it to the matcher — Code (then name+category)
+//     decides instead.
 
 interface CheckRow {
   rowNum: number;
+  code: string;
   name: string;
   category: string;
   department: string;
@@ -40,7 +51,32 @@ function isWine(dep: string): boolean {
   return dep.toLowerCase().includes('wine');
 }
 
-async function parseFile(file: File): Promise<Record<string, string>[]> {
+// Header aliases per logical field, lowercased. Departments export with slightly
+// different headings ("PLU", "Item Name", "New Price", …) — accept them all
+// rather than silently reading an empty column.
+const HEADER_ALIASES: Record<string, string[]> = {
+  code: ['code', 'plu', 'plu code', 'plucode', 'item code', 'itemcode', 'kode'],
+  name: ['name', 'item name', 'itemname', 'description', 'nama', 'nama item'],
+  category: ['category', 'categories', 'kategori', 'sub category', 'subcategory'],
+  department: ['department', 'dept', 'departemen', 'divisi'],
+  barcode: ['barcode', 'bar code', 'ean', 'item no', 'item no.', 'itemno'],
+  price: ['price', 'new price', 'newprice', 'harga', 'harga baru', 'price new'],
+};
+
+// Map each logical field to the actual header present in the file (first alias
+// that matches, case/whitespace-insensitive). Missing field → undefined.
+function resolveHeaders(headers: string[]): Record<string, string | undefined> {
+  const norm = (h: string) => h.toLowerCase().replace(/\s+/g, ' ').trim();
+  const byNorm = new Map<string, string>();
+  for (const h of headers) if (h) byNorm.set(norm(h), h);
+  const out: Record<string, string | undefined> = {};
+  for (const [field, aliases] of Object.entries(HEADER_ALIASES)) {
+    out[field] = aliases.map((a) => byNorm.get(a)).find(Boolean);
+  }
+  return out;
+}
+
+async function parseFile(file: File): Promise<{ headers: string[]; rows: Record<string, string>[] }> {
   const XLSX = await import('xlsx');
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -49,7 +85,7 @@ async function parseFile(file: File): Promise<Record<string, string>[]> {
         const wb = XLSX.read(e.target?.result, { type: 'binary' });
         const ws = wb.Sheets[wb.SheetNames[0]];
         const raw = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1 }) as unknown[][];
-        if (raw.length < 2) { resolve([]); return; }
+        if (raw.length < 2) { resolve({ headers: [], rows: [] }); return; }
         const headers = (raw[0] as string[]).map((h) => String(h ?? '').trim());
         const rows: Record<string, string>[] = [];
         for (let i = 1; i < raw.length; i++) {
@@ -58,7 +94,7 @@ async function parseFile(file: File): Promise<Record<string, string>[]> {
           headers.forEach((h, j) => { row[h] = cells[j] != null ? String(cells[j]).trim() : ''; });
           if (headers.some((h) => row[h] !== '')) rows.push(row);
         }
-        resolve(rows);
+        resolve({ headers, rows });
       } catch (err) { reject(err); }
     };
     reader.onerror = reject;
@@ -80,38 +116,69 @@ export default function PriceCheckPage() {
     }
     setLoading(true);
     try {
-      const parsed = await parseFile(file);
-      if (parsed.length === 0) { toast.error('File is empty or has no data rows'); return; }
-      const inputs = parsed.map((r) => ({
-        name: r['Name'] ?? '', category: r['Category'] ?? '',
-        department: r['Department'] ?? '', barcode: r['Barcode'] ?? '',
-      }));
+      const { headers, rows: parsed } = await parseFile(file);
+      if (parsed.length === 0) { toast.error('File kosong atau tidak punya baris data'); return; }
+
+      const col = resolveHeaders(headers);
+      // A file needs at least one usable identity column, otherwise every row
+      // would come back unmatched and the reason would be invisible.
+      if (!col.code && !col.name) {
+        toast.error('File harus punya kolom Code atau Name. Kolom terbaca: ' + headers.filter(Boolean).join(', '));
+        return;
+      }
+      const get = (r: Record<string, string>, field: string) => (col[field] ? (r[col[field]!] ?? '') : '');
+
+      const inputs = parsed.map((r) => {
+        const department = get(r, 'department');
+        return {
+          code: get(r, 'code'),
+          name: get(r, 'name'),
+          category: get(r, 'category'),
+          department,
+          // Barcode is only a valid key for wine (Quinos stores the SAP Item No.
+          // there). Feeding a non-wine barcode to the matcher produces bogus
+          // hits, so non-wine rows resolve by Code / name+category instead.
+          barcode: isWine(department) ? get(r, 'barcode') : '',
+        };
+      });
+
       const res = await fetch('/api/plu/match-batch', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rows: inputs }),
       });
-      if (!res.ok) throw new Error('match failed');
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        throw new Error(err?.error || `Matcher gagal (HTTP ${res.status})`);
+      }
       const data = await res.json();
       const results: RowMatch[] = data.results ?? [];
       const checkRows: CheckRow[] = parsed.map((r, i) => ({
         rowNum: i + 1,
-        name: r['Name'] ?? '',
-        category: r['Category'] ?? '',
-        department: r['Department'] ?? '',
-        barcode: r['Barcode'] ?? '',
-        price: sanitizePrice(r['Price'] ?? ''),
+        code: get(r, 'code'),
+        name: get(r, 'name'),
+        category: get(r, 'category'),
+        department: get(r, 'department'),
+        barcode: get(r, 'barcode'),
+        price: sanitizePrice(get(r, 'price')),
         match: results[i] ?? { type: 'none' },
       }));
       setRows(checkRows);
-    } catch {
-      toast.error('Gagal memproses file. Coba lagi.');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Gagal memproses file. Coba lagi.');
     } finally {
       setLoading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
   }
 
-  const wineRows = rows.filter((r) => isWine(r.department));
-  const flagged = rows.filter((r) => { const w = rowWarnings(r); return w.barcodeMismatch || w.priceLevels; });
+  const unmatched = rows.filter((r) => !r.match.master && !(r.match.candidates && r.match.candidates.length));
+  // A row is "flagged" if it needs the admin's eyes: unresolved identity (any
+  // department), or a wine advisory. Unmatched used to be invisible under the
+  // filter even though it's the most actionable problem.
+  const flagged = rows.filter((r) => {
+    const w = rowWarnings(r);
+    const noMatch = !r.match.master && !(r.match.candidates && r.match.candidates.length);
+    return noMatch || w.barcodeMismatch || w.priceLevels;
+  });
   const barcodeFlags = rows.filter((r) => rowWarnings(r).barcodeMismatch).length;
   const priceLevelFlags = rows.filter((r) => rowWarnings(r).priceLevels).length;
   const visible = onlyFlagged ? flagged : rows;
@@ -121,7 +188,7 @@ export default function PriceCheckPage() {
       <div style={{ marginBottom: '1.25rem' }}>
         <h1 className="page-title">Price Change Verification</h1>
         <p style={{ marginTop: '0.375rem', fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
-          Upload a price-change export to review wine barcode-integrity and active price-level warnings before actioning. Detection only — nothing is submitted or corrected here.
+          Upload a price-change file from any department to see each item&apos;s current name and price against the requested one. Wine (CNS) rows additionally get barcode-integrity and price-level checks. Detection only — nothing is submitted or corrected here.
         </p>
       </div>
 
@@ -129,7 +196,7 @@ export default function PriceCheckPage() {
       <div className="card" style={{ padding: '1.25rem', marginBottom: '1.25rem' }}>
         <div style={{ fontWeight: 600, fontSize: '0.875rem', color: 'var(--text-primary)', marginBottom: '0.2rem' }}>Upload Price Change File</div>
         <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '0.75rem' }}>
-          Same format as the cashier UPDATE_PRICE import (Name, Category, Department, Barcode, Price).
+          Kolom: <strong>Code</strong> (identitas utama), Name, Category, Department, Price. Barcode hanya dipakai untuk department WINE. Judul kolom umum lain (PLU, Item Name, New Price, …) ikut dikenali.
         </div>
         <div
           onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
@@ -165,8 +232,8 @@ export default function PriceCheckPage() {
           <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
             {[
               { label: 'Total rows', value: rows.length, color: 'var(--text-primary)', icon: <BadgeDollarSign size={15} /> },
-              { label: 'Wine rows', value: wineRows.length, color: 'var(--text-primary)', icon: <BadgeDollarSign size={15} /> },
-              { label: 'Barcode mismatch', value: barcodeFlags, color: '#7A2E1F', icon: <ScanBarcode size={15} /> },
+              { label: 'Tidak ditemukan', value: unmatched.length, color: unmatched.length ? '#7A2E1F' : 'var(--text-primary)', icon: <AlertTriangle size={15} /> },
+              { label: 'Barcode mismatch (wine)', value: barcodeFlags, color: '#7A2E1F', icon: <ScanBarcode size={15} /> },
               { label: 'Price levels active', value: priceLevelFlags, color: '#8B6914', icon: <AlertTriangle size={15} /> },
             ].map((s) => (
               <div key={s.label} className="card" style={{ padding: '0.75rem 1rem', flex: '1 1 140px' }}>
@@ -195,33 +262,51 @@ export default function PriceCheckPage() {
               </div>
             ) : visible.map((r) => {
               const w = rowWarnings(r);
-              const flaggedRow = !!(w.barcodeMismatch || w.priceLevels);
               const m = r.match;
               const resolved = m.master ?? m.candidates?.[0];
+              const noMatch = !resolved;
+              const flaggedRow = !!(noMatch || w.barcodeMismatch || w.priceLevels);
+              const newPrice = r.price ? Number(r.price) : null;
+              const oldPrice = resolved?.price ?? null;
               return (
                 <div key={r.rowNum} style={{
-                  border: `1px solid ${flaggedRow ? 'rgba(184,134,11,0.25)' : 'var(--border)'}`,
-                  borderLeft: `3px solid ${flaggedRow ? '#B8860B' : '#3D5A3E'}`,
+                  border: `1px solid ${noMatch ? 'rgba(122,46,31,0.3)' : flaggedRow ? 'rgba(184,134,11,0.25)' : 'var(--border)'}`,
+                  borderLeft: `3px solid ${noMatch ? '#7A2E1F' : flaggedRow ? '#B8860B' : '#3D5A3E'}`,
                   borderRadius: '0.375rem', padding: '0.75rem 0.875rem', marginBottom: '0.625rem',
                   background: flaggedRow ? 'rgba(184,134,11,0.025)' : 'transparent',
                 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', flexWrap: 'wrap' }}>
                     <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', fontWeight: 600 }}>#{r.rowNum}</span>
-                    {isWine(r.department) && <span style={{ fontSize: '0.62rem', fontWeight: 700, padding: '1px 6px', borderRadius: '3px', background: 'rgba(122,46,31,0.08)', color: '#7A2E1F', border: '1px solid rgba(122,46,31,0.2)' }}>WINE</span>}
-                    <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)' }}>{r.name || <em style={{ color: 'var(--text-secondary)' }}>tanpa nama</em>}</span>
+                    {isWine(r.department) ? (
+                      <span style={{ fontSize: '0.62rem', fontWeight: 700, padding: '1px 6px', borderRadius: '3px', background: 'rgba(122,46,31,0.08)', color: '#7A2E1F', border: '1px solid rgba(122,46,31,0.2)' }}>WINE</span>
+                    ) : r.department ? (
+                      <span style={{ fontSize: '0.62rem', fontWeight: 700, padding: '1px 6px', borderRadius: '3px', background: 'var(--bg-dark)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>{r.department.toUpperCase()}</span>
+                    ) : null}
+                    <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                      {r.name || r.code || <em style={{ color: 'var(--text-secondary)' }}>tanpa nama</em>}
+                    </span>
                     {r.category && <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>· {r.category}</span>}
                     {resolved && (
                       <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
                         → <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#C9A84C' }}>{('code' in resolved && resolved.code) || '?'}</span>
-                        {resolved.price != null && <> · harga lama Rp {fmtRp(resolved.price)}</>}
+                        {' '}<span style={{ color: 'var(--text-primary)' }}>{resolved.name}</span>
+                        {m.type && m.type !== 'none' && <span style={{ marginLeft: '0.35rem', opacity: 0.75 }}>({m.type})</span>}
                       </span>
                     )}
-                    <div style={{ marginLeft: 'auto', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                      Harga baru <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{r.price ? `Rp ${fmtRp(Number(r.price))}` : '—'}</span>
+                    <div style={{ marginLeft: 'auto', fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                      <span>Lama <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{oldPrice != null ? `Rp ${fmtRp(oldPrice)}` : '—'}</span></span>
+                      <span style={{ opacity: 0.5 }}>→</span>
+                      <span>Baru <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{newPrice != null ? `Rp ${fmtRp(newPrice)}` : '—'}</span></span>
                     </div>
                   </div>
-                  {m.type === 'none' && (
-                    <div style={{ marginTop: '0.4rem', fontSize: '0.72rem', color: '#7A2E1F' }}>Tidak ditemukan di master Quinos.</div>
+                  {noMatch && (
+                    <div style={{ marginTop: '0.4rem', fontSize: '0.72rem', color: '#7A2E1F' }}>
+                      Tidak ditemukan di master Quinos
+                      {r.code ? <> — kode <span style={{ fontFamily: 'monospace' }}>{r.code}</span> tidak terdaftar.</> : ' — isi kolom Code agar bisa dicocokkan secara pasti.'}
+                    </div>
+                  )}
+                  {!noMatch && oldPrice != null && newPrice != null && oldPrice === newPrice && (
+                    <div style={{ marginTop: '0.4rem', fontSize: '0.72rem', color: 'var(--text-secondary)' }}>Harga baru sama dengan harga saat ini — tidak ada perubahan.</div>
                   )}
                   <WineWarnings barcodeMismatch={w.barcodeMismatch} priceLevels={w.priceLevels} requestedPrice={r.price} />
                 </div>

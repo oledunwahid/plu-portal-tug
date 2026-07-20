@@ -71,7 +71,8 @@
       "Bash(curl -s -o /dev/null -w \"DELETE /api/requests/xx : %{http_code}\\\\n\" -X DELETE http://localhost:3998/api/requests/nonexistent)",
       "Bash(curl -s -o /dev/null -w \"DELETE /api/batches/xx  : %{http_code}\\\\n\" -X DELETE http://localhost:3998/api/batches/nonexistent)",
       "Bash(curl -s -o /dev/null -w \"GET /cashier/dashboard  : %{http_code}\\\\n\" http://localhost:3998/cashier/dashboard)",
-      "PowerShell($c = Get-NetTCPConnection -LocalPort 3998 -State Listen -ErrorAction SilentlyContinue; if \\($c\\) { Stop-Process -Id $c.OwningProcess -Force -ErrorAction SilentlyContinue; \"stopped 3998\" } else { \"nothing on 3998\" })"
+      "PowerShell($c = Get-NetTCPConnection -LocalPort 3998 -State Listen -ErrorAction SilentlyContinue; if \\($c\\) { Stop-Process -Id $c.OwningProcess -Force -ErrorAction SilentlyContinue; \"stopped 3998\" } else { \"nothing on 3998\" })",
+      "PowerShell(npx tsc --noEmit -p tsconfig.json 2>&1 | Select-Object -First 30)"
     ]
   }
 }

@@ -472,7 +472,7 @@ export default function BatchNewPage() {
         }
       })();
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items, configLoading]);
 
   const isUpdate = requestType !== 'NEW_ITEM';
@@ -511,7 +511,7 @@ export default function BatchNewPage() {
       };
       return [...prev, newRow];
     });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [outlet, requestType]);
 
   function duplicateRow(idx: number) {
@@ -1397,7 +1397,7 @@ export default function BatchNewPage() {
                 </p>
                 {requestType === 'UPDATE_PRICE' && (
                   <p style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', margin: '0.4rem 0 0', fontStyle: 'italic' }}>
-                    Kode PLU akan dicocokkan otomatis dari Nama / Kategori / Barcode — kolom Code tidak diperlukan.
+                    Kode PLU akan dicocokkan otomatis.
                   </p>
                 )}
               </>
