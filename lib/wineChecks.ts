@@ -1,11 +1,11 @@
 // Wine-only advisory checks layered on top of the standard import match cascade.
 // Two independent checks, both detection-only (no auto-correction):
 //
-//   1. Barcode integrity — once a WINE row resolves to a Quinos master, look the
+//   1. Barcode integrity - once a WINE row resolves to a Quinos master, look the
 //      same item up in the SAP registry (fuzzy by name, since SAP item numbers
 //      don't map 1:1 to Quinos codes), derive the SAP barcode, and compare it to
 //      the Quinos master's stored barcode. Disagreement → BARCODE MISMATCH flag.
-//   2. Price levels — if the matched master has any active (non-zero) price
+//   2. Price levels - if the matched master has any active (non-zero) price
 //      level override, a flat Price update may not change the charged price.
 //
 // Pure functions (no DB import) so they can be unit tested; the route feeds in
@@ -36,7 +36,7 @@ export function isWineDepartment(department: string): boolean {
   return normalizeText(department).includes('wine');
 }
 
-// Digits-only comparison key for barcodes — strips formatting so "315147611"
+// Digits-only comparison key for barcodes - strips formatting so "315147611"
 // and " 315147611 " compare equal, and an empty value normalizes to ''.
 function barcodeKey(v: string | null | undefined): string {
   return String(v ?? '').replace(/\D/g, '');
@@ -46,7 +46,7 @@ function barcodeKey(v: string | null | undefined): string {
 // (List of Items-WINE.xlsx + Quinos master, Jun 2026): Quinos stores the SAP
 // *Item Number* as the wine "barcode" (41/43 sampled items), NOT the commercial
 // Bar Code EAN (2/43) nor the legacy "+11" NCK derivation (1/43). So we compare
-// against the Item No. digits, with the "(NCK)" marker stripped — which collapses
+// against the Item No. digits, with the "(NCK)" marker stripped - which collapses
 // each plain/NCK SAP pair to the same value, removing name-match ambiguity.
 export function resolveSapBarcode(sap: SapRef): string | null {
   const digits = barcodeKey(sap.itemNo);
@@ -79,7 +79,7 @@ export function checkWineBarcode(
   saps: SapRef[],
 ): BarcodeMismatch | null {
   const qDigits = barcodeKey(quinosBarcode);
-  if (!qDigits) return null; // no barcode to validate — identity check only
+  if (!qDigits) return null; // no barcode to validate - identity check only
 
   const best = bestSapMatch(quinosName, saps);
   const suggestion = best
@@ -130,7 +130,7 @@ export function annotateWineWarnings(
     const input = inputs[i];
     if (!input || !isWineDepartment(input.department)) return result;
 
-    // Resolved exact match — annotate the RowMatch directly.
+    // Resolved exact match - annotate the RowMatch directly.
     if (result.master && result.resolvedCode) {
       const m = masterByCode.get(result.resolvedCode) ?? result.master;
       const barcodeMismatch = checkWineBarcode(m.name, m.barcode, saps) ?? undefined;
@@ -138,7 +138,7 @@ export function annotateWineWarnings(
       return { ...result, barcodeMismatch, priceLevels };
     }
 
-    // Fuzzy / ambiguous — annotate each candidate so the warning follows the
+    // Fuzzy / ambiguous - annotate each candidate so the warning follows the
     // identity the admin ultimately selects.
     if (result.candidates && result.candidates.length > 0) {
       const candidates = result.candidates.map((c) => {

@@ -13,7 +13,7 @@ export const maxDuration = 60;
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 100;
 // Above this filtered-result size we never enrich inline with SAP evidence on a
-// search — the client lazy-loads it per group on expand instead.
+// search - the client lazy-loads it per group on expand instead.
 const INLINE_SAP_MAX = 100;
 
 function parsePrice(v: string | null): number | null {
@@ -35,7 +35,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    // Light groups only — grouping + cheap classification, no SAP scoring.
+    // Light groups only - grouping + cheap classification, no SAP scoring.
     const { groups: allGroups, filterOptions } = await getLightGroupsCached();
 
     const sp = req.nextUrl.searchParams;
@@ -63,7 +63,7 @@ export async function GET(req: NextRequest) {
     // filtered result set is small enough to fit on one page. Keeps "search 1800
     // anejo" showing SAP classification without waiting for a manual expand,
     // while staying bounded (≤ one page against a capped, cached index). SAP
-    // eligibility is by candidate presence — groups with no matching SAP row
+    // eligibility is by candidate presence - groups with no matching SAP row
     // resolve near-instantly via the token prefilter.
     const hasSearch = !!filters.search?.trim();
     if (hasSearch && totalGroups <= INLINE_SAP_MAX && pageGroups.length > 0) {

@@ -66,7 +66,7 @@ function BoolPill({ value }: { value: boolean }) {
   );
 }
 
-// Read-only detail panel — cashiers can inspect but never edit an item.
+// Read-only detail panel - cashiers can inspect but never edit an item.
 function ItemDetailSlideOver({ item, onClose }: { item: MasterItem; onClose: () => void }) {
   const priceLevels = parsePriceLevels(item.priceLevels);
   const outletList = item.outlets ? item.outlets.split(/[;,]/).map((s) => s.trim()).filter(Boolean) : [];
@@ -188,7 +188,7 @@ export default function CashierItemLookupPage() {
     fetch('/api/config/categories?activeOnly=true')
       .then((r) => r.ok ? r.json() : [])
       .then((data: ConfigCategory[]) => setCategories(data))
-      .catch(() => {});
+      .catch(() => { });
   }, []);
 
   // Load outlets for the cashier's group
@@ -197,7 +197,7 @@ export default function CashierItemLookupPage() {
     fetch(`/api/config/outlets?group=${encodeURIComponent(outletGroup)}&activeOnly=true`)
       .then((r) => r.ok ? r.json() : [])
       .then((data: { code: string }[]) => setOutletOptions(data.map((o) => o.code)))
-      .catch(() => {});
+      .catch(() => { });
   }, [outletGroup]);
 
   // Derive unique departments from categories
@@ -211,7 +211,7 @@ export default function CashierItemLookupPage() {
       if (category) params.set('category', category);
       if (department) params.set('department', department);
       if (outlet) params.set('outlet', outlet);
-      // Cashiers must never see inactive items — always scope the lookup to active items.
+      // Cashiers must never see inactive items - always scope the lookup to active items.
       params.set('active', '1');
       params.set('page', String(page));
       params.set('limit', String(PAGE_SIZE));

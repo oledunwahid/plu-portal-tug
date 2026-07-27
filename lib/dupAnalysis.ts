@@ -4,7 +4,7 @@
 // rows that look duplicated, then cross-references SapMasterItem to decide whether
 // an apparent duplicate is:
 //   - a real MasterItem duplicate that should be merged/removed (LIKELY_DUPLICATE),
-//   - an expected separation caused by SAP structure — different itemNo / NCK /
+//   - an expected separation caused by SAP structure - different itemNo / NCK /
 //     size / bottle-vs-glass (SAP_SEPARATED),
 //   - ambiguous / needs a human (AMBIGUOUS),
 //   - or lacking any SAP row to compare against (NO_SAP_EVIDENCE).
@@ -56,7 +56,7 @@ export interface DupGroup {
   reason: string;
   recommendedAction: RecommendedAction;
   key: string;
-  base: string; // internal grouping base name — used to seed lazy SAP evidence
+  base: string; // internal grouping base name - used to seed lazy SAP evidence
   prefix: string;
   department: string;
   category: string;
@@ -360,13 +360,13 @@ function classifyGroup(items: DupMasterInput[], base: string, sapMatches: SapMat
   const meaningful = sapMatches.filter((m) => m.score >= FUZZY_MIN || m.reason === 'exact-barcode' || m.reason === 'exact-name');
   const bestScore = sapMatches.length ? sapMatches[0].score : 0;
 
-  // Size evidence — from meaningful SAP descriptions and member names.
+  // Size evidence - from meaningful SAP descriptions and member names.
   const sizes = new Set<string>();
   for (const it of items) for (const z of extractSizes(it.name)) sizes.add(z);
   for (const m of meaningful) for (const z of extractSizes(m.description)) sizes.add(z);
   const sizeDiff = sizes.size > 1;
 
-  // Serving-type evidence (bottle vs glass) — member-side signal.
+  // Serving-type evidence (bottle vs glass) - member-side signal.
   const types = new Set<string>();
   for (const it of items) { const t = extractType(it.name); if (t) types.add(t); }
   const typeDiff = types.size > 1;
@@ -459,11 +459,11 @@ function buildReason(
     case 'SAP_SEPARATED':
       return `SAP punya ${ctx.meaningful.length} baris terkait: ${sapList}${nMore}.` +
         (diffs.length ? ` Perbedaan terdeteksi: ${diffs.join('/')}.` : '') +
-        ' Kemungkinan bukan duplikat — pisahan mengikuti struktur SAP.';
+        ' Kemungkinan bukan duplikat - pisahan mengikuti struktur SAP.';
     case 'AMBIGUOUS':
       return ctx.meaningful.length
         ? `Ada kecocokan SAP (${sapList}${nMore}) tapi bukti belum kuat` +
-          (diffs.length ? ` — perbedaan: ${diffs.join('/')}.` : '.') + ' Perlu pengecekan manual.'
+          (diffs.length ? ` - perbedaan: ${diffs.join('/')}.` : '.') + ' Perlu pengecekan manual.'
         : 'Perbedaan tipe/ukuran terdeteksi tanpa bukti SAP yang jelas. Perlu pengecekan manual.';
     case 'LIKELY_DUPLICATE':
       return 'Nama sangat mirip, department/kategori/harga sama' +
@@ -543,7 +543,7 @@ function buildFilterOptions(groups: DupGroup[]): DupFilterOptions {
 }
 
 // ── Lightweight pass (no SAP) ─────────────────────────────────────────────────
-// Cheap classification from MasterItem evidence only — no SAP fuzzy matching.
+// Cheap classification from MasterItem evidence only - no SAP fuzzy matching.
 // This is what the initial/paginated Data Quality load uses; SAP evidence is
 // filled in lazily per-group on expand via computeGroupEvidence().
 function classifyLight(items: DupMasterInput[], base: string): Classified {

@@ -9,7 +9,7 @@ import type { RowMatch, BarcodeMismatch, PriceLevelsWarning } from '@/lib/itemMa
 // Read-only admin verification view: upload a price-change export, resolve every
 // row against the Quinos master, and show the current name/price next to the
 // requested price. Wine rows additionally carry the dual-lookup (barcode
-// integrity) + price-levels advisories. Reuses /api/plu/match-batch — no request
+// integrity) + price-levels advisories. Reuses /api/plu/match-batch - no request
 // is created here.
 //
 // Identity rules (all departments, not just wine):
@@ -17,7 +17,7 @@ import type { RowMatch, BarcodeMismatch, PriceLevelsWarning } from '@/lib/itemMa
 //     the matcher's Phase-1 code lookup, no fuzzy scan involved.
 //   - Barcode is only meaningful for WINE (CNS), where Quinos stores the SAP Item
 //     No. as the "barcode". For any other department the barcode column is not a
-//     reliable key, so we don't feed it to the matcher — Code (then name+category)
+//     reliable key, so we don't feed it to the matcher - Code (then name+category)
 //     decides instead.
 
 interface CheckRow {
@@ -52,7 +52,7 @@ function isWine(dep: string): boolean {
 }
 
 // Header aliases per logical field, lowercased. Departments export with slightly
-// different headings ("PLU", "Item Name", "New Price", …) — accept them all
+// different headings ("PLU", "Item Name", "New Price", …) - accept them all
 // rather than silently reading an empty column.
 const HEADER_ALIASES: Record<string, string[]> = {
   code: ['code', 'plu', 'plu code', 'plucode', 'item code', 'itemcode', 'kode'],
@@ -188,7 +188,7 @@ export default function PriceCheckPage() {
       <div style={{ marginBottom: '1.25rem' }}>
         <h1 className="page-title">Price Change Verification</h1>
         <p style={{ marginTop: '0.375rem', fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
-          Upload a price-change file from any department to see each item&apos;s current name and price against the requested one. Wine (CNS) rows additionally get barcode-integrity and price-level checks. Detection only — nothing is submitted or corrected here.
+          Upload a price-change file from any department to see each item&apos;s current name and price against the requested one. Wine (CNS) rows additionally get barcode-integrity and price-level checks. Detection only - nothing is submitted or corrected here.
         </p>
       </div>
 
@@ -302,11 +302,11 @@ export default function PriceCheckPage() {
                   {noMatch && (
                     <div style={{ marginTop: '0.4rem', fontSize: '0.72rem', color: '#7A2E1F' }}>
                       Tidak ditemukan di master Quinos
-                      {r.code ? <> — kode <span style={{ fontFamily: 'monospace' }}>{r.code}</span> tidak terdaftar.</> : ' — isi kolom Code agar bisa dicocokkan secara pasti.'}
+                      {r.code ? <> - kode <span style={{ fontFamily: 'monospace' }}>{r.code}</span> tidak terdaftar.</> : ' - isi kolom Code agar bisa dicocokkan secara pasti.'}
                     </div>
                   )}
                   {!noMatch && oldPrice != null && newPrice != null && oldPrice === newPrice && (
-                    <div style={{ marginTop: '0.4rem', fontSize: '0.72rem', color: 'var(--text-secondary)' }}>Harga baru sama dengan harga saat ini — tidak ada perubahan.</div>
+                    <div style={{ marginTop: '0.4rem', fontSize: '0.72rem', color: 'var(--text-secondary)' }}>Harga baru sama dengan harga saat ini - tidak ada perubahan.</div>
                   )}
                   <WineWarnings barcodeMismatch={w.barcodeMismatch} priceLevels={w.priceLevels} requestedPrice={r.price} />
                 </div>

@@ -82,7 +82,7 @@ export const updateUserSchema = z.object({
 // Cost Control review actions on a PENDING_COST_CONTROL NEW_ITEM request.
 export const costControlConfirmSchema = z.object({
   // The barcode cost control confirmed (auto-derived value, optionally corrected). May be blank
-  // if no NCK barcode applies — stored as null then.
+  // if no NCK barcode applies - stored as null then.
   confirmedBarcode: z.string().trim().optional(),
 });
 

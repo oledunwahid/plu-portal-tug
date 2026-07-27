@@ -19,7 +19,7 @@ const TYPE_LABELS: Record<string, string> = {
   REMOVE_PLU: 'Remove PLU',
 };
 
-// Cashiers don't see the internal EXPORTED state — it reads as PENDING until admin marks it DONE.
+// Cashiers don't see the internal EXPORTED state - it reads as PENDING until admin marks it DONE.
 // PENDING_COST_CONTROL is also surfaced as plain PENDING (the cost-control approval stage was removed),
 // so it shows the normal pending badge and stays editable. REJECTED is surfaced verbatim (distinct
 // badge) and locks the Edit button, since the edit/live-badge logic only treats a literal 'PENDING'

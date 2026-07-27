@@ -272,7 +272,7 @@ function ItemDetailSlideOver({ code, onClose }: { code: string; onClose: () => v
             </div>
           ) : (
             <>
-              {/* Section 1 — Identity */}
+              {/* Section 1 - Identity */}
               <SlideSection title="Identitas">
                 <div style={{ fontSize: '1.05rem', fontWeight: 600, color: 'var(--text-primary)', lineHeight: 1.35, marginBottom: '0.5rem', wordBreak: 'break-word' }}>
                   {item.name}
@@ -290,7 +290,7 @@ function ItemDetailSlideOver({ code, onClose }: { code: string; onClose: () => v
                 </div>
               </SlideSection>
 
-              {/* Section 2 — Pricing */}
+              {/* Section 2 - Pricing */}
               <SlideSection title="Harga">
                 <DetailRow label="Sell Price" value={item.price != null ? formatPrice(item.price) : '—'} />
                 <div style={{ marginTop: '0.5rem' }}>
@@ -302,7 +302,7 @@ function ItemDetailSlideOver({ code, onClose }: { code: string; onClose: () => v
                       {priceLevels.map((pl, i) => (
                         <div key={i} style={{ fontSize: '0.76rem', color: 'var(--text-primary)', lineHeight: 1.35 }}>
                           <strong>{pl.salesType}</strong>
-                          <span style={{ color: 'var(--text-secondary)' }}> — {pl.outlets.join(', ') || '—'} — </span>
+                          <span style={{ color: 'var(--text-secondary)' }}> - {pl.outlets.join(', ') || '—'} - </span>
                           {pl.price != null ? formatPrice(pl.price) : '—'}
                         </div>
                       ))}
@@ -311,7 +311,7 @@ function ItemDetailSlideOver({ code, onClose }: { code: string; onClose: () => v
                 </div>
               </SlideSection>
 
-              {/* Section 3 — Item Details */}
+              {/* Section 3 - Item Details */}
               <SlideSection title="Detail Item">
                 <DetailRow label="PLU" value={item.plu ?? '—'} mono />
                 <DetailRow
@@ -326,7 +326,7 @@ function ItemDetailSlideOver({ code, onClose }: { code: string; onClose: () => v
                 <DetailRow label="SalesDef" value={item.salesDef ?? '—'} />
               </SlideSection>
 
-              {/* Section 4 — Outlets and Printers */}
+              {/* Section 4 - Outlets and Printers */}
               <SlideSection title="Outlet & Printer">
                 <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginBottom: '0.375rem' }}>Outlets</div>
                 <PillRow values={splitList(item.outlets)} gold />
@@ -334,7 +334,7 @@ function ItemDetailSlideOver({ code, onClose }: { code: string; onClose: () => v
                 <PillRow values={splitList(item.printers)} />
               </SlideSection>
 
-              {/* Section 5 — System */}
+              {/* Section 5 - System */}
               <SlideSection title="Sistem">
                 <DetailRow label="Code" value={item.code} mono />
                 {item.updatedBy && <DetailRow label="Diperbarui oleh" value={item.updatedBy} />}
@@ -562,7 +562,7 @@ function DuplicateAnalysisPanel({ onOpenDetail }: { onOpenDetail: (code: string)
       .then((r) => r.ok ? r.json() : Promise.reject(new Error('Gagal memuat analisis duplikat')))
       .then((d: DupResponse) => {
         setData(d);
-        // filterOptions are global (computed pre-filter) — keep the fullest set seen.
+        // filterOptions are global (computed pre-filter) - keep the fullest set seen.
         setOptions((prev) => ({
           departments: d.filterOptions.departments.length ? d.filterOptions.departments : prev.departments,
           categories: d.filterOptions.categories.length ? d.filterOptions.categories : prev.categories,
@@ -631,7 +631,7 @@ function DuplicateAnalysisPanel({ onOpenDetail }: { onOpenDetail: (code: string)
   return (
     <PanelCard
       title="Analisis Duplikat + Bukti SAP"
-      description="Kelompok Master Item yang tampak duplikat, diklasifikasikan dengan bukti dari SAP (itemNo / NCK / ukuran / tipe). Alat bukti & tinjauan — tidak mengubah data."
+      description="Kelompok Master Item yang tampak duplikat, diklasifikasikan dengan bukti dari SAP (itemNo / NCK / ukuran / tipe). Alat bukti & tinjauan - tidak mengubah data."
       count={counts.total}
     >
       {/* Filter bar */}

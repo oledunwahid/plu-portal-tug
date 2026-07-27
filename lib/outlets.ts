@@ -31,7 +31,7 @@ export const ALL_OUTLETS = Object.keys(OUTLET_TO_GROUP);
 
 export const MILAN_OUTLETS = ['MILGI', 'MILPIK'];
 
-// "Cork" outlets — the CNS wine-bar outlets whose WINE NEW_ITEM requests route through the
+// "Cork" outlets - the CNS wine-bar outlets whose WINE NEW_ITEM requests route through the
 // Cost Control approval stage. NOTE: BLCS is a CNS outlet but is NOT a Cork outlet (excluded).
 // Mirrors the CORK_OUTLETS set used for NEW_ITEM price-level pre-population in lib/export.ts.
 export const CORK_OUTLETS = ['CSPP', 'CSPI', 'CSSG', 'CSPP-B', 'CSPI-B', 'CSSG-B'];
@@ -100,7 +100,7 @@ export function getOutletGroup(outlet: string): OutletGroup {
 // IBR) as distinct outlets, but admin/export always presents either as the combined outlet
 // "MILBISPIK": selecting BISPIK alone → MILBISPIK, MILPIK alone → MILBISPIK, both → a single
 // MILBISPIK (de-duplicated). Other outlets and order are preserved. Cashier-facing views are
-// intentionally NOT passed through this — they keep the raw selections.
+// intentionally NOT passed through this - they keep the raw selections.
 export function collapseAdminOutlets(outlets: string): string {
   if (!outlets) return outlets;
   const tokens = outlets.split(';').map((t) => t.trim()).filter(Boolean);

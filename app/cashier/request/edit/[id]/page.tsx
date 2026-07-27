@@ -17,7 +17,7 @@ function formatIDR(value: number): string {
   return 'Rp ' + value.toLocaleString('id-ID');
 }
 
-// Indonesian, user-facing labels for server-side field validation errors — never surface raw Zod
+// Indonesian, user-facing labels for server-side field validation errors - never surface raw Zod
 // messages/paths to the cashier. Falls back to a generic message for any unmapped field.
 const FIELD_ERROR_ID: Record<string, string> = {
   name: 'Nama item harus diisi',
@@ -107,7 +107,7 @@ export default function EditRequestPage() {
   const [loading, setLoading] = useState(false);
   const [fetching, setFetching] = useState(true);
   const [successModal, setSuccessModal] = useState({ open: false, itemName: '' });
-  // Reference fields (current name / current price) for UPDATE_PRICE & UPDATE_NAME — display only, not submitted
+  // Reference fields (current name / current price) for UPDATE_PRICE & UPDATE_NAME - display only, not submitted
   const [refItem, setRefItem] = useState<{ name: string; price: number | null } | null>(null);
 
   const sessionUser = session?.user as any;
@@ -169,7 +169,7 @@ export default function EditRequestPage() {
           fetch(`/api/admin/kb/items/${encodeURIComponent(data.code)}`)
             .then((r) => (r.ok ? r.json() : null))
             .then((mi) => { if (mi) setRefItem({ name: mi.name ?? '', price: mi.price ?? null }); })
-            .catch(() => {});
+            .catch(() => { });
         }
         setForm({
           name: data.name,
@@ -275,7 +275,7 @@ export default function EditRequestPage() {
         return;
       }
 
-      // Error handling — never expose raw Zod paths, HTTP status codes, or technical detail.
+      // Error handling - never expose raw Zod paths, HTTP status codes, or technical detail.
       if (res.status === 400) {
         const data = await res.json().catch(() => ({} as Record<string, unknown>));
         const rawFieldErrors = (data as { fieldErrors?: Record<string, string> }).fieldErrors;
@@ -292,7 +292,7 @@ export default function EditRequestPage() {
           setErrors(mapped);
           toast.error('Periksa kembali field yang ditandai.');
         } else {
-          // A 400 we can't tie to a fixable field — not something the cashier can resolve.
+          // A 400 we can't tie to a fixable field - not something the cashier can resolve.
           toast.error('Permintaan tidak valid. Hubungi admin jika masalah berlanjut.');
         }
       } else {
@@ -395,7 +395,7 @@ export default function EditRequestPage() {
                 <FieldGroup label="PLU Code">
                   <PLUCodeSearch
                     value={requestCode}
-                    onChange={() => {}}
+                    onChange={() => { }}
                     disabled
                     placeholder="PLU code"
                   />
@@ -403,7 +403,7 @@ export default function EditRequestPage() {
                 </FieldGroup>
               )}
 
-              {/* Reference fields — current name & price from master item registry, display only */}
+              {/* Reference fields - current name & price from master item registry, display only */}
               {(requestType === 'UPDATE_PRICE' || requestType === 'UPDATE_NAME') && (
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                   <FieldGroup label="Current Name" hint="From master item registry">

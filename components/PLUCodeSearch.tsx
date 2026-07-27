@@ -11,7 +11,7 @@ export interface PLUSearchResult {
   // Barcode-mode extras (absent for code/name search):
   barcode?: string | null;
   source?: 'MASTER' | 'SAP';
-  /** True when the barcode matched only SAP, not the Quinos master — not yet verified. */
+  /** True when the barcode matched only SAP, not the Quinos master - not yet verified. */
   sapOnly?: boolean;
   /** 'NCK' means it matched only after the digits+11 derivation fallback. */
   matchType?: 'EXACT' | 'NCK';
@@ -143,7 +143,7 @@ export function PLUCodeSearch({
 
   function handleKeyDown(e: React.KeyboardEvent) {
     if (e.key === 'Escape') setOpen(false);
-    // Scanners send the barcode followed by Enter — submit the search immediately,
+    // Scanners send the barcode followed by Enter - submit the search immediately,
     // bypassing the debounce, and auto-select when there's a single match.
     if (e.key === 'Enter' && mode === 'barcode') {
       e.preventDefault();
@@ -190,7 +190,7 @@ export function PLUCodeSearch({
           borderRadius: '4px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
           marginTop: '2px', maxHeight: '240px', overflowY: 'auto',
         }}>
-          {/* Barcode mode: no match — show the raw scanned input so the cashier can verify. */}
+          {/* Barcode mode: no match - show the raw scanned input so the cashier can verify. */}
           {mode === 'barcode' && results.length === 0 && notFound && (
             <div style={{ padding: '0.55rem 0.7rem', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
               <span style={{ color: '#8B3A2A', fontWeight: 600 }}>Barcode tidak ditemukan</span>

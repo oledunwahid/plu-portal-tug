@@ -1,7 +1,7 @@
 /**
  * Direct sql.js seed for OutletConfig, PrinterConfig, CategoryConfig.
  *
- * Uses lib/db.ts (sql.js) for all writes — no Prisma, no WAL gap.
+ * Uses lib/db.ts (sql.js) for all writes - no Prisma, no WAL gap.
  * After this script exits the binary .db file contains the seeded data.
  * Restart the Next.js dev server once to pick up the changes.
  *
@@ -16,7 +16,7 @@ import path from 'path';
 
 // Load DATABASE_URL from .env.local / .env before any db call.
 // lib/db.ts reads process.env.DATABASE_URL inside getDb() (not at import time),
-// so setting it here — before main() runs — is sufficient.
+// so setting it here - before main() runs - is sufficient.
 function loadEnv(): void {
   for (const name of ['.env.local', '.env']) {
     const p = path.resolve(process.cwd(), name);

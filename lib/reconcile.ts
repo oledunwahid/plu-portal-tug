@@ -1,7 +1,7 @@
 // Server-side reconciliation logic for the Reconcile module (/admin/kb/reconcile).
 //
 // All matching now runs here (previously client-side in page.tsx). Pure functions
-// only — no DB import — so the upload route feeds in the master + bridge refs and
+// only - no DB import - so the upload route feeds in the master + bridge refs and
 // the cascade is unit-testable. The route persists the outcomes into ReconcileRow.
 //
 // Physical stock codes come in two shapes that need different paths to a Quinos
@@ -13,7 +13,7 @@
 
 import { deriveNckBarcode } from '@/lib/barcode';
 import { diceCoefficient } from '@/lib/itemMatch';
-import type { ReconcileRowFilters } from '@/lib/db'; // type-only — erased at runtime, keeps this module DB-free
+import type { ReconcileRowFilters } from '@/lib/db'; // type-only - erased at runtime, keeps this module DB-free
 
 export type CodeType = 'SAP_7' | 'XEVLA_6' | 'OTHER';
 export type MatchConfidence = 'EXACT' | 'FUZZY' | 'UNMATCHED';
@@ -82,7 +82,7 @@ export function isItemCode(code: string): boolean {
   return /^[A-Za-z0-9]+$/.test(code) && /\d/.test(code);
 }
 
-// Bidirectional, case-insensitive substring name match — identical semantics to
+// Bidirectional, case-insensitive substring name match - identical semantics to
 // the previous client-side nameContains.
 export function nameContains(a: string, b: string): boolean {
   const x = a.toLowerCase().trim();
@@ -202,7 +202,7 @@ export function parseReconcileRowFilters(params: URLSearchParams): ReconcileRowF
   return f;
 }
 
-// Best name-similarity candidate among masters for an unmatched row — used to
+// Best name-similarity candidate among masters for an unmatched row - used to
 // annotate the "Tidak di Cloud" export so the admin has a lead to investigate.
 export function bestFuzzyCandidate(
   name: string, masters: ReconcileMasterRef[],

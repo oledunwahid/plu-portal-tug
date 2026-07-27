@@ -301,7 +301,7 @@ export function isTugDepartment(department: string): boolean {
   return TUG_DEPARTMENTS.includes(department)
 }
 
-// Department/category code parts for a category — prefix-agnostic.
+// Department/category code parts for a category - prefix-agnostic.
 export function getCategoryCodeParts(
   category: string,
   categoryCodeMap?: CategoryCodeEntry[],
@@ -321,8 +321,8 @@ export interface PrefixGroup {
   isTUG: boolean
 }
 
-// Group the SELECTED outlets by their derived prefix. This — not the cashier's
-// login outlet — is what determines the prefix of a new item.
+// Group the SELECTED outlets by their derived prefix. This - not the cashier's
+// login outlet - is what determines the prefix of a new item.
 //   • TUG-exempt departments collapse to a single TUG group holding all outlets.
 //   • Otherwise each distinct outlet prefix becomes its own group, carrying only
 //     the outlets that belong to it (sorted by prefix for stable output).
@@ -373,12 +373,12 @@ export function suggestPLUCode(
     isTUG = groups[0].isTUG
     reason = isTUG ? `TUG prefix: ${parts.department}` : `Prefix ${prefix} dari outlet terpilih`
   } else if (groups.length > 1) {
-    // Mixed prefixes — callers should expand via derivePrefixGroups(); this single
+    // Mixed prefixes - callers should expand via derivePrefixGroups(); this single
     // suggestion previews the first group only.
     prefix = groups[0].prefix
     reason = `${groups.length} prefix berbeda dari outlet terpilih`
   } else {
-    // Non-TUG category with no outlets selected yet — preview using the cashier's
+    // Non-TUG category with no outlets selected yet - preview using the cashier's
     // own outlet prefix; the real prefix is enforced from selected outlets at submit.
     prefix = prefixForOutlet(cashierOutlet)
     reason = 'Pilih outlet untuk menentukan prefix'

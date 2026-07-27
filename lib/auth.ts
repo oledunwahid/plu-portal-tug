@@ -15,12 +15,12 @@ export const authOptions = {
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) return null;
 
-        // Direct SQLite query via sql.js (pure WASM) — bypasses Prisma's native engine.
+        // Direct SQLite query via sql.js (pure WASM) - bypasses Prisma's native engine.
         // Prisma's .so.node binary gets killed by cPanel's resource limits.
         const user = await getUserByEmail(credentials.email);
 
         if (!user) return null;
-        // active is stored as INTEGER 0/1 — falsy check works for both
+        // active is stored as INTEGER 0/1 - falsy check works for both
         if (!user.active) throw new Error('INACTIVE_ACCOUNT');
 
         const passwordMatch = await bcrypt.compare(credentials.password, user.password);

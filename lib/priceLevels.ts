@@ -15,7 +15,7 @@ export interface PriceLevelEntry {
 
 export interface PriceLevelsInfo {
   entries: PriceLevelEntry[];
-  // True when at least one entry has a non-zero price — i.e. a real override
+  // True when at least one entry has a non-zero price - i.e. a real override
   // that the flat Price update will NOT affect.
   hasActiveOverride: boolean;
 }

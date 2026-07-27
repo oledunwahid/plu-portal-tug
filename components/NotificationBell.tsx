@@ -43,6 +43,21 @@ function relativeTime(iso: string): string {
   return new Date(iso).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
+// Notification bodies are user-entered item names and can be long or unbroken - they must wrap
+// inside the panel instead of forcing it wider (which on mobile pushed it off-screen).
+const WRAP_TEXT: React.CSSProperties = {
+  whiteSpace: 'normal',
+  overflowWrap: 'anywhere',
+  wordBreak: 'break-word',
+};
+
+const CLAMP_2: React.CSSProperties = {
+  display: '-webkit-box',
+  WebkitLineClamp: 2,
+  WebkitBoxOrient: 'vertical',
+  overflow: 'hidden',
+};
+
 const BADGE_STYLE: React.CSSProperties = {
   fontSize: '0.68rem', color: 'var(--text-secondary)', background: 'var(--bg-cream)',
   border: '1px solid var(--border)', padding: '0.1rem 0.4rem', borderRadius: '0.25rem', whiteSpace: 'nowrap',
@@ -56,14 +71,19 @@ export function NotificationBell({ variant = 'admin' }: { variant?: 'admin' | 'c
   const isCashier = variant === 'cashier';
   const dashboardHref =
     variant === 'cost-control' ? '/cost-control/dashboard'
-    : isCashier ? '/cashier/dashboard'
-    : '/admin/dashboard';
+      : isCashier ? '/cashier/dashboard'
+        : '/admin/dashboard';
   const [open, setOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(false);
   const [markingAll, setMarkingAll] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  // Below this width the panel stops hanging off the bell (where it would run past the left edge of
+  // the screen) and becomes a viewport-anchored sheet instead. Matches the app's layout breakpoint.
+  const [isNarrow, setIsNarrow] = useState(false);
+  const [panelTop, setPanelTop] = useState(0);
 
   const fetchNotifications = useCallback(async () => {
     setLoading(true);
@@ -80,7 +100,7 @@ export function NotificationBell({ variant = 'admin' }: { variant?: 'admin' | 'c
     }
   }, []);
 
-  // Initial page load — establishes the red-dot state without opening the panel.
+  // Initial page load - establishes the red-dot state without opening the panel.
   useEffect(() => { fetchNotifications(); }, [fetchNotifications]);
 
   // Lightweight polling so a newly-arrived notification (e.g. a request just marked DONE) surfaces
@@ -90,19 +110,55 @@ export function NotificationBell({ variant = 'admin' }: { variant?: 'admin' | 'c
     return () => clearInterval(id);
   }, [fetchNotifications]);
 
-  // Close on outside click.
+  // Close on outside click (mouse and touch) or Escape.
   useEffect(() => {
-    function handler(e: MouseEvent) {
+    function pointerHandler(e: Event) {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) setOpen(false);
     }
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
+    function keyHandler(e: KeyboardEvent) {
+      if (e.key === 'Escape') setOpen(false);
+    }
+    document.addEventListener('mousedown', pointerHandler);
+    document.addEventListener('touchstart', pointerHandler);
+    document.addEventListener('keydown', keyHandler);
+    return () => {
+      document.removeEventListener('mousedown', pointerHandler);
+      document.removeEventListener('touchstart', pointerHandler);
+      document.removeEventListener('keydown', keyHandler);
+    };
   }, []);
+
+  // Track the narrow-viewport breakpoint so the panel can switch between the desktop dropdown and
+  // the mobile sheet without ever being rendered off-screen.
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 767px)');
+    const apply = () => setIsNarrow(mq.matches);
+    apply();
+    mq.addEventListener('change', apply);
+    return () => mq.removeEventListener('change', apply);
+  }, []);
+
+  // On mobile the panel is position: fixed (so it can span the viewport instead of the 34px bell),
+  // which means its top has to be measured from the bell. Recomputed on open, resize and scroll.
+  useEffect(() => {
+    if (!open || !isNarrow) return;
+    const measure = () => {
+      const rect = buttonRef.current?.getBoundingClientRect();
+      if (rect) setPanelTop(rect.bottom + 8);
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    window.addEventListener('scroll', measure, true);
+    return () => {
+      window.removeEventListener('resize', measure);
+      window.removeEventListener('scroll', measure, true);
+    };
+  }, [open, isNarrow]);
 
   function toggleOpen() {
     const next = !open;
     setOpen(next);
-    // Re-fetch on each open (per spec: refresh count on bell click) — but the red dot
+    // Re-fetch on each open (per spec: refresh count on bell click) - but the red dot
     // is NOT cleared by opening; only "Tandai semua dibaca" clears it.
     if (next) fetchNotifications();
   }
@@ -124,10 +180,10 @@ export function NotificationBell({ variant = 'admin' }: { variant?: 'admin' | 'c
 
   function handleCardClick(n: Notification) {
     // Mark this one read (fire-and-forget) and navigate to where it's processed.
-    // Does not clear the red dot — that's reserved for "mark all as read".
+    // Does not clear the red dot - that's reserved for "mark all as read".
     if (!n.read) {
       setNotifications((prev) => prev.map((x) => (x.id === n.id ? { ...x, read: true } : x)));
-      fetch(`/api/admin/notifications/read/${encodeURIComponent(n.id)}`, { method: 'POST' }).catch(() => {});
+      fetch(`/api/admin/notifications/read/${encodeURIComponent(n.id)}`, { method: 'POST' }).catch(() => { });
     }
     setOpen(false);
     // Cost control reviews everything from its own dashboard; cashier goes to their dashboard to
@@ -144,9 +200,11 @@ export function NotificationBell({ variant = 'admin' }: { variant?: 'admin' | 'c
   return (
     <div ref={containerRef} style={{ position: 'relative' }}>
       <button
+        ref={buttonRef}
         onClick={toggleOpen}
         title="Notifikasi"
         aria-label="Notifikasi"
+        aria-expanded={open}
         style={{
           position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center',
           width: '34px', height: '34px', borderRadius: '50%', background: 'transparent',
@@ -166,15 +224,24 @@ export function NotificationBell({ variant = 'admin' }: { variant?: 'admin' | 'c
 
       {open && (
         <div
+          role="dialog"
+          aria-label="Notifikasi"
           style={{
-            position: 'absolute', top: 'calc(100% + 8px)', right: 0, zIndex: 200,
-            width: '360px', maxWidth: '92vw', background: 'var(--bg-card)',
+            // Desktop: a right-aligned dropdown hanging off the bell.
+            // Narrow screens: a viewport-anchored sheet - fixed, inset 12px on both sides, so it can
+            // never overflow horizontally no matter how close to the edge the bell sits.
+            ...(isNarrow
+              ? { position: 'fixed' as const, top: `${panelTop}px`, left: '12px', right: '12px', width: 'auto', maxWidth: 'none' }
+              : { position: 'absolute' as const, top: 'calc(100% + 8px)', right: 0, width: '380px', maxWidth: 'calc(100vw - 24px)' }),
+            zIndex: 200,
+            background: 'var(--bg-card)',
             border: '1px solid var(--border)', borderRadius: '0.5rem',
             boxShadow: '0 8px 32px rgba(0,0,0,0.16)', overflow: 'hidden',
+            display: 'flex', flexDirection: 'column',
           }}
         >
-          {/* Header */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem 0.875rem', borderBottom: '1px solid var(--border)' }}>
+          {/* Header - "Tandai semua dibaca" stays on one line and never wraps out of reach. */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', padding: '0.75rem 0.875rem', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
             <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)' }}>Notifikasi</span>
             <button
               onClick={handleMarkAll}
@@ -183,15 +250,16 @@ export function NotificationBell({ variant = 'admin' }: { variant?: 'admin' | 'c
                 fontSize: '0.72rem', color: unreadCount === 0 ? 'var(--text-secondary)' : '#8B6914',
                 background: 'none', border: 'none',
                 cursor: markingAll || unreadCount === 0 ? 'default' : 'pointer',
-                opacity: markingAll ? 0.6 : 1, fontWeight: 500, padding: 0,
+                opacity: markingAll ? 0.6 : 1, fontWeight: 500, padding: '0.15rem 0',
+                whiteSpace: 'nowrap', flexShrink: 0,
               }}
             >
               Tandai semua dibaca
             </button>
           </div>
 
-          {/* List — scrollable; ~5 cards visible, scroll for the rest */}
-          <div style={{ maxHeight: '360px', overflowY: 'auto' }}>
+          {/* List - scrollable; ~5 cards on desktop, never taller than the viewport on mobile */}
+          <div style={{ maxHeight: 'min(360px, 60vh)', overflowY: 'auto', overflowX: 'hidden' }}>
             {loading && notifications.length === 0 ? (
               <div style={{ padding: '2rem', display: 'flex', justifyContent: 'center' }}>
                 <Loader2 size={18} style={{ animation: 'spin 1s linear infinite', color: 'var(--text-secondary)' }} />
@@ -216,7 +284,7 @@ export function NotificationBell({ variant = 'admin' }: { variant?: 'admin' | 'c
                   onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-cream)'; }}
                   onMouseLeave={(e) => { e.currentTarget.style.background = n.read ? 'transparent' : 'rgba(201,168,76,0.06)'; }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', marginBottom: '0.3rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', marginBottom: '0.3rem', flexWrap: 'wrap' }}>
                     {isCashier ? (
                       <span style={{ fontSize: '0.62rem', color: '#1E7A46', background: 'rgba(30,122,70,0.08)', border: '1px solid rgba(30,122,70,0.25)', padding: '0.1rem 0.4rem', borderRadius: '0.25rem', whiteSpace: 'nowrap', fontWeight: 600 }}>
                         Siap Sync
@@ -233,20 +301,22 @@ export function NotificationBell({ variant = 'admin' }: { variant?: 'admin' | 'c
                         Single
                       </span>
                     )}
-                    <span style={{ marginLeft: 'auto', fontSize: '0.68rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+                    {/* Timestamp can shrink out of the way instead of pushing the row sideways. */}
+                    <span style={{ marginLeft: 'auto', fontSize: '0.68rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap', flexShrink: 0 }}>
                       {relativeTime(n.createdAt)}
                     </span>
                   </div>
                   {isCashier ? (
-                    <div style={{ fontSize: '0.82rem', fontWeight: 500, color: 'var(--text-primary)' }}>
-                      {(n.source === 'batch' ? 'Batch ' : 'Item ') + (n.title || '—') + ' sudah DONE — siap untuk sync.'}
+                    <div style={{ fontSize: '0.82rem', fontWeight: 500, color: 'var(--text-primary)', ...WRAP_TEXT }}>
+                      {(n.source === 'batch' ? 'Batch ' : 'Item ') + (n.title || '—') + ' sudah DONE - siap untuk sync.'}
                     </div>
                   ) : (
                     <>
-                      <div style={{ fontSize: '0.82rem', fontWeight: 500, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {/* Long item names wrap to at most two lines rather than being cut off. */}
+                      <div style={{ fontSize: '0.82rem', fontWeight: 500, color: 'var(--text-primary)', ...WRAP_TEXT, ...CLAMP_2 }}>
                         {n.title || '—'}
                       </div>
-                      <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '0.15rem' }}>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '0.15rem', ...WRAP_TEXT }}>
                         {n.submittedByName || 'Unknown'}{n.submittedByOutlet ? ` · ${n.submittedByOutlet}` : ''}
                       </div>
                     </>

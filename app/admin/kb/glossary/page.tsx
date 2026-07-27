@@ -46,33 +46,33 @@ function EntryRow({ entry, onEdit, onDelete, onReset, canEdit }: {
         <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>{entry.definition}</div>
       </div>
       {canEdit && (
-      <div style={{ display: 'flex', gap: '0.25rem', flexShrink: 0, alignItems: 'center' }}>
-        {entry.isSeeded && entry.definition !== entry.defaultDefinition && (
-          <button onClick={() => onReset(entry)} title="Reset to default"
-            style={{ padding: '0.2rem 0.4rem', background: 'transparent', border: '1px solid rgba(201,168,76,0.3)', borderRadius: '3px', cursor: 'pointer', color: '#8B6914', display: 'flex', alignItems: 'center' }}>
-            <RotateCcw size={11} />
-          </button>
-        )}
-        <button onClick={() => onEdit(entry)}
-          style={{ padding: '0.2rem 0.4rem', background: 'transparent', border: '1px solid var(--border)', borderRadius: '3px', cursor: 'pointer', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center' }}>
-          <Pencil size={11} />
-        </button>
-        {!entry.isSeeded && (
-          delConfirm ? (
-            <>
-              <button onClick={() => { onDelete(entry.id); setDelConfirm(false); }}
-                style={{ padding: '0.2rem 0.4rem', background: '#7A2E1F', color: 'white', border: 'none', borderRadius: '3px', fontSize: '0.65rem', cursor: 'pointer' }}>Del</button>
-              <button onClick={() => setDelConfirm(false)}
-                style={{ padding: '0.2rem 0.4rem', background: 'transparent', border: '1px solid var(--border)', borderRadius: '3px', fontSize: '0.65rem', cursor: 'pointer', color: 'var(--text-secondary)' }}>No</button>
-            </>
-          ) : (
-            <button onClick={() => setDelConfirm(true)}
-              style={{ padding: '0.2rem 0.4rem', background: 'transparent', border: '1px solid rgba(122,46,31,0.2)', borderRadius: '3px', cursor: 'pointer', color: '#7A2E1F', display: 'flex', alignItems: 'center' }}>
-              <Trash2 size={11} />
+        <div style={{ display: 'flex', gap: '0.25rem', flexShrink: 0, alignItems: 'center' }}>
+          {entry.isSeeded && entry.definition !== entry.defaultDefinition && (
+            <button onClick={() => onReset(entry)} title="Reset to default"
+              style={{ padding: '0.2rem 0.4rem', background: 'transparent', border: '1px solid rgba(201,168,76,0.3)', borderRadius: '3px', cursor: 'pointer', color: '#8B6914', display: 'flex', alignItems: 'center' }}>
+              <RotateCcw size={11} />
             </button>
-          )
-        )}
-      </div>
+          )}
+          <button onClick={() => onEdit(entry)}
+            style={{ padding: '0.2rem 0.4rem', background: 'transparent', border: '1px solid var(--border)', borderRadius: '3px', cursor: 'pointer', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center' }}>
+            <Pencil size={11} />
+          </button>
+          {!entry.isSeeded && (
+            delConfirm ? (
+              <>
+                <button onClick={() => { onDelete(entry.id); setDelConfirm(false); }}
+                  style={{ padding: '0.2rem 0.4rem', background: '#7A2E1F', color: 'white', border: 'none', borderRadius: '3px', fontSize: '0.65rem', cursor: 'pointer' }}>Del</button>
+                <button onClick={() => setDelConfirm(false)}
+                  style={{ padding: '0.2rem 0.4rem', background: 'transparent', border: '1px solid var(--border)', borderRadius: '3px', fontSize: '0.65rem', cursor: 'pointer', color: 'var(--text-secondary)' }}>No</button>
+              </>
+            ) : (
+              <button onClick={() => setDelConfirm(true)}
+                style={{ padding: '0.2rem 0.4rem', background: 'transparent', border: '1px solid rgba(122,46,31,0.2)', borderRadius: '3px', cursor: 'pointer', color: '#7A2E1F', display: 'flex', alignItems: 'center' }}>
+                <Trash2 size={11} />
+              </button>
+            )
+          )}
+        </div>
       )}
     </div>
   );
@@ -199,7 +199,7 @@ function AddModal({ onSave, onClose, saving }: AddModalProps) {
 }
 
 export default function GlossaryPage() {
-  // COST_CONTROL has read-only access — add/edit/delete/reset controls are hidden.
+  // COST_CONTROL has read-only access - add/edit/delete/reset controls are hidden.
   const { data: session } = useSession();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const isAdmin = ((session?.user as any)?.role ?? '') === 'ADMIN';
@@ -385,7 +385,7 @@ export default function GlossaryPage() {
 
           {activeTab === 'GENERAL' && (
             general.length === 0 ? <EmptyState message="No general entries found." /> :
-            general.map((e) => <EntryRow key={e.id} entry={e} onEdit={setEditEntry} onDelete={handleDelete} onReset={handleReset} canEdit={isAdmin} />)
+              general.map((e) => <EntryRow key={e.id} entry={e} onEdit={setEditEntry} onDelete={handleDelete} onReset={handleReset} canEdit={isAdmin} />)
           )}
         </div>
       )}

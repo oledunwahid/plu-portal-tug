@@ -72,7 +72,17 @@
       "Bash(curl -s -o /dev/null -w \"DELETE /api/batches/xx  : %{http_code}\\\\n\" -X DELETE http://localhost:3998/api/batches/nonexistent)",
       "Bash(curl -s -o /dev/null -w \"GET /cashier/dashboard  : %{http_code}\\\\n\" http://localhost:3998/cashier/dashboard)",
       "PowerShell($c = Get-NetTCPConnection -LocalPort 3998 -State Listen -ErrorAction SilentlyContinue; if \\($c\\) { Stop-Process -Id $c.OwningProcess -Force -ErrorAction SilentlyContinue; \"stopped 3998\" } else { \"nothing on 3998\" })",
-      "PowerShell(npx tsc --noEmit -p tsconfig.json 2>&1 | Select-Object -First 30)"
+      "PowerShell(npx tsc --noEmit -p tsconfig.json 2>&1 | Select-Object -First 30)",
+      "Bash(DATABASE_URL=\"file:./prisma/dev.db\" npx ts-node --project tsconfig.seed.json ./__statsCheck.ts)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:3007/login)",
+      "Bash(curl -s -b C:/Users/makka/AppData/Local/Temp/claude/C--Users-makka-plu-portal-tug/b67ed6e4-dbe1-4153-a412-f4f1bf19c4ab/scratchpad/cookies.txt http://localhost:3007/api/admin/stats/summary?source=single)",
+      "Bash(curl -s -b C:/Users/makka/AppData/Local/Temp/claude/C--Users-makka-plu-portal-tug/b67ed6e4-dbe1-4153-a412-f4f1bf19c4ab/scratchpad/cookies.txt http://localhost:3007/api/admin/stats/summary?source=batch)",
+      "Bash(curl -s -b C:/Users/makka/AppData/Local/Temp/claude/C--Users-makka-plu-portal-tug/b67ed6e4-dbe1-4153-a412-f4f1bf19c4ab/scratchpad/cookies.txt http://localhost:3007/api/admin/requests?requestType=NEW_ITEM)",
+      "Bash(git diff *)",
+      "Bash(grep -vE \"^\\\\+\\\\s*\\(//|\\\\*|/\\\\*\\)\")",
+      "Bash(echo \"EXIT:$?\")",
+      "PowerShell(Get-NetTCPConnection *)",
+      "Bash(git --no-pager diff --stat -- lib/db.ts app/admin/dashboard/page.tsx app/admin/export/page.tsx components/NotificationBell.tsx app/api/admin/requests/route.ts app/api/admin/batches/route.ts app/api/admin/stats/by-type/route.ts)"
     ]
   }
 }

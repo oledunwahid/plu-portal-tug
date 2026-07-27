@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/session';
 import { getPLURequests, countPLURequests, getMasterMapByCodes } from '@/lib/db';
 
-// Update types whose rows don't store the existing item's name/category — enriched from the registry.
+// Update types whose rows don't store the existing item's name/category - enriched from the registry.
 const ENRICH_TYPES = new Set(['UPDATE_PRICE', 'UPDATE_NAME']);
 
 export const dynamic = 'force-dynamic';
@@ -21,9 +21,10 @@ export async function GET(request: NextRequest) {
     const from        = searchParams.get('from') ?? undefined;
     const to          = searchParams.get('to') ?? undefined;
     const userId      = searchParams.get('userId') ?? undefined;
+    const search      = searchParams.get('search')?.trim() || undefined;
     const countOnly   = searchParams.get('countOnly') === '1';
 
-    const filters = { status, outletGroup, requestType, from, to, userId };
+    const filters = { status, outletGroup, requestType, from, to, userId, search };
 
     if (countOnly) {
       const count = await countPLURequests(filters);

@@ -1,6 +1,6 @@
 import type { PrismaClient } from '@prisma/client';
 
-// Stub — Prisma's native query engine binary is killed by cPanel resource limits.
+// Stub - Prisma's native query engine binary is killed by cPanel resource limits.
 // Auth uses sql.js (lib/db.ts) directly. All other routes will get null/empty
 // responses from the Proxy rather than crashing the server process.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

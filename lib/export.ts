@@ -3,14 +3,14 @@ import type { DbMasterItem } from '@/lib/db';
 import { collapseAdminOutlets } from '@/lib/outlets';
 
 // ── Unified 19-column export ────────────────────────────────────────────────
-// Every admin export — regardless of request type — emits this exact column set, in this order.
+// Every admin export - regardless of request type - emits this exact column set, in this order.
 // The cashier only fills a short form; the export is responsible for completing the rest, either
 // from the request itself (NEW_ITEM) or from the master item record looked up by PLU code
 // (UPDATE_PRICE / UPDATE_NAME / UPDATE_PRINTER / REMOVE_PLU).
 //
 // PriceLevels (col 19) is always present even when blank. Sourcing differs by type: NEW_ITEM
 // pre-populates it from the request's cork outlets at the requested price (no master record exists
-// yet); every master-sourced type emits the master's raw PriceLevels verbatim — unless the admin
+// yet); every master-sourced type emits the master's raw PriceLevels verbatim - unless the admin
 // stored an explicit override during review (see TemplateSource.priceLevelsOverride).
 const TEMPLATE_HEADERS = [
   'Active', 'Code', 'Name', 'Category', 'Department', 'SalesDef', 'Price', 'PLU', 'Barcode', 'UOM',
@@ -66,7 +66,7 @@ export interface TemplateSource {
   // When present (even as ''), it overrides the master's verbatim PriceLevels on master-sourced
   // exports; when undefined, the master value is used as-is. No request type recomputes this —
   // recompute is the Price Check feature's job, not the export's. NOTE: no DB column currently backs
-  // this field, so it is always undefined today (see findings) — kept optional for forward-compat.
+  // this field, so it is always undefined today (see findings) - kept optional for forward-compat.
   priceLevelsOverride?: string | null;
 }
 
@@ -105,7 +105,7 @@ export function newItemToTemplateRow(r: TemplateSource): TemplateRow {
 }
 
 // UPDATE_PRICE: every column from master, Price overridden with the approved new price. PriceLevels
-// stays master-verbatim (or the admin's stored override) — never auto-recomputed from the new price.
+// stays master-verbatim (or the admin's stored override) - never auto-recomputed from the new price.
 export function priceToTemplateRow(
   reqCode: string | null, m: DbMasterItem | undefined, newPrice: number | null,
   priceLevelsOverride?: string | null,
@@ -129,7 +129,7 @@ export function printerToTemplateRow(
   return { ...masterRow(reqCode, m, priceLevelsOverride), Printers: newPrinters };
 }
 
-// REMOVE_PLU (delete): every column from master verbatim — a record of what existed — except
+// REMOVE_PLU (delete): every column from master verbatim - a record of what existed - except
 // Active, forced to 0 to signal deactivation regardless of the master value.
 export function deleteToTemplateRow(
   reqCode: string | null, m: DbMasterItem | undefined, priceLevelsOverride?: string | null,
@@ -148,7 +148,7 @@ export function requestToTemplateRow(
     case 'UPDATE_NAME':    return nameToTemplateRow(r.code, m, r.name, r.priceLevelsOverride);
     case 'UPDATE_PRINTER': return printerToTemplateRow(r.code, m, r.printers, r.priceLevelsOverride);
     case 'REMOVE_PLU':     return deleteToTemplateRow(r.code, m, r.priceLevelsOverride);
-    // Unknown/mixed without a resolvable type — fall back to request data so nothing is dropped.
+    // Unknown/mixed without a resolvable type - fall back to request data so nothing is dropped.
     default:               return newItemToTemplateRow(r);
   }
 }
@@ -177,7 +177,7 @@ export function generateTemplateCSV(rows: TemplateRow[]): string {
 }
 
 /**
- * Identify export rows whose PLU code has no matching master item — those rows export with the
+ * Identify export rows whose PLU code has no matching master item - those rows export with the
  * master-sourced template columns left blank. Logs a server-side warning and returns an encoded
  * value for the `X-Export-Warnings` response header so the admin sees which rows are incomplete
  * before the file is saved. Returns null when every row resolved cleanly.

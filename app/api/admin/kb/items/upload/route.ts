@@ -45,7 +45,7 @@ export async function POST(req: NextRequest) {
 
     const arrayBuffer = await file.arrayBuffer();
     // Decode as UTF-8 text and strip BOM so XLSX sees clean text with an
-    // explicit comma separator — prevents XLSX auto-detecting ';' as the
+    // explicit comma separator - prevents XLSX auto-detecting ';' as the
     // delimiter when PriceLevels or Outlets cells contain many semicolons.
     const rawText = Buffer.from(arrayBuffer).toString('utf-8').replace(/^﻿/, '');
 

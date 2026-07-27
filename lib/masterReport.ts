@@ -1,4 +1,4 @@
-// Builder for the "Master All Item" report — mirrors the structure of the
+// Builder for the "Master All Item" report - mirrors the structure of the
 // uploaded MASTER_ALL_ITEM template: one "ALL ITEM" sheet plus one sheet per
 // outlet. Pure functions only (no xlsx dependency) so the result can be fed to
 // XLSX.utils.aoa_to_sheet on the frontend and unit-tested in isolation.

@@ -96,7 +96,7 @@ function LoginForm() {
   return (
     <div className="lp-root">
 
-      {/* ── Hero background — always present ── */}
+      {/* ── Hero background - always present ── */}
       <div className="lp-bg">
         <img
           src={ASSETS.LOGIN_HERO}
@@ -108,7 +108,7 @@ function LoginForm() {
         <div className="lp-bg-overlay" />
       </div>
 
-      {/* ── Desktop blend — fades the solid panel edge into the hero image ── */}
+      {/* ── Desktop blend - fades the solid panel edge into the hero image ── */}
       {/* Hidden on mobile/tablet, positioned at the right edge of the panel on desktop */}
       <div className="lp-blend" aria-hidden="true" />
 
@@ -119,7 +119,7 @@ function LoginForm() {
         <div className="lp-card">
           <div className="lp-card-body">
 
-            {/* Brand — text only */}
+            {/* Brand - text only */}
             <div className="lp-brand">
               <div className="lp-brand-name">PLU Management System</div>
               <p className="lp-tagline">Where every moment matters.</p>
@@ -257,7 +257,7 @@ function LoginForm() {
           padding: 2rem 1.25rem;
         }
 
-        /* ── Card — glass on mobile/tablet ────────────────── */
+        /* ── Card - glass on mobile/tablet ────────────────── */
         .lp-card {
           width: 100%;
           max-width: 400px;
@@ -274,7 +274,7 @@ function LoginForm() {
           position: relative;
           overflow: hidden;
         }
-        /* Top edge sheen — catches light like real glass */
+        /* Top edge sheen - catches light like real glass */
         .lp-card::before {
           content: '';
           position: absolute;
@@ -436,7 +436,7 @@ function LoginForm() {
           letter-spacing: 0.05em;
         }
 
-        /* ── Tablet — more breathing room ─────────────────── */
+        /* ── Tablet - more breathing room ─────────────────── */
         @media (min-width: 520px) {
           .lp-card {
             max-width: 420px;
@@ -446,7 +446,7 @@ function LoginForm() {
           .lp-card::before { border-radius: 22px 22px 0 0; }
         }
 
-        /* ── Desktop — solid left panel + image blend ─────── */
+        /* ── Desktop - solid left panel + image blend ─────── */
         @media (min-width: 1024px) {
 
           /* Lighter overlay so the right-side hero shines through */

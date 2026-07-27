@@ -78,11 +78,11 @@ export async function POST(req: NextRequest) {
       };
     });
 
-    // Cost Control routing — applied PER ITEM (cork outlet + NEW_ITEM are batch-constant; the
+    // Cost Control routing - applied PER ITEM (cork outlet + NEW_ITEM are batch-constant; the
     // WINE department varies per row). Each qualifying item is created as an INDEPENDENT
     // PENDING_COST_CONTROL single request so it surfaces in the cost-control queue (which reads
     // PLURequest); the remaining items stay in the batch and follow the normal PENDING flow.
-    // Same predicate as the single-request route — no duplicated condition.
+    // Same predicate as the single-request route - no duplicated condition.
     const costControlItems = items.filter((it) =>
       shouldRouteToCostControl(requestType, it.department, session.user.outlet, it.category));
     const batchItems = items.filter((it) =>
@@ -92,7 +92,7 @@ export async function POST(req: NextRequest) {
     if (costControlItems.length > 0) {
       // Load SAP refs, the current max barcode, and the persisted barcode occupancy once, then reuse
       // for every item's suggestion. `generatedBarcodes` accumulates the barcodes produced within
-      // THIS batch so two items in the same POST can't be handed the same suggestion — each call
+      // THIS batch so two items in the same POST can't be handed the same suggestion - each call
       // sees the earlier ones via extraBarcodes on top of the persisted occupancy.
       const [saps, maxBarcode, occupancy] = await Promise.all([
         getAllSapItemsForMatch(),
@@ -116,7 +116,7 @@ export async function POST(req: NextRequest) {
                 ...occupancy,
                 extraBarcodes: generatedBarcodes,
               });
-        // Reserve whatever we settled on — cashier-supplied or derived — so a later derived item in
+        // Reserve whatever we settled on - cashier-supplied or derived - so a later derived item in
         // this same batch can't collide with it.
         if (suggestion.value) generatedBarcodes.push(suggestion.value);
         await createPLURequest({

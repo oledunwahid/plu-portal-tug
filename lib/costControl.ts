@@ -1,4 +1,4 @@
-// Cost Control approval stage — routing predicate + barcode auto-derivation.
+// Cost Control approval stage - routing predicate + barcode auto-derivation.
 //
 // Scope: this stage activates ONLY for a NEW_ITEM request, in the WINE department, submitted by a
 // cashier at a Cork outlet (see lib/outlets.ts CORK_OUTLETS). Every other request type/department/
@@ -55,9 +55,9 @@ export interface SuggestedBarcodeResult {
 
 // Human-readable source labels surfaced to cost control under the barcode field.
 export const BARCODE_SOURCE_NCK_SEQ = 'Dibuat otomatis dari SAP NCK suffix 11';
-export const BARCODE_SOURCE_AUTO = 'Dibuat otomatis — verifikasi sebelum konfirmasi';
-// Cashier supplied the barcode — it is trusted verbatim, no derivation ran. Labelled so the review
-// modal's source line stays accurate (otherwise a null source reads as "not found — fill manually").
+export const BARCODE_SOURCE_AUTO = 'Dibuat otomatis - verifikasi sebelum konfirmasi';
+// Cashier supplied the barcode - it is trusted verbatim, no derivation ran. Labelled so the review
+// modal's source line stays accurate (otherwise a null source reads as "not found - fill manually").
 export const BARCODE_SOURCE_CASHIER = 'Barcode dari kasir';
 
 function digitsOnly(value: MaybeString): string | null {
@@ -149,11 +149,11 @@ export function nextFreeNckSuffixBarcode(
 }
 
 // Full suggestion flow. A new PLU is NEVER handed a barcode already occupied by SAP, a MasterItem,
-// or a prior PLURequest suggestion — even when its name matches an existing SAP NCK item, because
+// or a prior PLURequest suggestion - even when its name matches an existing SAP NCK item, because
 // that item's own barcode is part of occupiedAll. It always gets the next free suffix-11 value.
 // 1. Latest SAP NCK base → next free `${base}11`, skipping occupied values.
 // 2. No SAP NCK → max existing barcode + 1, also collision-safe.
-// 3. Nothing found → null, modal shows "TIDAK DITEMUKAN — ISI MANUAL".
+// 3. Nothing found → null, modal shows "TIDAK DITEMUKAN - ISI MANUAL".
 //
 // itemName is retained in the signature for call-site stability and possible future name-based
 // heuristics, though the current flow derives the barcode purely from SAP sequence + occupancy.

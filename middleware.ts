@@ -1,7 +1,7 @@
 import { withAuth } from 'next-auth/middleware';
 import { NextResponse } from 'next/server';
 
-// The landing page each role belongs on — used both for bare-section redirects and for bouncing a
+// The landing page each role belongs on - used both for bare-section redirects and for bouncing a
 // user who wanders into a section they don't own.
 function homeForRole(role: string | undefined): string {
   if (role === 'ADMIN') return '/admin/dashboard';
@@ -24,7 +24,7 @@ export default withAuth(
     // both live under /admin but are explicitly shared. Everything else under /admin stays ADMIN-only.
     const COST_CONTROL_SHARED_ADMIN = ['/admin/kb', '/admin/price-check'];
 
-    // Positive role gates — each section is reachable only by its own role. Anyone else is bounced
+    // Positive role gates - each section is reachable only by its own role. Anyone else is bounced
     // to their own home (a COST_CONTROL user can no longer reach cashier or admin pages, etc.).
     if (pathname.startsWith('/admin') && role !== 'ADMIN') {
       const sharedWithCostControl = COST_CONTROL_SHARED_ADMIN.some(

@@ -61,7 +61,7 @@ function ReviewPanel({
         body: JSON.stringify({ confirmedBarcode: barcode.trim() }),
       });
       if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error ?? 'Gagal'); }
-      toast.success('Dikonfirmasi — diteruskan ke admin.');
+      toast.success('Dikonfirmasi - diteruskan ke admin.');
       onDone();
     } catch (err: any) {
       toast.error(err.message ?? 'Gagal mengonfirmasi.');
@@ -80,7 +80,7 @@ function ReviewPanel({
         body: JSON.stringify({ reason: reason.trim() }),
       });
       if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error ?? 'Gagal'); }
-      toast.success('Permintaan ditolak — kasir diberi tahu.');
+      toast.success('Permintaan ditolak - kasir diberi tahu.');
       onDone();
     } catch (err: any) {
       toast.error(err.message ?? 'Gagal menolak.');
@@ -133,7 +133,7 @@ function ReviewPanel({
             <div style={{ gridColumn: '1 / -1' }}><Field label="Outlets" value={fmtList(request.outlets)} /></div>
           </div>
 
-          {/* Suggested barcode — editable. The source label tells cost control whether the value
+          {/* Suggested barcode - editable. The source label tells cost control whether the value
               came from a real SAP NCK match or is a system-generated sequential guess. */}
           <div>
             <label className="label-caps" style={{ display: 'block', marginBottom: '0.3rem' }}>
@@ -144,7 +144,7 @@ function ReviewPanel({
               value={barcode}
               onChange={(e) => setBarcode(e.target.value)}
               className="field-input"
-              placeholder={request.suggestedBarcode ? 'Masukkan barcode…' : 'TIDAK DITEMUKAN — ISI MANUAL'}
+              placeholder={request.suggestedBarcode ? 'Masukkan barcode…' : 'TIDAK DITEMUKAN - ISI MANUAL'}
               style={{ fontFamily: 'monospace' }}
             />
             {/* Always show a guidance line: the source label when a value was suggested,
@@ -154,11 +154,11 @@ function ReviewPanel({
               color: request.suggestedBarcodeSource === 'Dari SAP NCK' ? '#2D4A2E'
                 : request.suggestedBarcodeSource ? '#8B6914' : '#A33',
             }}>
-              {request.suggestedBarcodeSource ?? 'TIDAK DITEMUKAN — ISI MANUAL'}
+              {request.suggestedBarcodeSource ?? 'TIDAK DITEMUKAN - ISI MANUAL'}
             </div>
           </div>
 
-          {/* Reject reason — revealed on demand */}
+          {/* Reject reason - revealed on demand */}
           {showReject && (
             <div>
               <label className="label-caps" style={{ display: 'block', marginBottom: '0.3rem' }}>Alasan Penolakan (wajib)</label>
@@ -166,7 +166,7 @@ function ReviewPanel({
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
                 rows={3}
-                placeholder="Jelaskan alasan penolakan — akan terlihat oleh kasir."
+                placeholder="Jelaskan alasan penolakan - akan terlihat oleh kasir."
                 style={{ width: '100%', border: '1px solid var(--input-border)', borderRadius: '4px', padding: '0.5rem 0.75rem', fontSize: '0.875rem', fontFamily: 'var(--font-body)', resize: 'vertical', outline: 'none', color: 'var(--text-primary)', background: 'var(--bg-card)', boxSizing: 'border-box' }}
               />
             </div>
@@ -266,7 +266,7 @@ export default function CostControlDashboard() {
         <h1 className="page-title" style={{ margin: 0 }}>Cost Control</h1>
       </div>
       <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginBottom: '1.5rem' }}>
-        Tinjau item WINE baru dari outlet Cork — konfirmasi barcode lalu teruskan ke admin.
+        Tinjau item WINE baru dari outlet Cork - konfirmasi barcode lalu teruskan ke admin.
       </p>
 
       {/* Tabs */}

@@ -47,7 +47,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Cost Control routing — only WINE NEW_ITEM from a Cork cashier diverts to PENDING_COST_CONTROL.
+    // Cost Control routing - only WINE NEW_ITEM from a Cork cashier diverts to PENDING_COST_CONTROL.
     // Every other path is untouched and follows the normal PENDING flow.
     const routeToCostControl = shouldRouteToCostControl(
       data.requestType, data.department, session.user.outlet, data.category,
@@ -58,12 +58,12 @@ export async function POST(request: NextRequest) {
     if (routeToCostControl && !isWineEventCategory(data.category)) {
       const cashierBarcode = data.barcode ?? null;
       if (cashierBarcode && cashierBarcode.trim() !== '') {
-        // Trust the cashier's barcode 100% — no SAP fuzzy match, no NCK derivation, no sequential
+        // Trust the cashier's barcode 100% - no SAP fuzzy match, no NCK derivation, no sequential
         // fallback. Their submitted value IS the suggestion.
         suggestedBarcode = cashierBarcode;
         suggestedBarcodeSource = BARCODE_SOURCE_CASHIER;
       } else {
-        // No cashier barcode — derive one. Load occupancy as late as possible (immediately before
+        // No cashier barcode - derive one. Load occupancy as late as possible (immediately before
         // generation + create) to minimise the window where a concurrent request could claim the same
         // barcode. sql.js writes are serialised under a single-process write lock, so this plus the
         // persisted-suggestion occupancy check is the tightest guard available without a cross-request lock.

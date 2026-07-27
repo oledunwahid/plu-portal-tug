@@ -53,7 +53,7 @@ export async function POST(request: NextRequest) {
 
     // ── Phase 1: exact Code (single batched WHERE code IN query) ────────────
     // Files that carry Code (e.g. Pierre's) resolve here without ever loading
-    // or fuzzy-scanning the 21k-row registry — the source of the timeout.
+    // or fuzzy-scanning the 21k-row registry - the source of the timeout.
     const codes = inputs.map((i) => normalizeCode(i.code)).filter(Boolean);
     if (codes.length) {
       for (const m of await getMasterItemsByCodes(codes)) {
@@ -70,7 +70,7 @@ export async function POST(request: NextRequest) {
     });
 
     // ── Phase 2: barcode / name+cat / fuzzy for the remainder ───────────────
-    // Only now — and only if something is still unresolved — do we pay to load
+    // Only now - and only if something is still unresolved - do we pay to load
     // the full active registry (all outlet groups), consistent with the manual
     // PLU code search box.
     if (unresolved.length) {

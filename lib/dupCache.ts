@@ -63,7 +63,7 @@ let sapCache: SapIndexCache | null = null;
 let sapPending: { key: string; promise: Promise<SapIndex> } | null = null;
 
 // Cached SAP token index. All SapMasterItem rows are WINE, so no department
-// filtering is needed here — callers gate on WINE before asking for evidence.
+// filtering is needed here - callers gate on WINE before asking for evidence.
 export async function getSapIndexCached(): Promise<SapIndex> {
   const stamp = await getSapItemsStamp();
   const key = `s:${stamp.count}:${stamp.maxImportedAt}`;

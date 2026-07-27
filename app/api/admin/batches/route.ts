@@ -5,7 +5,7 @@ import { getRequestBatches, getMasterMapByCodes } from '@/lib/db';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-// Update types whose items don't store the existing item's name/category — enriched from the registry.
+// Update types whose items don't store the existing item's name/category - enriched from the registry.
 const ENRICH_TYPES = new Set(['UPDATE_PRICE', 'UPDATE_NAME']);
 
 export async function GET(request: NextRequest) {
@@ -20,8 +20,9 @@ export async function GET(request: NextRequest) {
     const requestType = searchParams.get('requestType') ?? undefined;
     const from        = searchParams.get('from') ?? undefined;
     const to          = searchParams.get('to') ?? undefined;
+    const search      = searchParams.get('search')?.trim() || undefined;
 
-    const batches = await getRequestBatches({ status, outletGroup, requestType, from, to, limit: 500 });
+    const batches = await getRequestBatches({ status, outletGroup, requestType, from, to, search, limit: 500 });
 
     // Enrich items of UPDATE_PRICE / UPDATE_NAME batches with the registry name & category.
     const masterMap = await getMasterMapByCodes(

@@ -45,8 +45,8 @@ interface ItemRow {
   printers: string[];
   outlets: string[];
   remarks: string;
-  currentName: string;  // reference (UPDATE_PRICE/UPDATE_NAME) — display only, not submitted
-  currentPrice: string; // reference (UPDATE_PRICE/UPDATE_NAME) — display only, not submitted
+  currentName: string;  // reference (UPDATE_PRICE/UPDATE_NAME) - display only, not submitted
+  currentPrice: string; // reference (UPDATE_PRICE/UPDATE_NAME) - display only, not submitted
   errors: Partial<Record<string, string>>;
 }
 
@@ -204,7 +204,7 @@ export default function BatchEditPage() {
           setGlobalPrinters(loaded[0].printers);
         }
         // For UPDATE_PRICE / UPDATE_NAME, pull current name & price from master item registry for reference display.
-        // Single bulk request keyed by code — scales to large batches (100+ rows) without a request-per-row fan-out.
+        // Single bulk request keyed by code - scales to large batches (100+ rows) without a request-per-row fan-out.
         if (data.requestType === 'UPDATE_PRICE' || data.requestType === 'UPDATE_NAME') {
           const codes = Array.from(new Set(loaded.map((r) => r.code).filter(Boolean)));
           if (codes.length > 0) {
@@ -227,7 +227,7 @@ export default function BatchEditPage() {
                     : p;
                 }));
               })
-              .catch(() => {});
+              .catch(() => { });
           }
         }
         setPageLoading(false);
@@ -272,14 +272,14 @@ export default function BatchEditPage() {
   }
 
   function handleCodeSearchChange(idx: number, code: string) {
-    // Manual typing keeps the linked current name/price — only a dropdown selection re-syncs them.
+    // Manual typing keeps the linked current name/price - only a dropdown selection re-syncs them.
     setItems((prev) => prev.map((r, i) => {
       if (i !== idx) return r;
       return { ...r, code, errors: { ...r.errors, code: undefined } };
     }));
   }
 
-  // UPDATE_PRICE / UPDATE_NAME item-name search box — manual typing keeps the PLU code untouched
+  // UPDATE_PRICE / UPDATE_NAME item-name search box - manual typing keeps the PLU code untouched
   function handleNameSearchChange(idx: number, name: string) {
     setItems((prev) => prev.map((r, i) => (i === idx ? { ...r, currentName: name } : r)));
   }

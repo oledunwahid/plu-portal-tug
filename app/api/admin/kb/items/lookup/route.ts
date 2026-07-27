@@ -5,7 +5,7 @@ import { getMasterItemsByCodes } from '@/lib/db';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-// Bulk lookup of master items by exact code — used to populate reference fields for large batches in one request
+// Bulk lookup of master items by exact code - used to populate reference fields for large batches in one request
 export async function POST(req: NextRequest) {
   try {
     const session = await getSession();

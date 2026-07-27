@@ -69,7 +69,7 @@ export function PLUCodeSection({ category, cashierOutlet, selectedOutlets, onVal
       }
     }, 300);
     return () => clearTimeout(timer);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [depKey]);
 
   // Notify parent only once we have a real sequence (not while loading)
@@ -250,7 +250,7 @@ export function PLUCodeSection({ category, cashierOutlet, selectedOutlets, onVal
         }}>
           <AlertTriangle size={12} style={{ color: '#8B3A2A', flexShrink: 0 }} />
           <span style={{ fontSize: '0.72rem', color: '#8B3A2A' }}>
-            Outlet {cashierOutlet} has no prefix mapping — using UNI as fallback. Verify with your manager.
+            Outlet {cashierOutlet} has no prefix mapping - using UNI as fallback. Verify with your manager.
           </span>
         </div>
       )}
@@ -276,7 +276,7 @@ export function PLUCodeSection({ category, cashierOutlet, selectedOutlets, onVal
 
       {showSeqWarning && (
         <p style={{ fontSize: '0.72rem', color: '#8B6A2A', margin: 0 }}>
-          Sequence below 4000 — this may conflict with existing Quinos items. Numbers below 4000 are reserved for pre-existing PLUs.
+          Sequence below 4000 - this may conflict with existing Quinos items. Numbers below 4000 are reserved for pre-existing PLUs.
         </p>
       )}
 

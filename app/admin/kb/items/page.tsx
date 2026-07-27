@@ -317,7 +317,7 @@ const SELECT_STYLE: React.CSSProperties = {
 };
 
 export default function MasterItemsPage() {
-  // COST_CONTROL has read-only access — write controls (upload, edit, delete, toggle) are hidden.
+  // COST_CONTROL has read-only access - write controls (upload, edit, delete, toggle) are hidden.
   const { data: session } = useSession();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const isAdmin = ((session?.user as any)?.role ?? '') === 'ADMIN';
@@ -567,58 +567,58 @@ export default function MasterItemsPage() {
         </p>
       </div>
 
-      {/* Upload card — admin only (cost control is read-only). */}
+      {/* Upload card - admin only (cost control is read-only). */}
       {isAdmin && (
-      <div className="card" style={{ padding: '1.25rem', marginBottom: '1.25rem' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
-          <div>
-            <div style={{ fontWeight: 600, fontSize: '0.875rem', color: 'var(--text-primary)' }}>Upload Quinos Export CSV</div>
-            <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>
-              Upload the latest item export from Quinos to keep this registry current.
+        <div className="card" style={{ padding: '1.25rem', marginBottom: '1.25rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
+            <div>
+              <div style={{ fontWeight: 600, fontSize: '0.875rem', color: 'var(--text-primary)' }}>Upload Quinos Export CSV</div>
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>
+                Upload the latest item export from Quinos to keep this registry current.
+              </div>
             </div>
+            {lastImported && (
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textAlign: 'right' }}>
+                Last updated<br />
+                <span style={{ color: 'var(--text-primary)', fontWeight: 500 }}>
+                  {new Date(lastImported).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                </span>
+              </div>
+            )}
           </div>
-          {lastImported && (
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textAlign: 'right' }}>
-              Last updated<br />
-              <span style={{ color: 'var(--text-primary)', fontWeight: 500 }}>
-                {new Date(lastImported).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
-              </span>
-            </div>
-          )}
-        </div>
 
-        <div
-          onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-          onDragLeave={() => setDragOver(false)}
-          onDrop={(e) => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files[0]; if (f) handleUpload(f); }}
-          onClick={() => fileInputRef.current?.click()}
-          style={{
-            border: `2px dashed ${dragOver ? '#C9A84C' : 'var(--border)'}`,
-            borderRadius: '8px', padding: '1.5rem', textAlign: 'center',
-            cursor: 'pointer', background: dragOver ? 'rgba(201,168,76,0.04)' : 'transparent',
-            transition: 'all 150ms',
-          }}
-        >
-          {uploading ? (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', color: 'var(--text-secondary)' }}>
-              <div className="skeleton" style={{ width: '16px', height: '16px', borderRadius: '50%' }} />
-              <span style={{ fontSize: '0.875rem' }}>Processing…</span>
-            </div>
-          ) : (
-            <>
-              <Upload size={20} style={{ color: 'var(--text-secondary)', margin: '0 auto 0.5rem' }} />
-              <div style={{ fontSize: '0.875rem', color: 'var(--text-primary)', fontWeight: 500 }}>
-                Click to upload or drag and drop a CSV file
+          <div
+            onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={(e) => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files[0]; if (f) handleUpload(f); }}
+            onClick={() => fileInputRef.current?.click()}
+            style={{
+              border: `2px dashed ${dragOver ? '#C9A84C' : 'var(--border)'}`,
+              borderRadius: '8px', padding: '1.5rem', textAlign: 'center',
+              cursor: 'pointer', background: dragOver ? 'rgba(201,168,76,0.04)' : 'transparent',
+              transition: 'all 150ms',
+            }}
+          >
+            {uploading ? (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', color: 'var(--text-secondary)' }}>
+                <div className="skeleton" style={{ width: '16px', height: '16px', borderRadius: '50%' }} />
+                <span style={{ fontSize: '0.875rem' }}>Processing…</span>
               </div>
-              <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>
-                .csv format only
-              </div>
-            </>
-          )}
+            ) : (
+              <>
+                <Upload size={20} style={{ color: 'var(--text-secondary)', margin: '0 auto 0.5rem' }} />
+                <div style={{ fontSize: '0.875rem', color: 'var(--text-primary)', fontWeight: 500 }}>
+                  Click to upload or drag and drop a CSV file
+                </div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>
+                  .csv format only
+                </div>
+              </>
+            )}
+          </div>
+          <input ref={fileInputRef} type="file" accept=".csv" style={{ display: 'none' }}
+            onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUpload(f); }} />
         </div>
-        <input ref={fileInputRef} type="file" accept=".csv" style={{ display: 'none' }}
-          onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUpload(f); }} />
-      </div>
       )}
 
       {/* Filters */}

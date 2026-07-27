@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 // Result shape consumed by PLUCodeSearch (barcode mode). `sapOnly` rows have no
-// Quinos master code/price — they exist in the SAP registry but are not (yet)
+// Quinos master code/price - they exist in the SAP registry but are not (yet)
 // verified in the Quinos master, so the cashier is warned before relying on them.
 interface BarcodeResult {
   code: string | null;
@@ -70,7 +70,7 @@ export async function GET(request: NextRequest) {
     const results: BarcodeResult[] = [];
     const seenCodes = new Set<string>();
 
-    // Source 1 (Quinos master) — authoritative, listed first.
+    // Source 1 (Quinos master) - authoritative, listed first.
     for (const m of masterHit.rows) {
       if (seenCodes.has(m.code)) continue;
       seenCodes.add(m.code);

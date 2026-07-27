@@ -6,7 +6,7 @@ import type { BarcodeMismatch, PriceLevelsWarning } from '@/lib/itemMatch';
 const fmtRp = (n: number) => n.toLocaleString('id-ID');
 
 // Advisory, wine-only callouts shown beneath a matched price-change row.
-// Detection only — neither value is auto-corrected.
+// Detection only - neither value is auto-corrected.
 export function WineWarnings({
   barcodeMismatch,
   priceLevels,
@@ -25,14 +25,14 @@ export function WineWarnings({
             <ScanBarcode size={13} /> BARCODE MISMATCH
             <span style={{ fontWeight: 400, color: 'var(--text-secondary)' }}>
               {barcodeMismatch.kind === 'orphan'
-                ? '· barcode Quinos bukan Item No. SAP mana pun — perlu tinjauan'
-                : '· barcode Quinos menunjuk ke item SAP yang berbeda — perlu tinjauan'}
+                ? '· barcode Quinos bukan Item No. SAP mana pun - perlu tinjauan'
+                : '· barcode Quinos menunjuk ke item SAP yang berbeda - perlu tinjauan'}
             </span>
           </div>
           <div style={{ display: 'flex', gap: '1.25rem', flexWrap: 'wrap', fontSize: '0.72rem' }}>
             <div>
               <div style={{ color: 'var(--text-secondary)', fontWeight: 600, marginBottom: '1px' }}>Barcode Quinos (master)</div>
-              <div style={{ fontFamily: 'monospace', color: 'var(--text-primary)' }}>{barcodeMismatch.quinosBarcode || '— kosong —'}</div>
+              <div style={{ fontFamily: 'monospace', color: 'var(--text-primary)' }}>{barcodeMismatch.quinosBarcode || '- kosong —'}</div>
             </div>
             {barcodeMismatch.kind === 'wrong-pointer' && (
               <div>

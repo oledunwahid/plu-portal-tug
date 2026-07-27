@@ -4,12 +4,16 @@ import { useState, useEffect, useCallback, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { toast } from 'sonner';
-import { PlusCircle, Tag, Type, Printer, Trash2, Check, Download, Loader2, Layers } from 'lucide-react';
+import { PlusCircle, Tag, Type, Printer, Trash2, Check, Download, Loader2, Layers, Search, X } from 'lucide-react';
 import { formatPrice } from '@/lib/utils';
 import { formatTimestamp } from '@/lib/format';
 import { collapseAdminOutlets } from '@/lib/outlets';
 import StatusBadge from '@/components/StatusBadge';
 import TableSkeleton from '@/components/skeletons/TableSkeleton';
+import {
+  EMPTY_TYPE_STAT, SOURCE_LABELS, STATUS_COLORS, buildStatsQuery,
+  type StatsSummaryResponse, type TypeStat,
+} from '@/lib/requestStats';
 
 type RequestType = 'NEW_ITEM' | 'UPDATE_PRICE' | 'UPDATE_NAME' | 'UPDATE_PRINTER' | 'REMOVE_PLU';
 
@@ -52,15 +56,18 @@ interface TabConfig {
   color: string;
   lightColor: string;
   format: 'XLSX' | 'CSV';
-  defaultStatus: string;
 }
 
+// Every section opens on PENDING: processing the queue is the admin's job, so unprocessed work is
+// always what the page shows first.
+const DEFAULT_STATUS = 'PENDING';
+
 const TABS: TabConfig[] = [
-  { type: 'NEW_ITEM', label: 'New Items', Icon: PlusCircle, color: '#2D4A2E', lightColor: 'rgba(45,74,46,0.12)', format: 'XLSX', defaultStatus: 'PENDING' },
-  { type: 'UPDATE_PRICE', label: 'Update Price', Icon: Tag, color: '#8B6914', lightColor: 'rgba(139,105,20,0.12)', format: 'CSV', defaultStatus: 'ALL' },
-  { type: 'UPDATE_NAME', label: 'Update Name', Icon: Type, color: '#7A2E1F', lightColor: 'rgba(122,46,31,0.12)', format: 'CSV', defaultStatus: 'ALL' },
-  { type: 'UPDATE_PRINTER', label: 'Update Printer', Icon: Printer, color: '#1F3A5F', lightColor: 'rgba(31,58,95,0.12)', format: 'CSV', defaultStatus: 'ALL' },
-  { type: 'REMOVE_PLU', label: 'Remove PLU', Icon: Trash2, color: '#8B3A2A', lightColor: 'rgba(139,58,42,0.12)', format: 'CSV', defaultStatus: 'ALL' },
+  { type: 'NEW_ITEM', label: 'New Items', Icon: PlusCircle, color: '#2D4A2E', lightColor: 'rgba(45,74,46,0.12)', format: 'XLSX' },
+  { type: 'UPDATE_PRICE', label: 'Update Price', Icon: Tag, color: '#8B6914', lightColor: 'rgba(139,105,20,0.12)', format: 'CSV' },
+  { type: 'UPDATE_NAME', label: 'Update Name', Icon: Type, color: '#7A2E1F', lightColor: 'rgba(122,46,31,0.12)', format: 'CSV' },
+  { type: 'UPDATE_PRINTER', label: 'Change Printer', Icon: Printer, color: '#1F3A5F', lightColor: 'rgba(31,58,95,0.12)', format: 'CSV' },
+  { type: 'REMOVE_PLU', label: 'Remove PLU', Icon: Trash2, color: '#8B3A2A', lightColor: 'rgba(139,58,42,0.12)', format: 'CSV' },
 ];
 
 const SELECT_STYLE = {
@@ -134,16 +141,18 @@ const COLUMNS: Record<RequestType, ColumnDef[]> = {
     { key: 'category', label: 'Category', render: (r) => <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>{r.category}</span> },
     { key: 'dept', label: 'Department', render: (r) => <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>{r.department}</span> },
     { key: 'price', label: 'Price', render: (r) => <span style={{ fontSize: '0.8rem' }}>{r.price ? formatPrice(r.price) : '—'}</span> },
-    { key: 'barcode', label: 'Barcode', render: (r) => {
-      const confirmed = r.confirmedBarcode;
-      const value = confirmed ?? r.suggestedBarcode ?? null;
-      if (!value) return <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>—</span>;
-      return (
-        <span style={{ fontFamily: 'monospace', fontSize: '0.75rem', color: confirmed ? 'var(--text-primary)' : 'var(--text-secondary)' }} title={confirmed ? 'Confirmed by cost control' : 'Suggested (awaiting cost control)'}>
-          {value}{!confirmed && r.suggestedBarcode ? ' ?' : ''}
-        </span>
-      );
-    } },
+    {
+      key: 'barcode', label: 'Barcode', render: (r) => {
+        const confirmed = r.confirmedBarcode;
+        const value = confirmed ?? r.suggestedBarcode ?? null;
+        if (!value) return <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>—</span>;
+        return (
+          <span style={{ fontFamily: 'monospace', fontSize: '0.75rem', color: confirmed ? 'var(--text-primary)' : 'var(--text-secondary)' }} title={confirmed ? 'Confirmed by cost control' : 'Suggested (awaiting cost control)'}>
+            {value}{!confirmed && r.suggestedBarcode ? ' ?' : ''}
+          </span>
+        );
+      }
+    },
     { key: 'folder', label: 'Folder', render: (r) => <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{r.folder ?? '—'}</span> },
     { key: 'printers', label: 'Printers', render: (r) => <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{r.printers.replace(/;/g, ' · ')}</span> },
     { key: 'outlets', label: 'Outlets', render: (r) => <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{collapseAdminOutlets(r.outlets).replace(/;/g, ' · ')}</span> },
@@ -192,6 +201,16 @@ const COLUMNS: Record<RequestType, ColumnDef[]> = {
 const FALLBACK_GROUPS = ['UNION', 'CNS', 'FRENCH', 'IBR', 'IND'];
 
 const VALID_TYPES: RequestType[] = ['NEW_ITEM', 'UPDATE_PRICE', 'UPDATE_NAME', 'UPDATE_PRINTER', 'REMOVE_PLU'];
+
+// The four lifecycle views of the list, in processing order. PENDING first — that's the work.
+const VALID_STATUSES = ['PENDING', 'EXPORTED', 'DONE', 'ALL'];
+
+const STATUS_TAB_LABELS: Record<string, { label: string; hint: string }> = {
+  PENDING: { label: 'Pending', hint: 'Menunggu proses' },
+  EXPORTED: { label: 'Exported', hint: 'Sudah diekspor, belum selesai' },
+  DONE: { label: 'Done', hint: 'Selesai' },
+  ALL: { label: 'All', hint: 'Semua status' },
+};
 
 // The exact 19 columns the export file will contain, in order. The "Export preview" toggle renders
 // these straight from the server-computed rows (same requestToTemplateRow sourcing as the download),
@@ -245,44 +264,53 @@ function ExportPageContent() {
   const [outletGroups, setOutletGroups] = useState<string[]>(FALLBACK_GROUPS);
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
-  const [statusFilter, setStatusFilter] = useState('PENDING');
+  const [statusFilter, setStatusFilter] = useState(DEFAULT_STATUS);
   const [requests, setRequests] = useState<PLURequest[]>([]);
-  const [tabCounts, setTabCounts] = useState<Partial<Record<RequestType, number>>>({});
+  const [stats, setStats] = useState<StatsSummaryResponse | null>(null);
+  const [statsError, setStatsError] = useState(false);
+  // `search` is what the admin types; `activeSearch` is the debounced value actually queried.
+  const [search, setSearch] = useState('');
+  const [activeSearch, setActiveSearch] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
   const [downloadingFormat, setDownloadingFormat] = useState<'XLSX' | 'CSV' | null>(null);
   const [sourceFilter, setSourceFilter] = useState<'SINGLE' | 'BATCH'>('SINGLE');
   const [donePage, setDonePage] = useState(1);
-  const [doneCount, setDoneCount] = useState<number | null>(null);
   const [previewMode, setPreviewMode] = useState(false);
   const [previewMap, setPreviewMap] = useState<Map<string, PreviewRow>>(new Map());
   const [previewLoading, setPreviewLoading] = useState(false);
 
   const activeTab = TABS.find((t) => t.type === activeType)!;
   const columns = COLUMNS[activeType];
+  const statsSource = sourceFilter === 'BATCH' ? 'batch' : 'single';
 
-  // Fetch counts for all tabs when global filters change
+  // Debounce the search box so a fetch fires once the admin stops typing, not per keystroke.
   useEffect(() => {
-    async function fetchCounts() {
-      const results = await Promise.all(
-        TABS.map(async (tab) => {
-          const params = new URLSearchParams({ requestType: tab.type, status: tab.defaultStatus, countOnly: '1' });
-          if (group !== 'ALL') params.set('outletGroup', group);
-          if (from) params.set('from', from);
-          if (to) params.set('to', to);
-          try {
-            const res = await fetch(`/api/admin/requests?${params}`);
-            const data = res.ok ? await res.json() : {};
-            return [tab.type, typeof data.count === 'number' ? data.count : 0] as const;
-          } catch {
-            return [tab.type, 0] as const;
-          }
-        })
-      );
-      setTabCounts(Object.fromEntries(results));
+    const id = setTimeout(() => setActiveSearch(search.trim()), 300);
+    return () => clearTimeout(id);
+  }, [search]);
+
+  // Per-type Pending / Exported / Done / Total for the card strip. Scoped by exactly the same
+  // filters as the list below (source, group, date range, search) so the cards and the table can
+  // never disagree.
+  const fetchStats = useCallback(async () => {
+    try {
+      const qs = buildStatsQuery({ source: statsSource, group, from, to, search: activeSearch });
+      const res = await fetch(`/api/admin/stats/summary?${qs}`, { cache: 'no-store' });
+      if (!res.ok) throw new Error();
+      setStats(await res.json());
+      setStatsError(false);
+    } catch {
+      // Never fall back to zeros — "0 pending" must mean the queue is empty, not that a fetch failed.
+      setStats(null);
+      setStatsError(true);
     }
-    fetchCounts();
-  }, [group, from, to]);
+  }, [statsSource, group, from, to, activeSearch]);
+
+  useEffect(() => { fetchStats(); }, [fetchStats]);
+
+  const statFor = (type: RequestType): TypeStat => stats?.byType?.[type] ?? EMPTY_TYPE_STAT;
+  const activeStat = statFor(activeType);
 
   const flattenBatches = useCallback((batchData: any[]): any[] =>
     batchData.flatMap((b: any) =>
@@ -302,7 +330,7 @@ function ExportPageContent() {
         lastExportedBy: b.lastExportedBy,
       }))
     )
-  , []);
+    , []);
 
   const fetchRequests = useCallback(async () => {
     setLoading(true);
@@ -313,6 +341,7 @@ function ExportPageContent() {
       if (statusFilter !== 'ALL') params.set('status', statusFilter);
       if (from) params.set('from', from);
       if (to) params.set('to', to);
+      if (activeSearch) params.set('search', activeSearch);
 
       if (sourceFilter === 'BATCH') {
         const res = await fetch(`/api/admin/batches?${params}`);
@@ -328,7 +357,7 @@ function ExportPageContent() {
     } finally {
       setLoading(false);
     }
-  }, [activeType, group, statusFilter, from, to, sourceFilter, flattenBatches]);
+  }, [activeType, group, statusFilter, from, to, sourceFilter, activeSearch, flattenBatches]);
 
   useEffect(() => { fetchRequests(); }, [fetchRequests]);
 
@@ -363,39 +392,8 @@ function ExportPageContent() {
 
   useEffect(() => { if (previewMode) fetchPreview(); }, [previewMode, fetchPreview]);
 
-  // Total count of DONE items for the current section/filters — surfaced on the Done tab label
-  // so admins know the volume before switching to it. Uses countOnly for single requests;
-  // batches lack a count endpoint, so their (small) done list is summed client-side.
-  useEffect(() => {
-    let cancelled = false;
-    async function fetchDoneCount() {
-      try {
-        const params = new URLSearchParams({ requestType: activeType, status: 'DONE' });
-        if (group !== 'ALL') params.set('outletGroup', group);
-        if (from) params.set('from', from);
-        if (to) params.set('to', to);
-        let count = 0;
-        if (sourceFilter === 'BATCH') {
-          const res = await fetch(`/api/admin/batches?${params}`);
-          const data = res.ok ? await res.json() : [];
-          count = Array.isArray(data) ? data.reduce((sum: number, b: any) => sum + ((b.items as any[])?.length ?? 0), 0) : 0;
-        } else {
-          params.set('countOnly', '1');
-          const res = await fetch(`/api/admin/requests?${params}`);
-          const data = res.ok ? await res.json() : {};
-          count = typeof data.count === 'number' ? data.count : 0;
-        }
-        if (!cancelled) setDoneCount(count);
-      } catch {
-        if (!cancelled) setDoneCount(null);
-      }
-    }
-    fetchDoneCount();
-    return () => { cancelled = true; };
-  }, [activeType, group, from, to, sourceFilter]);
-
   // Reset Done pagination whenever the view it paginates changes (tab switch, filters, source).
-  useEffect(() => { setDonePage(1); }, [activeType, statusFilter, sourceFilter, group, from, to]);
+  useEffect(() => { setDonePage(1); }, [activeType, statusFilter, sourceFilter, group, from, to, activeSearch]);
 
   useEffect(() => {
     fetch('/api/config/outlets?activeOnly=true')
@@ -405,23 +403,34 @@ function ExportPageContent() {
         const groups = Array.from(new Set(data.map((o) => o.group))).sort();
         if (groups.length > 0) setOutletGroups(groups);
       })
-      .catch(() => {});
+      .catch(() => { });
   }, []);
 
-  // Pre-select a section from the ?type= query param (used by dashboard command-center cards).
-  // Unrecognized/absent values leave the default (NEW_ITEM) untouched.
+  // Pre-select the view from query params (dashboard pending cards deep-link here with the whole
+  // scope: type, status, source, group and date range). Unrecognized/absent values leave the
+  // defaults (NEW_ITEM / PENDING / SINGLE) untouched.
   useEffect(() => {
     const t = searchParams.get('type');
-    if (t && (VALID_TYPES as string[]).includes(t)) {
-      switchTab(t as RequestType);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (t && (VALID_TYPES as string[]).includes(t)) setActiveType(t as RequestType);
+
+    const s = searchParams.get('status');
+    if (s && VALID_STATUSES.includes(s)) setStatusFilter(s);
+
+    const src = searchParams.get('source');
+    if (src === 'BATCH' || src === 'SINGLE') setSourceFilter(src);
+
+    const g = searchParams.get('group');
+    if (g) setGroup(g);
+    const f = searchParams.get('from');
+    if (f) setFrom(f);
+    const tt = searchParams.get('to');
+    if (tt) setTo(tt);
   }, [searchParams]);
 
+  // Switching section keeps the status the admin is currently working in (e.g. reviewing Done
+  // items across types) — the page still *opens* on Pending.
   function switchTab(type: RequestType) {
-    const tab = TABS.find((t) => t.type === type)!;
     setActiveType(type);
-    setStatusFilter(tab.defaultStatus);
   }
 
   function toggleAll() {
@@ -457,6 +466,7 @@ function ExportPageContent() {
       if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error ?? 'Gagal'); }
       // Marking a batch item done completes the whole batch — reflect that across its rows.
       applyDoneLocally((r) => isBatch ? r.id.startsWith(`${batchId}:`) : r.id === req.id);
+      fetchStats(); // keep the card counts in step with the row that just moved to Done
       toast.success('Permintaan ditandai selesai.');
     } catch (err: any) {
       toast.error(err.message ?? 'Gagal menandai selesai.');
@@ -483,6 +493,7 @@ function ExportPageContent() {
       if (results.some((r) => !r.ok)) throw new Error('Sebagian gagal');
       applyDoneLocally((r) => selectedIds.has(r.id) || batchIds.some((bid) => r.id.startsWith(`${bid}:`)));
       setSelectedIds(new Set());
+      fetchStats();
       toast.success('Permintaan ditandai selesai.');
     } catch (err: any) {
       toast.error(err.message ?? 'Gagal menandai selesai.');
@@ -582,6 +593,7 @@ function ExportPageContent() {
             ? { ...r, status: 'EXPORTED', lastExportedBy: adminName ?? r.lastExportedBy ?? null, lastExportedAt: now, exportCount: (r.exportCount ?? 0) + 1 }
             : r;
         }));
+        fetchStats(); // Pending → Exported on the cards, without a manual refresh
       } catch {
         toast.warning('Export berhasil diunduh, tetapi status gagal diperbarui. Refresh halaman untuk melihat status terbaru.');
       }
@@ -608,18 +620,18 @@ function ExportPageContent() {
         Export requests by type for processing or Quinos POS import.
       </p>
 
-      {/* Source toggle */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
+      {/* Source toggle — every stat and list on this page is scoped to the selected source. */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
         <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontWeight: 500 }}>Request Source:</span>
         {(['SINGLE', 'BATCH'] as const).map((s) => (
           <button
             key={s}
             onClick={() => setSourceFilter(s)}
             style={{
-              padding: '0.25rem 0.75rem',
+              padding: '0.3rem 0.85rem',
               borderRadius: '3px',
               border: `1px solid ${sourceFilter === s ? 'var(--accent-gold)' : 'var(--border)'}`,
-              background: sourceFilter === s ? 'rgba(201,168,76,0.08)' : 'transparent',
+              background: sourceFilter === s ? 'rgba(201,168,76,0.12)' : 'transparent',
               color: sourceFilter === s ? 'var(--text-primary)' : 'var(--text-secondary)',
               fontSize: '0.775rem',
               fontWeight: sourceFilter === s ? 600 : 400,
@@ -633,10 +645,36 @@ function ExportPageContent() {
             {s === 'BATCH' && <><Layers size={11} />Batch Items</>}
           </button>
         ))}
+        <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginLeft: '0.25rem' }}>
+          Showing: <strong style={{ color: 'var(--text-primary)' }}>{SOURCE_LABELS[statsSource]}</strong>
+          {group !== 'ALL' && <> · {group}</>}
+          {(from || to) && <> · {from || '…'} – {to || '…'}</>}
+        </span>
       </div>
 
       {/* Global filter bar */}
       <div className="card" style={{ padding: '0.75rem 1.25rem', marginBottom: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.625rem', flexWrap: 'wrap' }}>
+        {/* Admin search — combines with source, type, status, group and date range. */}
+        <div style={{ position: 'relative', flex: '1 1 260px', minWidth: '220px' }}>
+          <Search size={13} style={{ position: 'absolute', left: '0.55rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)', pointerEvents: 'none' }} />
+          <input
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search item, PLU, barcode, outlet, requestor..."
+            aria-label="Cari permintaan"
+            style={{ ...SELECT_STYLE, cursor: 'text', width: '100%', padding: '0 1.9rem 0 1.8rem' }}
+          />
+          {search && (
+            <button
+              onClick={() => setSearch('')}
+              aria-label="Hapus pencarian"
+              style={{ position: 'absolute', right: '0.4rem', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', display: 'flex', padding: '0.2rem' }}
+            >
+              <X size={13} />
+            </button>
+          )}
+        </div>
         <select value={group} onChange={(e) => setGroup(e.target.value)} style={SELECT_STYLE}>
           <option value="ALL">All Groups</option>
           {outletGroups.map((g) => (
@@ -648,33 +686,50 @@ function ExportPageContent() {
           <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>–</span>
           <input type="date" value={to} onChange={(e) => setTo(e.target.value)} style={DATE_STYLE} />
         </div>
-        {(group !== 'ALL' || from || to) && (
-          <button onClick={() => { setGroup('ALL'); setFrom(''); setTo(''); }} style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>
+        {(group !== 'ALL' || from || to || search) && (
+          <button onClick={() => { setGroup('ALL'); setFrom(''); setTo(''); setSearch(''); }} style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>
             Clear
           </button>
         )}
       </div>
 
-      {/* Tab strip */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '0.75rem', marginBottom: '1.25rem' }}>
+      {statsError && (
+        <div className="card" style={{ padding: '0.75rem 1.25rem', marginBottom: '1rem', borderLeft: '3px solid #8B3A2A', fontSize: '0.8rem', color: '#8B3A2A', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem', flexWrap: 'wrap' }}>
+          <span>Gagal memuat statistik kartu di bawah. Daftar permintaan tetap akurat.</span>
+          <button onClick={fetchStats} style={{ fontSize: '0.78rem', color: '#8B3A2A', background: 'none', border: '1px solid #8B3A2A', borderRadius: '4px', padding: '0.25rem 0.6rem', cursor: 'pointer' }}>
+            Coba lagi
+          </button>
+        </div>
+      )}
+
+      {/* Type cards — identical mini-stats on every card: Pending / Exported / Done / Total. */}
+      <div className="type-card-grid">
         {TABS.map((tab) => {
           const isActive = activeType === tab.type;
-          const count = tabCounts[tab.type];
+          const s = statFor(tab.type);
+          const rows: [string, number, string][] = [
+            ['Pending', s.pending, STATUS_COLORS.PENDING],
+            ['Exported', s.exported, STATUS_COLORS.EXPORTED],
+            ['Done', s.done, STATUS_COLORS.DONE],
+            ['Total', s.total, 'var(--text-secondary)'],
+          ];
           return (
             <button
               key={tab.type}
               onClick={() => switchTab(tab.type)}
+              aria-pressed={isActive}
               style={{
                 padding: '0.875rem 1rem',
                 border: isActive ? '2px solid var(--accent-gold)' : '1px solid var(--border)',
                 borderRadius: '0.5rem',
-                background: isActive ? 'rgba(201,168,76,0.04)' : 'var(--bg-card)',
+                background: isActive ? 'rgba(201,168,76,0.07)' : 'var(--bg-card)',
+                boxShadow: isActive ? '0 2px 10px rgba(201,168,76,0.22)' : 'none',
                 cursor: 'pointer',
                 textAlign: 'left',
                 transition: 'all 150ms ease',
               }}
             >
-              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '0.625rem' }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
                 <div style={{ width: '30px', height: '30px', borderRadius: '6px', background: tab.lightColor, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                   <tab.Icon size={15} style={{ color: tab.color }} />
                 </div>
@@ -682,12 +737,26 @@ function ExportPageContent() {
                   {tab.format}
                 </span>
               </div>
-              <div style={{ fontSize: '0.8rem', fontWeight: isActive ? 600 : 500, color: isActive ? 'var(--text-primary)' : 'var(--text-secondary)', marginBottom: '0.2rem' }}>
+              <div style={{ fontSize: '0.82rem', fontWeight: isActive ? 700 : 500, color: 'var(--text-primary)', marginBottom: '0.45rem' }}>
                 {tab.label}
               </div>
-              {count !== undefined && (
-                <div style={{ fontSize: '0.75rem', color: count > 0 ? tab.color : 'var(--text-secondary)', fontWeight: count > 0 ? 600 : 400 }}>
-                  {count} {tab.defaultStatus.toLowerCase()}
+              {statsError ? (
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>Stats tidak tersedia</div>
+              ) : (
+                <div style={{ display: 'grid', gap: '0.1rem' }}>
+                  {rows.map(([label, value, color]) => (
+                    <div key={label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
+                      <span>{label}</span>
+                      <span style={{ color, fontWeight: label === 'Pending' && value > 0 ? 700 : 500, fontVariantNumeric: 'tabular-nums' }}>
+                        {stats ? value : '…'}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {s.costControl > 0 && (
+                <div style={{ fontSize: '0.66rem', color: '#7A2E1F', marginTop: '0.35rem' }}>
+                  +{s.costControl} di cost control
                 </div>
               )}
             </button>
@@ -706,25 +775,30 @@ function ExportPageContent() {
             </div>
             {!loading && (
               <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                {requests.length} request{requests.length !== 1 ? 's' : ''}
+                {requests.length} {sourceFilter === 'BATCH' ? 'batch item' : 'request'}{requests.length !== 1 ? 's' : ''}
+                {' · '}{STATUS_TAB_LABELS[statusFilter]?.hint ?? statusFilter}
+                {activeSearch && <> · pencarian &ldquo;{activeSearch}&rdquo;</>}
               </span>
             )}
           </div>
-          {/* Status sub-filter. */}
-          <div style={{ display: 'flex', gap: '0.375rem' }}>
-            {(['PENDING', 'EXPORTED', 'DONE', 'ALL'] as string[]).map((s) => (
-              <button
-                key={s}
-                onClick={() => setStatusFilter(s)}
-                style={{ padding: '0.25rem 0.625rem', borderRadius: '3px', border: `1px solid ${statusFilter === s ? 'var(--accent-gold)' : 'var(--border)'}`, background: statusFilter === s ? 'rgba(201,168,76,0.08)' : 'transparent', color: statusFilter === s ? 'var(--text-primary)' : 'var(--text-secondary)', fontSize: '0.75rem', fontWeight: statusFilter === s ? 600 : 400, cursor: 'pointer' }}
-              >
-                {s === 'ALL'
-                  ? 'All'
-                  : s === 'DONE'
-                    ? `Done${doneCount != null ? ` (${doneCount})` : ''}`
-                    : s.charAt(0) + s.slice(1).toLowerCase()}
-              </button>
-            ))}
+          {/* Status sub-filter - the list below always matches the selected view. */}
+          <div style={{ display: 'flex', gap: '0.375rem', flexWrap: 'wrap' }}>
+            {VALID_STATUSES.map((s) => {
+              const count = s === 'PENDING' ? activeStat.pending
+                : s === 'EXPORTED' ? activeStat.exported
+                : s === 'DONE' ? activeStat.done
+                : activeStat.total;
+              return (
+                <button
+                  key={s}
+                  onClick={() => setStatusFilter(s)}
+                  title={STATUS_TAB_LABELS[s].hint}
+                  style={{ padding: '0.25rem 0.625rem', borderRadius: '3px', border: `1px solid ${statusFilter === s ? 'var(--accent-gold)' : 'var(--border)'}`, background: statusFilter === s ? 'rgba(201,168,76,0.12)' : 'transparent', color: statusFilter === s ? 'var(--text-primary)' : 'var(--text-secondary)', fontSize: '0.75rem', fontWeight: statusFilter === s ? 600 : 400, cursor: 'pointer' }}
+                >
+                  {STATUS_TAB_LABELS[s].label}{stats ? ` (${count})` : ''}
+                </button>
+              );
+            })}
           </div>
         </div>
 
@@ -736,7 +810,7 @@ function ExportPageContent() {
           </div>
         )}
 
-        {/* View toggle: operational table vs. full 18-column export preview */}
+        {/* View toggle: operational table vs. full 19-column export preview */}
         {!loading && requests.length > 0 && (
           <div style={{ padding: '0.5rem 1.5rem', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', fontWeight: 500 }}>View:</span>
@@ -755,7 +829,7 @@ function ExportPageContent() {
             {previewMode && previewLoading && <Loader2 size={13} style={{ animation: 'spin 1s linear infinite', color: 'var(--text-secondary)' }} />}
             {previewMode && (
               <span style={{ marginLeft: 'auto', fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
-                Pratinjau persis seperti isi file ekspor (18 kolom).
+                Pratinjau persis seperti isi file ekspor (19 kolom).
               </span>
             )}
           </div>
@@ -793,8 +867,36 @@ function ExportPageContent() {
         {loading ? (
           <TableSkeleton rows={6} cols={columns.length + 2} />
         ) : requests.length === 0 ? (
-          <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
-            No {activeTab.label.toLowerCase()} requests found for the current filters.
+          <div style={{ padding: '3rem 1.5rem', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
+            {activeSearch ? (
+              <>
+                <div style={{ color: 'var(--text-primary)', marginBottom: '0.35rem' }}>
+                  Tidak ada permintaan {STATUS_TAB_LABELS[statusFilter].label.toLowerCase()} yang cocok dengan pencarian Anda.
+                </div>
+                <div>
+                  {activeTab.label} · {SOURCE_LABELS[statsSource]} · pencarian &ldquo;{activeSearch}&rdquo;
+                </div>
+                <button
+                  onClick={() => setSearch('')}
+                  style={{ marginTop: '0.75rem', fontSize: '0.8rem', color: '#8B6914', background: 'none', border: '1px solid var(--border)', borderRadius: '4px', padding: '0.3rem 0.75rem', cursor: 'pointer' }}
+                >
+                  Hapus pencarian
+                </button>
+              </>
+            ) : statusFilter === 'PENDING' ? (
+              <>
+                <div style={{ color: 'var(--text-primary)', marginBottom: '0.35rem' }}>
+                  Tidak ada {activeTab.label} yang menunggu proses.
+                </div>
+                <div>
+                  {activeStat.exported > 0 || activeStat.done > 0
+                    ? <>Anda bisa memeriksa <strong>Exported ({activeStat.exported})</strong> atau <strong>Done ({activeStat.done})</strong>.</>
+                    : <>Belum ada permintaan {activeTab.label} untuk filter ini.</>}
+                </div>
+              </>
+            ) : (
+              <>Tidak ada permintaan {activeTab.label} berstatus {STATUS_TAB_LABELS[statusFilter].label} untuk filter ini.</>
+            )}
           </div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
@@ -826,13 +928,13 @@ function ExportPageContent() {
                     </td>
                     {previewMode
                       ? EXPORT_PREVIEW_COLUMNS.map((c) => {
-                          const pr = previewMap.get(req.id);
-                          return (
-                            <td key={c} style={{ fontSize: '0.78rem', whiteSpace: 'nowrap', color: pr ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
-                              {previewCellText(pr, c)}
-                            </td>
-                          );
-                        })
+                        const pr = previewMap.get(req.id);
+                        return (
+                          <td key={c} style={{ fontSize: '0.78rem', whiteSpace: 'nowrap', color: pr ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
+                            {previewCellText(pr, c)}
+                          </td>
+                        );
+                      })
                       : columns.map((col) => <td key={col.key}>{col.render(req)}</td>)}
                     <td style={{ textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
                       {isAdminActionable(req.status) && (
@@ -893,7 +995,17 @@ function ExportPageContent() {
         )}
       </div>
 
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      <style>{`
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .type-card-grid {
+          display: grid;
+          gap: 0.75rem;
+          grid-template-columns: repeat(2, 1fr);
+          margin-bottom: 1.25rem;
+        }
+        @media (min-width: 720px) { .type-card-grid { grid-template-columns: repeat(3, 1fr); } }
+        @media (min-width: 1000px) { .type-card-grid { grid-template-columns: repeat(5, 1fr); } }
+      `}</style>
     </div>
   );
 }

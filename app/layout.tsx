@@ -20,7 +20,7 @@ const dmSans = DM_Sans({
 });
 
 export const metadata: Metadata = {
-  title: 'PLU Management Portal — PLU Management System',
+  title: 'PLU Management Portal - PLU Management System',
   description: 'PLU request management for PLU Management System restaurant outlets',
 };
 

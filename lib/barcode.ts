@@ -10,7 +10,7 @@ export function isNckCode(code: string): boolean {
   return code.toUpperCase().includes('(NCK)');
 }
 
-// digits-only of the NCK code, suffixed with "11" — e.g. "3151476(NCK)" → "315147611".
+// digits-only of the NCK code, suffixed with "11" - e.g. "3151476(NCK)" → "315147611".
 export function deriveNckBarcode(code: string): string {
   return code.replace(/\D/g, '') + '11';
 }
@@ -21,6 +21,6 @@ export function deriveBarcodeFromSapCode(code: string | null | undefined): strin
   if (!code) return null;
   if (!isNckCode(code)) return null;
   const derived = deriveNckBarcode(code);
-  // "11" alone means the code had no digits — not a real barcode.
+  // "11" alone means the code had no digits - not a real barcode.
   return derived.length > 2 ? derived : null;
 }

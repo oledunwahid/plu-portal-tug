@@ -6,7 +6,7 @@ export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 // Unread count + "mark all as read" are bounded to the most recent SCAN_LIMIT requests,
-// so a fresh admin (no read rows yet) doesn't surface — or have to mark — full history.
+// so a fresh admin (no read rows yet) doesn't surface - or have to mark - full history.
 const SCAN_LIMIT = 500;
 
 export async function GET(req: NextRequest) {
@@ -14,7 +14,7 @@ export async function GET(req: NextRequest) {
     const session = await getSession();
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     // Served to ADMIN (full queue), COST_CONTROL (only PENDING_COST_CONTROL items), and CASHIER
-    // (only their own DONE requests — "ready to sync").
+    // (only their own DONE requests - "ready to sync").
     const role = session.user.role;
     if (role !== 'ADMIN' && role !== 'COST_CONTROL' && role !== 'CASHIER') {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });

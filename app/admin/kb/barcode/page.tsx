@@ -31,10 +31,12 @@ function ItemCard({ item }: { item: MasterItem }) {
           <div style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.375rem' }}>
             {item.price != null ? formatPrice(item.price) : '—'}
           </div>
-          <span style={{ fontSize: '0.65rem', padding: '2px 6px', borderRadius: '3px', fontWeight: 600,
+          <span style={{
+            fontSize: '0.65rem', padding: '2px 6px', borderRadius: '3px', fontWeight: 600,
             background: item.active ? 'rgba(61,90,62,0.1)' : 'rgba(122,46,31,0.08)',
             color: item.active ? '#2D4A2E' : '#7A2E1F',
-            border: `1px solid ${item.active ? 'rgba(61,90,62,0.2)' : 'rgba(122,46,31,0.15)'}` }}>
+            border: `1px solid ${item.active ? 'rgba(61,90,62,0.2)' : 'rgba(122,46,31,0.15)'}`
+          }}>
             {item.active ? 'Active' : 'Inactive'}
           </span>
         </div>
@@ -102,12 +104,12 @@ interface CompareMaster {
 const STATUS_META: Record<StatusKind, { label: string; color: string; bg: string; border: string }> = {
   HIGH: { label: 'HIGH', color: '#2D4A2E', bg: 'rgba(61,90,62,0.06)', border: '#3D5A3E' },
   MEDIUM: { label: 'MEDIUM', color: '#8B6914', bg: 'rgba(201,168,76,0.07)', border: '#C9A84C' },
-  LOW: { label: 'LOW — CONFIRM REQUIRED', color: '#7A2E1F', bg: 'rgba(122,46,31,0.09)', border: '#7A2E1F' },
-  ALREADY_BARCODE: { label: 'SKIP — ALREADY HAS BARCODE', color: 'var(--text-secondary)', bg: 'transparent', border: 'var(--border)' },
-  UNION_SKIP: { label: 'SKIP — UNION NO BARCODE', color: 'var(--text-secondary)', bg: 'transparent', border: 'var(--border)' },
+  LOW: { label: 'LOW - CONFIRM REQUIRED', color: '#7A2E1F', bg: 'rgba(122,46,31,0.09)', border: '#7A2E1F' },
+  ALREADY_BARCODE: { label: 'SKIP - ALREADY HAS BARCODE', color: 'var(--text-secondary)', bg: 'transparent', border: 'var(--border)' },
+  UNION_SKIP: { label: 'SKIP - UNION NO BARCODE', color: 'var(--text-secondary)', bg: 'transparent', border: 'var(--border)' },
   NO_MATCH: { label: 'NO MATCH', color: '#7A2E1F', bg: 'transparent', border: 'var(--border)' },
-  NOT_NCK: { label: 'NO MATCH — NOT NCK', color: '#7A2E1F', bg: 'transparent', border: 'var(--border)' },
-  UNRESOLVABLE: { label: 'NO MATCH — CONFIRMED UNRESOLVABLE', color: 'var(--text-secondary)', bg: 'transparent', border: 'var(--border)' },
+  NOT_NCK: { label: 'NO MATCH - NOT NCK', color: '#7A2E1F', bg: 'transparent', border: 'var(--border)' },
+  UNRESOLVABLE: { label: 'NO MATCH - CONFIRMED UNRESOLVABLE', color: 'var(--text-secondary)', bg: 'transparent', border: 'var(--border)' },
 };
 
 const COMPARE_FIELDS: { label: string; idx: number; master: keyof CompareMaster; bool?: boolean }[] = [
@@ -131,7 +133,7 @@ const COMPARE_FIELDS: { label: string; idx: number; master: keyof CompareMaster;
   { label: 'Outlets', idx: 17, master: 'outlets' },
 ];
 
-// digits-only of the NCK code, suffixed with "11" — e.g. "3151476(NCK)" → "315147611".
+// digits-only of the NCK code, suffixed with "11" - e.g. "3151476(NCK)" → "315147611".
 // Shared with the server-side wine dual-lookup via lib/barcode.ts.
 const deriveBarcode = deriveNckBarcode;
 
@@ -263,7 +265,7 @@ function batchVal(cells: string[], f: (typeof COMPARE_FIELDS)[number], r: AutoFi
 }
 
 // One numbered upload step: badge + bold label + plain-English description, then
-// either the file picker or a green "✓ filename — N rows" confirmation line.
+// either the file picker or a green "✓ filename - N rows" confirmation line.
 function StepSlot({ step, label, description, fileName, count, onPick }: {
   step: number; label: string; description: string; fileName: string; count: number; onPick: (f: File) => void;
 }) {
@@ -286,7 +288,7 @@ function StepSlot({ step, label, description, fileName, count, onPick }: {
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', fontSize: '0.78rem', fontWeight: 600, color: '#2D4A2E' }}>
             <CheckCircle2 size={14} style={{ flexShrink: 0 }} />
             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {fileName} — {count.toLocaleString()} row{count === 1 ? '' : 's'}
+              {fileName} - {count.toLocaleString()} row{count === 1 ? '' : 's'}
             </span>
             <button onClick={() => ref.current?.click()}
               style={{ marginLeft: '0.15rem', flexShrink: 0, background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: '0.72rem', textDecoration: 'underline', cursor: 'pointer' }}>
@@ -477,7 +479,7 @@ function BarcodeAutoFill() {
         Barcode Auto-Fill
       </h2>
       <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
-        Upload the 18-column batch plus the two SAP references. Missing barcodes are derived from matched NCK codes — entirely in your browser.
+        Upload the 18-column batch plus the two SAP references. Missing barcodes are derived from matched NCK codes - entirely in your browser.
       </p>
 
       <div className="card" style={{ padding: '1.25rem 1.375rem', marginBottom: '1.25rem' }}>
@@ -485,7 +487,7 @@ function BarcodeAutoFill() {
           <StepSlot
             step={1}
             label="18-Column Batch (XLSX)"
-            description="The file you exported from this system — same format used for imports. Rows with a blank Barcode column will be auto-filled."
+            description="The file you exported from this system - same format used for imports. Rows with a blank Barcode column will be auto-filled."
             fileName={batchFile} count={batchRows.length} onPick={onBatch}
           />
           <StepSlot
@@ -496,7 +498,7 @@ function BarcodeAutoFill() {
           />
           <StepSlot
             step={3}
-            label="SAP List of Items — Wine"
+            label="SAP List of Items - Wine"
             description="The full List_of_Items wine export from SAP. Used as fallback when CEK has no match."
             fileName={sapFile} count={sapRows.length} onPick={onSap}
           />
@@ -601,7 +603,7 @@ function BarcodeAutoFill() {
         Master Item Comparison
       </h2>
       <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '1rem', lineHeight: 1.5 }}>
-        See what your batch will change before you upload it. Compares every row against the current master registry — side by side, all 18 columns.
+        See what your batch will change before you upload it. Compares every row against the current master registry - side by side, all 18 columns.
         {hasRun && ' Barcode values reflect the post-fill state.'}
       </p>
 
@@ -636,7 +638,7 @@ function BarcodeAutoFill() {
                     <tr key={`new-${i}`} style={{ background: 'rgba(201,168,76,0.08)' }}>
                       <td style={{ fontFamily: 'monospace', fontSize: '0.75rem', fontWeight: 600, color: '#C9A84C' }}>{code || '—'}</td>
                       <td colSpan={4} style={{ fontSize: '0.75rem', fontWeight: 600, color: '#8B6914' }}>
-                        NOT IN MASTER — NEW ITEM
+                        NOT IN MASTER - NEW ITEM
                       </td>
                     </tr>
                   );
@@ -683,7 +685,7 @@ export default function BarcodeLookupPage() {
     fetch('/api/admin/kb/items?page=1')
       .then((r) => r.json())
       .then((d) => setRegistryEmpty((d.total ?? 0) === 0))
-      .catch(() => {});
+      .catch(() => { });
     inputRef.current?.focus();
   }, []);
 

@@ -72,7 +72,7 @@ function filterQuery(f: Filters): string {
 }
 
 export default function ReconcilePage() {
-  // COST_CONTROL has read-only access — the upload control is hidden (session viewing stays).
+  // COST_CONTROL has read-only access - the upload control is hidden (session viewing stays).
   const { data: session } = useSession();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const isAdmin = ((session?.user as any)?.role ?? '') === 'ADMIN';
@@ -179,7 +179,7 @@ export default function ReconcilePage() {
         if (!res.ok) return;
         const data = await res.json();
         if (!cancelled) setNotInFisikCount(Number(data.count ?? 0));
-      } catch { /* card just shows — */ }
+      } catch { /* card just shows - */ }
     })();
     return () => { cancelled = true; };
   }, [activeId]);
@@ -233,50 +233,50 @@ export default function ReconcilePage() {
 
       {/* Upload + session selector */}
       <div className="card" style={{ padding: '1.25rem', marginBottom: '1.25rem' }}>
-        {/* Upload controls — admin only (cost control views sessions read-only). */}
+        {/* Upload controls - admin only (cost control views sessions read-only). */}
         {isAdmin && (<>
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '0.75rem', flexWrap: 'wrap', gap: '0.75rem' }}>
-          <div>
-            <div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--text-primary)' }}>Upload File Fisik Toko</div>
-            <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.2rem', maxWidth: '560px' }}>
-              Sheet pertama = stok fisik (Item Code, Item Name, Price, Qty). Sheet «Master» (opsional) = bridge SAP↔XEVLA↔NCK.
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '0.75rem', flexWrap: 'wrap', gap: '0.75rem' }}>
+            <div>
+              <div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--text-primary)' }}>Upload File Fisik Toko</div>
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.2rem', maxWidth: '560px' }}>
+                Sheet pertama = stok fisik (Item Code, Item Name, Price, Qty). Sheet «Master» (opsional) = bridge SAP↔XEVLA↔NCK.
+              </div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <label className="label-caps" style={{ fontSize: '0.62rem' }}>Department</label>
+              <select value={department} onChange={(e) => setDepartment(e.target.value)} style={SELECT_STYLE}>
+                {DEPARTMENTS.map((d) => <option key={d} value={d}>{d}</option>)}
+              </select>
             </div>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <label className="label-caps" style={{ fontSize: '0.62rem' }}>Department</label>
-            <select value={department} onChange={(e) => setDepartment(e.target.value)} style={SELECT_STYLE}>
-              {DEPARTMENTS.map((d) => <option key={d} value={d}>{d}</option>)}
-            </select>
-          </div>
-        </div>
 
-        <div
-          onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-          onDragLeave={() => setDragOver(false)}
-          onDrop={(e) => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files[0]; if (f) handleFile(f); }}
-          onClick={() => !uploading && fileInputRef.current?.click()}
-          style={{
-            border: `2px dashed ${dragOver ? '#C9A84C' : 'var(--border)'}`,
-            borderRadius: '8px', padding: '1.5rem', textAlign: 'center',
-            cursor: uploading ? 'default' : 'pointer', background: dragOver ? 'rgba(201,168,76,0.04)' : 'transparent',
-            transition: 'all 150ms',
-          }}
-        >
-          {uploading ? (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', color: 'var(--text-secondary)' }}>
-              <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} />
-              <span style={{ fontSize: '0.875rem' }}>Mengunggah & mencocokkan di server…</span>
-            </div>
-          ) : (
-            <>
-              <Upload size={20} style={{ color: 'var(--text-secondary)', margin: '0 auto 0.5rem' }} />
-              <div style={{ fontSize: '0.875rem', color: 'var(--text-primary)', fontWeight: 500 }}>Klik untuk unggah atau seret file ke sini</div>
-              <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>.xlsx atau .csv · ditandai sebagai «{department}»</div>
-            </>
-          )}
-        </div>
-        <input ref={fileInputRef} type="file" accept=".xlsx,.csv" style={{ display: 'none' }}
-          onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
+          <div
+            onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={(e) => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files[0]; if (f) handleFile(f); }}
+            onClick={() => !uploading && fileInputRef.current?.click()}
+            style={{
+              border: `2px dashed ${dragOver ? '#C9A84C' : 'var(--border)'}`,
+              borderRadius: '8px', padding: '1.5rem', textAlign: 'center',
+              cursor: uploading ? 'default' : 'pointer', background: dragOver ? 'rgba(201,168,76,0.04)' : 'transparent',
+              transition: 'all 150ms',
+            }}
+          >
+            {uploading ? (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', color: 'var(--text-secondary)' }}>
+                <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} />
+                <span style={{ fontSize: '0.875rem' }}>Mengunggah & mencocokkan di server…</span>
+              </div>
+            ) : (
+              <>
+                <Upload size={20} style={{ color: 'var(--text-secondary)', margin: '0 auto 0.5rem' }} />
+                <div style={{ fontSize: '0.875rem', color: 'var(--text-primary)', fontWeight: 500 }}>Klik untuk unggah atau seret file ke sini</div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>.xlsx atau .csv · ditandai sebagai «{department}»</div>
+              </>
+            )}
+          </div>
+          <input ref={fileInputRef} type="file" accept=".xlsx,.csv" style={{ display: 'none' }}
+            onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
         </>)}
 
         {/* Session selector */}
@@ -285,7 +285,7 @@ export default function ReconcilePage() {
             <History size={14} style={{ color: 'var(--text-secondary)' }} />
             <label className="label-caps" style={{ fontSize: '0.62rem' }}>Sesi sebelumnya</label>
             <select value={activeId ?? ''} onChange={(e) => { setActiveId(e.target.value || null); setFilters(EMPTY_FILTERS); setTab('cocok'); }} style={{ ...SELECT_STYLE, minWidth: '320px', flex: '0 1 auto' }}>
-              <option value="">— pilih sesi —</option>
+              <option value="">- pilih sesi —</option>
               {sessions.map((s) => (
                 <option key={s.id} value={s.id}>
                   {new Date(s.uploadedAt).toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' })} · {s.label} · [{s.department}] · {s.total} baris
@@ -418,10 +418,12 @@ export default function ReconcilePage() {
                           <td style={{ textAlign: 'right', whiteSpace: 'nowrap', fontWeight: discrepancy ? 700 : 400, color: discrepancy ? '#8B6914' : undefined }}>{r.matchedMasterPrice != null ? formatPrice(r.matchedMasterPrice) : '—'}</td>
                           <td style={{ textAlign: 'right', whiteSpace: 'nowrap', color: discrepancy ? '#8B6914' : 'var(--text-secondary)' }}>{r.priceDiff != null && r.priceDiff !== 0 ? formatPrice(r.priceDiff) : '—'}</td>
                           <td>
-                            <span style={{ fontSize: '0.7rem', fontWeight: 600, padding: '2px 6px', borderRadius: '3px',
+                            <span style={{
+                              fontSize: '0.7rem', fontWeight: 600, padding: '2px 6px', borderRadius: '3px',
                               background: r.priceMatch ? 'rgba(61,90,62,0.1)' : 'rgba(122,46,31,0.08)',
                               color: r.priceMatch ? '#2D4A2E' : '#7A2E1F',
-                              border: `1px solid ${r.priceMatch ? 'rgba(61,90,62,0.2)' : 'rgba(122,46,31,0.15)'}` }}>
+                              border: `1px solid ${r.priceMatch ? 'rgba(61,90,62,0.2)' : 'rgba(122,46,31,0.15)'}`
+                            }}>
                               {r.priceMatch ? 'Yes' : 'No'}
                             </span>
                           </td>
