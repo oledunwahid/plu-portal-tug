@@ -39,8 +39,7 @@ if [ -d "${APP_ROOT}/node_modules/better-sqlite3" ]; then
       npm rebuild better-sqlite3 2>&1 | tail -5
     }
 else
-  echo "  ERROR: better-sqlite3 not in node_modules. Did 'npm install --ignore-scripts' run?"
-  exit 1
+  echo "better-sqlite3 not installed — skipping because runtime uses sql.js"
 fi
 
 # ── 2. Patch the Prisma generated client ──────────────────────────────────────
