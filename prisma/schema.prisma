@@ -21,6 +21,16 @@ model User {
   outlet           String
   active           Boolean           @default(true)
   createdAt        DateTime          @default(now())
+
+  // Wine List module - additive business identity, deliberately NOT a new `role` value so every
+  // existing CASHIER code path keeps working unchanged. accountType = "WINE_PIC" marks the Wine Cork
+  // account (branding + Wine List access); businessUnit is its brand label ("Wine Cork").
+  // winePermissions is an optional explicit grant list ("ALL" or semicolon-separated permission
+  // names) letting an admin open Wine List to a non-WINE_PIC user for maintenance.
+  accountType      String?
+  businessUnit     String?
+  winePermissions  String?
+
   requests         PLURequest[]
   batches          RequestBatch[]
   discountRequests DiscountRequest[]
@@ -220,4 +230,136 @@ model PLURequest {
   adminNote     String?
   exportedAt    DateTime?
   exportBatchId String?
+
+  // Wine List publication stamps. A DONE wine request may become a Wine Master exactly once;
+  // WineMaster.sourceRequestId is the hard uniqueness guarantee, these are the request-side marks
+  // that make the "Publish to Wine List" button disappear.
+  publishedToWineList Boolean   @default(false)
+  publishedAt         DateTime?
+  publishedBy         String?
+}
+
+// ── Wine List module ─────────────────────────────────────────────────────────
+// Source-of-truth split: everything POS-owned (PLU code, barcode, price, folder, outlets, UOM,
+// tax/service flags, active-per-outlet) stays on MasterItem and is read through masterItemId.
+// WineMaster owns only wine attributes. masterItemCode/masterItemName are a search/sort cache.
+
+model WineMaster {
+  id                 String   @id @default(cuid())
+  masterItemId       String
+  masterItemCode     String?
+  masterItemName     String?
+  sourceRequestId    String?  @unique
+  legacyWineCode     String?
+  importBatchId      String?
+
+  wineName           String
+  normalizedName     String   @default("")
+  displayName        String?
+  producerId         String?
+  countryId          String?
+  regionId           String?
+  appellationId      String?
+  classificationId   String?
+  wineTypeId         String?
+  categoryId         String?
+  subCategory1Id     String?
+  subCategory2Id     String?
+  bottleSizeId       String?
+  vintage            Int?
+  isNonVintage       Boolean  @default(false)
+  abv                Float?
+  description        String?
+  tastingNotes       String?
+  foodPairing        String?
+  servingTemperature String?
+  internalNotes      String?
+  costPerBottle      Float?
+  status             String   @default("Active")
+
+  createdAt          DateTime @default(now())
+  createdBy          String?
+  updatedAt          DateTime @updatedAt
+  updatedBy          String?
+
+  varietals          WineVarietal[]
+
+  @@index([normalizedName])
+  @@index([masterItemId])
+  @@index([importBatchId])
+}
+
+model WineVarietal {
+  id           String     @id @default(cuid())
+  wineMasterId String
+  wine         WineMaster @relation(fields: [wineMasterId], references: [id], onDelete: Cascade)
+  varietalId   String
+  percentage   Float?
+
+  @@index([wineMasterId])
+}
+
+// Append-only. Nothing in the UI updates or deletes rows here.
+model WineAuditLog {
+  id           String   @id @default(cuid())
+  wineMasterId String
+  action       String
+  fieldName    String?
+  oldValue     String?
+  newValue     String?
+  performedBy  String?
+  performedAt  DateTime @default(now())
+
+  @@index([wineMasterId])
+}
+
+model WineImportBatch {
+  id            String    @id @default(cuid())
+  fileName      String
+  totalRows     Int       @default(0)
+  createdRows   Int       @default(0)
+  updatedRows   Int       @default(0)
+  duplicateRows Int       @default(0)
+  failedRows    Int       @default(0)
+  skippedRows   Int       @default(0)
+  matchedRows   Int       @default(0)
+  unmatchedRows Int       @default(0)
+  status        String    @default("COMPLETED")
+  uploadedBy    String?
+  uploadedAt    DateTime  @default(now())
+  completedAt   DateTime?
+  rolledBackAt  DateTime?
+  rolledBackBy  String?
+}
+
+model WineImportError {
+  id             String   @id @default(cuid())
+  importBatchId  String
+  rowNumber      Int
+  wineName       String?
+  pluCode        String?
+  barcode        String?
+  error          String
+  recommendation String?
+  createdAt      DateTime @default(now())
+
+  @@index([importBatchId])
+}
+
+// One generic reference table for all wine lists (PRODUCER, COUNTRY, REGION, APPELLATION, VARIETAL,
+// WINE_TYPE, CATEGORY, SUB_CATEGORY, BOTTLE_SIZE, CLASSIFICATION). normalizedName is unique per type,
+// which is what rejects "Bouchard Père & Fils" vs "BOUCHARD PERE & FILS" as the same producer.
+model WineMasterData {
+  id             String   @id @default(cuid())
+  type           String
+  code           String?
+  name           String
+  normalizedName String
+  status         String   @default("Active")
+  createdAt      DateTime @default(now())
+  createdBy      String?
+  updatedAt      DateTime @updatedAt
+  updatedBy      String?
+
+  @@unique([type, normalizedName])
 }

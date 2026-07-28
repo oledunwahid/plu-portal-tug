@@ -14,6 +14,9 @@ interface User {
   outlet: string;
   active: boolean;
   createdAt: string;
+  /** 'WINE_PIC' marks the dedicated Wine Cork account; null for every normal account. */
+  accountType: string | null;
+  businessUnit: string | null;
 }
 
 interface EditForm {
@@ -23,6 +26,7 @@ interface EditForm {
   outlet: string;
   active: boolean;
   password: string;
+  accountType: '' | 'WINE_PIC';
 }
 
 export default function UsersPage() {
@@ -31,7 +35,7 @@ export default function UsersPage() {
   const [outletsByGroup, setOutletsByGroup] = useState<Record<string, string[]>>({});
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [editUser, setEditUser] = useState<User | null>(null);
-  const [editForm, setEditForm] = useState<EditForm>({ name: '', email: '', role: 'CASHIER', outlet: '', active: true, password: '' });
+  const [editForm, setEditForm] = useState<EditForm>({ name: '', email: '', role: 'CASHIER', outlet: '', active: true, password: '', accountType: '' });
   const [editSaving, setEditSaving] = useState(false);
   const [pendingCount, setPendingCount] = useState<number | null>(null);
   const [showPassword, setShowPassword] = useState(false);
@@ -86,7 +90,11 @@ export default function UsersPage() {
 
   function openEdit(user: User) {
     setEditUser(user);
-    setEditForm({ name: user.name, email: user.email, role: user.role, outlet: user.outlet, active: user.active, password: '' });
+    setEditForm({
+      name: user.name, email: user.email, role: user.role, outlet: user.outlet,
+      active: user.active, password: '',
+      accountType: user.accountType === 'WINE_PIC' ? 'WINE_PIC' : '',
+    });
     setShowPassword(false);
     setPendingCount(null);
     fetch(`/api/admin/requests?status=PENDING&userId=${user.id}&countOnly=1`)
@@ -111,6 +119,8 @@ export default function UsersPage() {
         role: editForm.role,
         outlet: editForm.outlet,
         active: editForm.active,
+        // null clears the Wine PIC flag; the API derives businessUnit from it.
+        accountType: editForm.accountType || null,
       };
       if (editForm.password) body.password = editForm.password;
 
@@ -183,6 +193,14 @@ export default function UsersPage() {
                       <span style={{ fontSize: '0.7rem', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: user.role === 'ADMIN' ? '#8B6914' : 'var(--text-secondary)', background: user.role === 'ADMIN' ? 'rgba(184,134,11,0.08)' : 'var(--bg-cream)', border: `1px solid ${user.role === 'ADMIN' ? 'rgba(184,134,11,0.2)' : 'var(--border)'}`, padding: '0.15rem 0.5rem', borderRadius: '9999px' }}>
                         {user.role}
                       </span>
+                      {user.accountType === 'WINE_PIC' && (
+                        <span
+                          title={`Wine PIC${user.businessUnit ? ` · ${user.businessUnit}` : ''}`}
+                          style={{ marginLeft: '0.35rem', fontSize: '0.65rem', fontWeight: 700, letterSpacing: '0.08em', color: '#8B6914', background: 'rgba(201,168,76,0.12)', border: '1px solid rgba(201,168,76,0.3)', padding: '0.1rem 0.4rem', borderRadius: '9999px', whiteSpace: 'nowrap' }}
+                        >
+                          WINE PIC
+                        </span>
+                      )}
                     </td>
                     <td style={{ fontSize: '0.875rem' }}>{user.outlet}</td>
                     <td style={{ minWidth: '150px' }}>
@@ -272,6 +290,23 @@ export default function UsersPage() {
                   <option value="ADMIN">ADMIN</option>
                   <option value="COST_CONTROL">COST_CONTROL</option>
                 </select>
+              </div>
+
+              <div>
+                <label className="label-caps" style={{ display: 'block', marginBottom: '0.3rem' }}>Account Type</label>
+                <select
+                  value={editForm.accountType}
+                  onChange={(e) => setEditForm((f) => ({ ...f, accountType: e.target.value as EditForm['accountType'] }))}
+                  style={{ width: '100%', height: '40px', border: '1px solid var(--input-border)', borderRadius: '4px', background: 'var(--bg-card)', color: 'var(--text-primary)', fontSize: '0.875rem', padding: '0 0.75rem', outline: 'none' }}
+                >
+                  <option value="">Standard</option>
+                  <option value="WINE_PIC">Wine PIC (Wine Cork)</option>
+                </select>
+                <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', margin: '0.35rem 0 0', lineHeight: 1.5 }}>
+                  Wine PIC gains the Wine List menu and Wine Cork branding, and shows
+                  &ldquo;WINE PIC&rdquo; instead of the outlet subtitle. The base role is unchanged, so
+                  existing request flows keep working. Sign-out is required for the change to appear.
+                </p>
               </div>
 
               <div>

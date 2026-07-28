@@ -12,6 +12,8 @@ interface FormState {
   name: string;
   role: 'CASHIER' | 'ADMIN' | 'COST_CONTROL';
   outlet: string;
+  /** '' = a normal account; 'WINE_PIC' = the dedicated Wine Cork account (Wine List access). */
+  accountType: '' | 'WINE_PIC';
 }
 
 function FieldGroup({ label, children, error }: { label: string; children: React.ReactNode; error?: string }) {
@@ -26,7 +28,7 @@ function FieldGroup({ label, children, error }: { label: string; children: React
 
 export default function NewUserPage() {
   const router = useRouter();
-  const [form, setForm] = useState<FormState>({ email: '', password: '', name: '', role: 'CASHIER', outlet: '' });
+  const [form, setForm] = useState<FormState>({ email: '', password: '', name: '', role: 'CASHIER', outlet: '', accountType: '' });
   const [errors, setErrors] = useState<Partial<Record<keyof FormState, string>>>({});
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -66,7 +68,8 @@ export default function NewUserPage() {
       const res = await fetch('/api/admin/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form),
+        // accountType goes as null (not '') when unset - the API schema only accepts 'WINE_PIC' or null.
+        body: JSON.stringify({ ...form, accountType: form.accountType || null }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? 'Failed to create user');
@@ -160,6 +163,21 @@ export default function NewUserPage() {
                 </select>
               </FieldGroup>
             </div>
+
+            <FieldGroup label="Account Type">
+              <select
+                value={form.accountType}
+                onChange={(e) => set('accountType', e.target.value as FormState['accountType'])}
+                style={{ height: '40px', border: '1px solid var(--input-border)', borderRadius: '4px', background: 'var(--bg-card)', fontSize: '0.875rem', padding: '0 0.75rem', outline: 'none', color: 'var(--text-primary)', cursor: 'pointer' }}
+              >
+                <option value="">Standard</option>
+                <option value="WINE_PIC">Wine PIC (Wine Cork)</option>
+              </select>
+              <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', margin: 0 }}>
+                Wine PIC keeps its base role for existing request flows, but gains the Wine List menu,
+                Wine Cork branding, and a &ldquo;WINE PIC&rdquo; subtitle instead of the outlet label.
+              </p>
+            </FieldGroup>
           </div>
         </div>
 

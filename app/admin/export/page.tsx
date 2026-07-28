@@ -40,7 +40,7 @@ interface PLURequest {
   // Enriched from the master item registry for UPDATE_PRICE / UPDATE_NAME (empty string if not found).
   masterName?: string;
   masterCategory?: string;
-  // Audit trail — who last changed the record and when.
+  // Audit trail - who last changed the record and when.
   updatedBy?: string | null;
   updatedAt?: string | null;
   // Export tracking.
@@ -94,7 +94,7 @@ const DATE_STYLE = {
 };
 
 // Admin "Mark Done" only applies to requests in an admin-actionable status. DONE is already final;
-// PENDING_COST_CONTROL is still with cost control and REJECTED was killed there — both read-only here.
+// PENDING_COST_CONTROL is still with cost control and REJECTED was killed there - both read-only here.
 const isAdminActionable = (status: string): boolean =>
   status !== 'DONE' && status !== 'PENDING_COST_CONTROL' && status !== 'REJECTED';
 
@@ -118,7 +118,7 @@ function AuditLine({ by, at }: { by?: string | null; at?: string | null }) {
   );
 }
 
-// Shared status cell — badge plus the audit line underneath (only renders when updatedBy is set).
+// Shared status cell - badge plus the audit line underneath (only renders when updatedBy is set).
 const STATUS_COL: ColumnDef = {
   key: 'status',
   label: 'Status',
@@ -202,7 +202,7 @@ const FALLBACK_GROUPS = ['UNION', 'CNS', 'FRENCH', 'IBR', 'IND'];
 
 const VALID_TYPES: RequestType[] = ['NEW_ITEM', 'UPDATE_PRICE', 'UPDATE_NAME', 'UPDATE_PRINTER', 'REMOVE_PLU'];
 
-// The four lifecycle views of the list, in processing order. PENDING first — that's the work.
+// The four lifecycle views of the list, in processing order. PENDING first - that's the work.
 const VALID_STATUSES = ['PENDING', 'EXPORTED', 'DONE', 'ALL'];
 
 const STATUS_TAB_LABELS: Record<string, { label: string; hint: string }> = {
@@ -301,7 +301,7 @@ function ExportPageContent() {
       setStats(await res.json());
       setStatsError(false);
     } catch {
-      // Never fall back to zeros — "0 pending" must mean the queue is empty, not that a fetch failed.
+      // Never fall back to zeros - "0 pending" must mean the queue is empty, not that a fetch failed.
       setStats(null);
       setStatsError(true);
     }
@@ -363,7 +363,7 @@ function ExportPageContent() {
 
   // Fetch the export-preview rows for the currently loaded set. Reuses the export route's preview
   // mode (preview=1) so the displayed 19 columns are computed by the exact same requestToTemplateRow
-  // sourcing the file uses — no logic duplicated client-side. Only runs while the toggle is on.
+  // sourcing the file uses - no logic duplicated client-side. Only runs while the toggle is on.
   const fetchPreview = useCallback(async () => {
     if (requests.length === 0) { setPreviewMap(new Map()); return; }
     setPreviewLoading(true);
@@ -428,7 +428,7 @@ function ExportPageContent() {
   }, [searchParams]);
 
   // Switching section keeps the status the admin is currently working in (e.g. reviewing Done
-  // items across types) — the page still *opens* on Pending.
+  // items across types) - the page still *opens* on Pending.
   function switchTab(type: RequestType) {
     setActiveType(type);
   }
@@ -464,7 +464,7 @@ function ExportPageContent() {
     try {
       const res = await fetch(url, { method: 'POST' });
       if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error ?? 'Gagal'); }
-      // Marking a batch item done completes the whole batch — reflect that across its rows.
+      // Marking a batch item done completes the whole batch - reflect that across its rows.
       applyDoneLocally((r) => isBatch ? r.id.startsWith(`${batchId}:`) : r.id === req.id);
       fetchStats(); // keep the card counts in step with the row that just moved to Done
       toast.success('Permintaan ditandai selesai.');
@@ -542,7 +542,7 @@ function ExportPageContent() {
       const filename = match?.[1] ?? `export.${format.toLowerCase()}`;
 
       // Some rows may export with blank master-sourced columns because their PLU code has no master
-      // item match. The server flags those via X-Export-Warnings — surface it before the save so
+      // item match. The server flags those via X-Export-Warnings - surface it before the save so
       // the admin knows the file is incomplete (the download still proceeds).
       const warnRaw = res.headers.get('X-Export-Warnings');
       if (warnRaw) {
@@ -553,11 +553,11 @@ function ExportPageContent() {
               .map((x) => x.code || '(tanpa kode)')
               .join(', ');
             toast.warning(
-              `${warn.count} baris tanpa data master — kolom dari master dikosongkan: ${codes}`,
+              `${warn.count} baris tanpa data master - kolom dari master dikosongkan: ${codes}`,
               { duration: 12000 },
             );
           }
-        } catch { /* malformed header — ignore, file still downloads */ }
+        } catch { /* malformed header - ignore, file still downloads */ }
       }
 
       const url = URL.createObjectURL(blob);
@@ -576,7 +576,7 @@ function ExportPageContent() {
         toast.success(`${format} downloaded: ${toDownload.length} item${plural}.`);
       }
 
-      // Auto-advance downloaded PENDING items to EXPORTED. The file is already saved — never block
+      // Auto-advance downloaded PENDING items to EXPORTED. The file is already saved - never block
       // or reverse the download if this fails; just warn the admin to refresh.
       try {
         const markRes = await fetch('/api/admin/export/mark-exported', {
@@ -620,7 +620,7 @@ function ExportPageContent() {
         Export requests by type for processing or Quinos POS import.
       </p>
 
-      {/* Source toggle — every stat and list on this page is scoped to the selected source. */}
+      {/* Source toggle - every stat and list on this page is scoped to the selected source. */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
         <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontWeight: 500 }}>Request Source:</span>
         {(['SINGLE', 'BATCH'] as const).map((s) => (
@@ -654,7 +654,7 @@ function ExportPageContent() {
 
       {/* Global filter bar */}
       <div className="card" style={{ padding: '0.75rem 1.25rem', marginBottom: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.625rem', flexWrap: 'wrap' }}>
-        {/* Admin search — combines with source, type, status, group and date range. */}
+        {/* Admin search - combines with source, type, status, group and date range. */}
         <div style={{ position: 'relative', flex: '1 1 260px', minWidth: '220px' }}>
           <Search size={13} style={{ position: 'absolute', left: '0.55rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)', pointerEvents: 'none' }} />
           <input
@@ -702,7 +702,7 @@ function ExportPageContent() {
         </div>
       )}
 
-      {/* Type cards — identical mini-stats on every card: Pending / Exported / Done / Total. */}
+      {/* Type cards - identical mini-stats on every card: Pending / Exported / Done / Total. */}
       <div className="type-card-grid">
         {TABS.map((tab) => {
           const isActive = activeType === tab.type;
@@ -786,8 +786,8 @@ function ExportPageContent() {
             {VALID_STATUSES.map((s) => {
               const count = s === 'PENDING' ? activeStat.pending
                 : s === 'EXPORTED' ? activeStat.exported
-                : s === 'DONE' ? activeStat.done
-                : activeStat.total;
+                  : s === 'DONE' ? activeStat.done
+                    : activeStat.total;
               return (
                 <button
                   key={s}

@@ -7,12 +7,19 @@ declare module 'next-auth' {
       role: string;
       outlet: string;
       outletGroup: string;
+      // Wine List module - additive business identity, see lib/winePermissions.ts.
+      accountType: string | null;
+      businessUnit: string | null;
+      winePermissions: string | null;
     };
   }
   interface User {
     role: string;
     outlet: string;
     outletGroup: string;
+    accountType: string | null;
+    businessUnit: string | null;
+    winePermissions: string | null;
   }
 }
 
@@ -22,5 +29,8 @@ declare module 'next-auth/jwt' {
     role: string;
     outlet: string;
     outletGroup: string;
+    accountType: string | null;
+    businessUnit: string | null;
+    winePermissions: string | null;
   }
 }

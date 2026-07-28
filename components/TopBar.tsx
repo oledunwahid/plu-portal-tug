@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
 import { Clock } from 'lucide-react';
 import { NotificationBell } from '@/components/NotificationBell';
+import { getAccountIdentity } from '@/lib/wineBranding';
 
 export function TopBar() {
   const { data: session } = useSession();
@@ -16,6 +17,8 @@ export function TopBar() {
   }, []);
 
   const user = session?.user as any;
+  // Wine Cork shows its own mark + "WINE PIC"; every other account keeps "[ROLE] · [OUTLET]".
+  const identity = getAccountIdentity(user);
 
   const timeStr = now
     ? now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
@@ -62,29 +65,48 @@ export function TopBar() {
           {user.role === 'CASHIER' && <NotificationBell variant="cashier" />}
           <div style={{ textAlign: 'right' }}>
             <div style={{ fontSize: '0.8rem', fontWeight: 500, color: 'var(--text-primary)', lineHeight: 1.3 }}>
-              {user.name}
+              {identity.name}
             </div>
-            <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', lineHeight: 1.2 }}>
-              {user.role === 'ADMIN' ? 'ADMIN · HEAD OFFICE' : `${user.role}${user.outlet ? ` · ${user.outlet}` : ''}`}
+            {identity.subtitle && (
+              <div
+                style={{
+                  fontSize: '0.7rem',
+                  color: identity.isWinePic ? '#8B6914' : 'var(--text-secondary)',
+                  lineHeight: 1.2,
+                  fontWeight: identity.isWinePic ? 600 : undefined,
+                  letterSpacing: identity.isWinePic ? '0.06em' : undefined,
+                }}
+              >
+                {identity.subtitle}
+              </div>
+            )}
+          </div>
+          {identity.logoSrc ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={identity.logoSrc}
+              alt={identity.logoAlt ?? ''}
+              style={{ height: '30px', width: 'auto', flexShrink: 0 }}
+            />
+          ) : (
+            <div
+              style={{
+                width: '30px',
+                height: '30px',
+                borderRadius: '50%',
+                background: 'var(--bg-dark)',
+                color: 'var(--accent-gold)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: '0.75rem',
+                fontWeight: 700,
+                flexShrink: 0,
+              }}
+            >
+              {(identity.name as string)?.charAt(0).toUpperCase() ?? 'U'}
             </div>
-          </div>
-          <div
-            style={{
-              width: '30px',
-              height: '30px',
-              borderRadius: '50%',
-              background: 'var(--bg-dark)',
-              color: 'var(--accent-gold)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: '0.75rem',
-              fontWeight: 700,
-              flexShrink: 0,
-            }}
-          >
-            {(user.name as string)?.charAt(0).toUpperCase() ?? 'U'}
-          </div>
+          )}
         </div>
       )}
     </div>

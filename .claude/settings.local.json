@@ -82,7 +82,16 @@
       "Bash(grep -vE \"^\\\\+\\\\s*\\(//|\\\\*|/\\\\*\\)\")",
       "Bash(echo \"EXIT:$?\")",
       "PowerShell(Get-NetTCPConnection *)",
-      "Bash(git --no-pager diff --stat -- lib/db.ts app/admin/dashboard/page.tsx app/admin/export/page.tsx components/NotificationBell.tsx app/api/admin/requests/route.ts app/api/admin/batches/route.ts app/api/admin/stats/by-type/route.ts)"
+      "Bash(git --no-pager diff --stat -- lib/db.ts app/admin/dashboard/page.tsx app/admin/export/page.tsx components/NotificationBell.tsx app/api/admin/requests/route.ts app/api/admin/batches/route.ts app/api/admin/stats/by-type/route.ts)",
+      "Bash(python -)",
+      "Bash(grep -n \"replace\\(/\\\\[\" lib/wine.ts)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:3001/login)",
+      "Bash(netstat -ano)",
+      "Bash(curl -s -o /dev/null -w \"login:%{http_code}\\\\n\" http://localhost:3017/login)",
+      "Bash(curl -s -o /dev/null -w \"wine-noauth:%{http_code}\\\\n\" http://localhost:3017/wine/list)",
+      "Bash(curl -s -o /dev/null -w \"api-noauth:%{http_code}\\\\n\" http://localhost:3017/api/wines)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://127.0.0.1:3017/login)",
+      "Bash(curl -s http://localhost:3017/login)"
     ]
   }
 }

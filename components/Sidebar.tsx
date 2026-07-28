@@ -7,10 +7,13 @@ import {
   LayoutDashboard, Download, Users, Plus, Layers, Menu, X,
   BookOpen, Database, ScanBarcode, BookMarked, ChevronDown, ChevronRight, Tag, Settings, Search, Trash2,
   AlertTriangle, ArrowLeftRight, FileSpreadsheet, BadgeDollarSign, ClipboardCheck,
+  Wine, Send,
 } from 'lucide-react';
 import { useSession } from 'next-auth/react';
 import { SignOutButton } from '@/components/SignOutButton';
 import { LogoBrand } from '@/components/LogoBrand';
+import { getAccountIdentity } from '@/lib/wineBranding';
+import { canAccessWineList } from '@/lib/winePermissions';
 
 interface NavItem {
   label: string;
@@ -18,6 +21,13 @@ interface NavItem {
   icon: React.ReactNode;
   roles: ('ADMIN' | 'CASHIER' | 'COST_CONTROL')[];
 }
+
+// Shown only to accounts that hold WINE_LIST_VIEW (the Wine Cork account, or a user explicitly
+// granted Wine List permission). Other cashiers never see these entries.
+const WINE_ITEMS = [
+  { label: 'Wine List', href: '/wine/list', icon: <Wine size={15} /> },
+  { label: 'Pending Publication', href: '/wine/pending-publication', icon: <Send size={15} /> },
+];
 
 const NAV_ITEMS: NavItem[] = [
   { label: 'Dashboard', href: '/cashier/dashboard', icon: <LayoutDashboard size={15} />, roles: ['CASHIER'] },
@@ -59,6 +69,8 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
   const sessionUser = session?.user as any;
   const role = (sessionUser?.role ?? 'CASHIER') as 'ADMIN' | 'CASHIER' | 'COST_CONTROL';
   const items = NAV_ITEMS.filter((i) => i.roles.includes(role));
+  const identity = getAccountIdentity(sessionUser);
+  const showWineMenu = canAccessWineList(sessionUser);
 
   const isOnKB = pathname.startsWith('/admin/kb');
   const [kbOpen, setKbOpen] = useState(isOnKB);
@@ -66,7 +78,7 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <div style={{ padding: '16px 16px 12px', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
-        <LogoBrand variant="white" />
+        <LogoBrand variant="white" brandLogoSrc={identity.logoSrc} brandLogoAlt={identity.logoAlt ?? ''} />
       </div>
 
       <nav style={{ flex: 1, padding: '10px 8px', overflowY: 'auto' }}>
@@ -76,6 +88,27 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
             {item.label}
           </Link>
         ))}
+
+        {showWineMenu && (
+          <>
+            <div style={{ padding: '10px 10px 4px', marginTop: '6px' }}>
+              <span style={{ fontSize: '0.6rem', letterSpacing: '0.1em', color: 'rgba(255,255,255,0.2)', fontWeight: 700, textTransform: 'uppercase' }}>
+                Wine List
+              </span>
+            </div>
+            {WINE_ITEMS.map((item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                onClick={onClose}
+                style={LINK_STYLE(pathname === item.href || pathname.startsWith(`${item.href}/`))}
+              >
+                {item.icon}
+                {item.label}
+              </Link>
+            ))}
+          </>
+        )}
 
         {(role === 'ADMIN' || role === 'COST_CONTROL') && (
           <>
@@ -128,16 +161,19 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
           </div>
           <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: '0.75rem', color: '#fff', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {sessionUser?.name}
+              {identity.name}
             </div>
-            {role === 'ADMIN' && (
-              <div style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.35)' }}>
-                ADMIN · HEAD OFFICE
-              </div>
-            )}
-            {role === 'COST_CONTROL' && (
-              <div style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.35)' }}>
-                COST CONTROL
+            {/* Wine PIC reads "WINE PIC" with no outlet; cashiers keep "CASHIER · OUTLET". */}
+            {identity.subtitle && (
+              <div
+                style={{
+                  fontSize: '0.65rem',
+                  color: identity.isWinePic ? 'rgba(201,168,76,0.75)' : 'rgba(255,255,255,0.35)',
+                  letterSpacing: identity.isWinePic ? '0.08em' : undefined,
+                  fontWeight: identity.isWinePic ? 600 : undefined,
+                }}
+              >
+                {identity.subtitle}
               </div>
             )}
           </div>

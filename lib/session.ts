@@ -8,6 +8,10 @@ export interface AppUser {
   role: string;
   outlet: string;
   outletGroup: string;
+  /** Wine List module - 'WINE_PIC' for the Wine Cork account, null for everyone else. */
+  accountType: string | null;
+  businessUnit: string | null;
+  winePermissions: string | null;
 }
 
 export interface AppSession {

@@ -62,12 +62,22 @@ export const updateRequestSchema = z.object({
   adminNote: z.string().optional().nullable(),
 });
 
+// Wine List identity, additive to role. accountType 'WINE_PIC' marks the Wine Cork account;
+// winePermissions ('ALL' or a semicolon-separated list) is the explicit-grant escape hatch for a
+// non-WINE_PIC user who needs Wine List access. Both nullable - existing users keep null.
+const accountTypeField = z.enum(['WINE_PIC']).nullable().optional();
+const businessUnitField = z.string().trim().max(120).nullable().optional();
+const winePermissionsField = z.string().trim().max(500).nullable().optional();
+
 export const createUserSchema = z.object({
   email: z.string().email('Valid email required'),
   password: z.string().min(8, 'Password must be at least 8 characters'),
   name: z.string().min(1, 'Name is required'),
   role: z.enum(['CASHIER', 'ADMIN', 'COST_CONTROL']),
   outlet: z.string().min(1, 'Outlet is required'),
+  accountType: accountTypeField,
+  businessUnit: businessUnitField,
+  winePermissions: winePermissionsField,
 });
 
 export const updateUserSchema = z.object({
@@ -77,6 +87,9 @@ export const updateUserSchema = z.object({
   role: z.enum(['CASHIER', 'ADMIN', 'COST_CONTROL']).optional(),
   outlet: z.string().optional(),
   active: z.boolean().optional(),
+  accountType: accountTypeField,
+  businessUnit: businessUnitField,
+  winePermissions: winePermissionsField,
 });
 
 // Cost Control review actions on a PENDING_COST_CONTROL NEW_ITEM request.
@@ -88,4 +101,89 @@ export const costControlConfirmSchema = z.object({
 
 export const costControlRejectSchema = z.object({
   reason: z.string().trim().min(1, 'Rejection reason is required'),
+});
+
+// ── Wine List module ─────────────────────────────────────────────────────────
+// Field-level wine rules (required fields, vintage) live in validateWineFields() in lib/wine.ts so
+// the same rule text is used by the API, the import pipeline and the form. These schemas only shape
+// and coerce the payload; the routes run validateWineFields afterwards.
+
+const wineRefId = z.string().trim().max(64).nullable().optional();
+const wineText = z.string().trim().max(4000).nullable().optional();
+
+export const wineVarietalSchema = z.object({
+  varietalId: z.string().trim().min(1),
+  percentage: z.number().min(0).max(100).nullable().optional(),
+});
+
+export const wineFieldsSchema = z.object({
+  wineName: z.string().trim().max(300),
+  displayName: z.string().trim().max(300).nullable().optional(),
+  producerId: wineRefId,
+  countryId: wineRefId,
+  regionId: wineRefId,
+  appellationId: wineRefId,
+  classificationId: wineRefId,
+  wineTypeId: wineRefId,
+  categoryId: wineRefId,
+  subCategory1Id: wineRefId,
+  subCategory2Id: wineRefId,
+  bottleSizeId: wineRefId,
+  vintage: z.number().int().nullable().optional(),
+  isNonVintage: z.boolean().default(false),
+  abv: z.number().nullable().optional(),
+  description: wineText,
+  tastingNotes: wineText,
+  foodPairing: wineText,
+  servingTemperature: z.string().trim().max(120).nullable().optional(),
+  internalNotes: wineText,
+  costPerBottle: z.number().nullable().optional(),
+  status: z.enum(['Active', 'Inactive']).default('Active'),
+  varietals: z.array(wineVarietalSchema).max(20).default([]),
+  legacyWineCode: z.string().trim().max(64).nullable().optional(),
+  // Set by the client after the user confirms a POTENTIAL duplicate warning. Exact duplicates are
+  // never overridable, whatever this says.
+  acknowledgeDuplicate: z.boolean().default(false),
+});
+
+export const createWineSchema = wineFieldsSchema.extend({
+  masterItemId: z.string().trim().min(1, 'Master Item wajib dipilih'),
+});
+
+// masterItemId is intentionally absent: the Master Item link is chosen once at creation. Re-pointing
+// a wine at a different PLU would silently rewrite its price/barcode/outlet identity.
+export const updateWineSchema = wineFieldsSchema.partial().extend({
+  // Optimistic-lock token: the updatedAt the client loaded. A mismatch means a concurrent edit.
+  expectedUpdatedAt: z.string().trim().optional(),
+});
+
+export const wineStatusSchema = z.object({
+  status: z.enum(['Active', 'Inactive']),
+  reason: z.string().trim().max(500).optional(),
+});
+
+export const publishWineRequestSchema = wineFieldsSchema.extend({
+  masterItemId: z.string().trim().min(1, 'Master Item wajib dipilih'),
+});
+
+export const wineDuplicateCheckSchema = z.object({
+  masterItemId: z.string().trim().nullable().optional(),
+  sourceRequestId: z.string().trim().nullable().optional(),
+  wineName: z.string().trim().nullable().optional(),
+  producerId: z.string().trim().nullable().optional(),
+  bottleSizeId: z.string().trim().nullable().optional(),
+  vintage: z.number().int().nullable().optional(),
+  isNonVintage: z.boolean().optional(),
+  excludeWineId: z.string().trim().nullable().optional(),
+});
+
+export const wineMasterDataCreateSchema = z.object({
+  name: z.string().trim().min(1, 'Nama wajib diisi').max(200),
+  code: z.string().trim().max(64).nullable().optional(),
+});
+
+export const wineMasterDataUpdateSchema = z.object({
+  name: z.string().trim().min(1).max(200).optional(),
+  code: z.string().trim().max(64).nullable().optional(),
+  status: z.enum(['Active', 'Inactive']).optional(),
 });

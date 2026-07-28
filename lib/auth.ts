@@ -1,6 +1,6 @@
 import CredentialsProvider from 'next-auth/providers/credentials';
 import bcrypt from 'bcryptjs';
-import { getUserByEmail } from './db';
+import { getUserByEmail, getUserById } from './db';
 import { getOutletGroup } from './outlets';
 
 export const authOptions = {
@@ -33,6 +33,9 @@ export const authOptions = {
           role: user.role,
           outlet: user.outlet,
           outletGroup: getOutletGroup(user.outlet),
+          accountType: user.accountType,
+          businessUnit: user.businessUnit,
+          winePermissions: user.winePermissions,
         } as any;
       },
     }),
@@ -44,6 +47,17 @@ export const authOptions = {
         token.role = user.role;
         token.outlet = user.outlet;
         token.outletGroup = user.outletGroup;
+        token.accountType = user.accountType ?? null;
+        token.businessUnit = user.businessUnit ?? null;
+        token.winePermissions = user.winePermissions ?? null;
+      } else if (token?.id && token.accountType === undefined) {
+        // Sessions minted before the Wine List module existed carry no accountType. Backfill once
+        // (the claim is then persisted in the cookie, and `null` is a value so we never re-query),
+        // otherwise a Wine PIC with a live 30-day session would have to sign out to get access.
+        const existing = await getUserById(token.id);
+        token.accountType = existing?.accountType ?? null;
+        token.businessUnit = existing?.businessUnit ?? null;
+        token.winePermissions = existing?.winePermissions ?? null;
       }
       return token;
     },
@@ -53,6 +67,9 @@ export const authOptions = {
         session.user.role = token.role;
         session.user.outlet = token.outlet;
         session.user.outletGroup = token.outletGroup;
+        session.user.accountType = token.accountType ?? null;
+        session.user.businessUnit = token.businessUnit ?? null;
+        session.user.winePermissions = token.winePermissions ?? null;
       }
       return session;
     },

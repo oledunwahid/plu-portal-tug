@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/session';
 import { getAllUsers, getUserByEmail, createUser } from '@/lib/db';
 import { createUserSchema } from '@/lib/validations';
+import { WINE_PIC_ACCOUNT_TYPE, WINE_PIC_BUSINESS_UNIT } from '@/lib/winePermissions';
 import bcrypt from 'bcryptjs';
 
 export const dynamic = 'force-dynamic';
@@ -43,6 +44,13 @@ export async function POST(request: NextRequest) {
       name: parsed.data.name,
       role: parsed.data.role,
       outlet: parsed.data.outlet,
+      accountType: parsed.data.accountType ?? null,
+      // A Wine PIC always belongs to the Wine Cork business unit - the label drives the branding, so
+      // it is derived rather than left to whoever fills the form.
+      businessUnit: parsed.data.accountType === WINE_PIC_ACCOUNT_TYPE
+        ? parsed.data.businessUnit ?? WINE_PIC_BUSINESS_UNIT
+        : parsed.data.businessUnit ?? null,
+      winePermissions: parsed.data.winePermissions ?? null,
     });
 
     return NextResponse.json(user, { status: 201 });

@@ -14,6 +14,9 @@ export interface DbUser {
   outlet: string;
   active: boolean;
   createdAt: string;
+  accountType: string | null;
+  businessUnit: string | null;
+  winePermissions: string | null;
 }
 
 export interface DbUserPublic {
@@ -24,6 +27,9 @@ export interface DbUserPublic {
   outlet: string;
   active: boolean;
   createdAt: string;
+  accountType: string | null;
+  businessUnit: string | null;
+  winePermissions: string | null;
 }
 
 export interface DbPLURequest {
@@ -63,6 +69,10 @@ export interface DbPLURequest {
   adminNote: string | null;
   exportedAt: string | null;
   exportBatchId: string | null;
+  /** Wine List publication stamps - set once when a DONE wine request becomes a Wine Master. */
+  publishedToWineList: boolean;
+  publishedAt: string | null;
+  publishedBy: string | null;
 }
 
 export interface DbPLURequestWithUser extends DbPLURequest {
@@ -217,6 +227,19 @@ async function initDb(): Promise<any> {
   try { db.run('ALTER TABLE "RequestBatch" ADD COLUMN "exportCount" INTEGER NOT NULL DEFAULT 0'); } catch { /* already exists */ }
   try { db.run('ALTER TABLE "RequestBatch" ADD COLUMN "lastExportedAt" TEXT'); } catch { /* already exists */ }
   try { db.run('ALTER TABLE "RequestBatch" ADD COLUMN "lastExportedBy" TEXT'); } catch { /* already exists */ }
+  // ── Wine List module: account identity ──────────────────────────────────────
+  // `role` stays untouched (a Wine PIC is still CASHIER-like for every existing request flow);
+  // accountType is the additive business-identity flag ('WINE_PIC' for the Wine Cork account) and
+  // businessUnit its brand label ('Wine Cork'), used for branding + Wine List access. winePermissions
+  // holds an optional explicit grant list (semicolon-separated, or 'ALL') so a non-WINE_PIC user can
+  // be given Wine List access for maintenance without changing their role.
+  try { db.run('ALTER TABLE "User" ADD COLUMN "accountType" TEXT'); } catch { /* already exists */ }
+  try { db.run('ALTER TABLE "User" ADD COLUMN "businessUnit" TEXT'); } catch { /* already exists */ }
+  try { db.run('ALTER TABLE "User" ADD COLUMN "winePermissions" TEXT'); } catch { /* already exists */ }
+  // Publication stamps - a DONE wine request may be published to the Wine List exactly once.
+  try { db.run('ALTER TABLE "PLURequest" ADD COLUMN "publishedToWineList" INTEGER NOT NULL DEFAULT 0'); } catch { /* already exists */ }
+  try { db.run('ALTER TABLE "PLURequest" ADD COLUMN "publishedAt" TEXT'); } catch { /* already exists */ }
+  try { db.run('ALTER TABLE "PLURequest" ADD COLUMN "publishedBy" TEXT'); } catch { /* already exists */ }
   // KB tables
   db.run(`CREATE TABLE IF NOT EXISTS "MasterItem" (
     id TEXT PRIMARY KEY, active INTEGER NOT NULL DEFAULT 1, code TEXT NOT NULL UNIQUE,
@@ -324,6 +347,92 @@ async function initDb(): Promise<any> {
     itemName TEXT NOT NULL DEFAULT '', sessionId TEXT
   )`);
   db.run(`CREATE INDEX IF NOT EXISTS "idx_sapxevla_xevla" ON "SapXevlaBridge" (xevlaCode)`);
+  // ── Wine List module (wine catalog layered over MasterItem) ────────────────
+  // SOURCE OF TRUTH: PLU code, barcode, price, folder, outlets, tax/service flags and active-per-
+  // outlet all live on MasterItem and are NEVER copied here as editable data. WineMaster stores only
+  // wine-specific attributes + the masterItemId link. masterItemCode/masterItemName are a denormalised
+  // cache for list search/sort only (the detail view always re-reads the master row).
+  db.run(`CREATE TABLE IF NOT EXISTS "WineMaster" (
+    id TEXT PRIMARY KEY,
+    masterItemId TEXT NOT NULL,
+    masterItemCode TEXT,
+    masterItemName TEXT,
+    sourceRequestId TEXT,
+    legacyWineCode TEXT,
+    importBatchId TEXT,
+    wineName TEXT NOT NULL,
+    normalizedName TEXT NOT NULL DEFAULT '',
+    displayName TEXT,
+    producerId TEXT,
+    countryId TEXT,
+    regionId TEXT,
+    appellationId TEXT,
+    classificationId TEXT,
+    wineTypeId TEXT,
+    categoryId TEXT,
+    subCategory1Id TEXT,
+    subCategory2Id TEXT,
+    bottleSizeId TEXT,
+    vintage INTEGER,
+    isNonVintage INTEGER NOT NULL DEFAULT 0,
+    abv REAL,
+    description TEXT,
+    tastingNotes TEXT,
+    foodPairing TEXT,
+    servingTemperature TEXT,
+    internalNotes TEXT,
+    costPerBottle REAL,
+    status TEXT NOT NULL DEFAULT 'Active',
+    createdAt TEXT NOT NULL,
+    createdBy TEXT,
+    updatedAt TEXT NOT NULL,
+    updatedBy TEXT
+  )`);
+  // Rule 2 (one active Master Item ↔ one active Wine Master) is enforced in application code, not by
+  // a unique index: an inactive Wine Master keeps its masterItemId so history survives, which a plain
+  // UNIQUE(masterItemId) would forbid. A partial index gives the DB-level guarantee for ACTIVE rows only.
+  db.run(`CREATE UNIQUE INDEX IF NOT EXISTS "idx_winemaster_master_active" ON "WineMaster" (masterItemId) WHERE status = 'Active'`);
+  // Rule 20 / anti-duplicate: a source request can back at most one Wine Master, ever.
+  db.run(`CREATE UNIQUE INDEX IF NOT EXISTS "idx_winemaster_request" ON "WineMaster" (sourceRequestId) WHERE sourceRequestId IS NOT NULL`);
+  db.run(`CREATE INDEX IF NOT EXISTS "idx_winemaster_norm" ON "WineMaster" (normalizedName)`);
+  db.run(`CREATE INDEX IF NOT EXISTS "idx_winemaster_batch" ON "WineMaster" (importBatchId)`);
+  // One wine can be a blend - percentage is optional (nullable) since legacy data rarely carries it.
+  db.run(`CREATE TABLE IF NOT EXISTS "WineVarietal" (
+    id TEXT PRIMARY KEY, wineMasterId TEXT NOT NULL, varietalId TEXT NOT NULL, percentage REAL
+  )`);
+  db.run(`CREATE INDEX IF NOT EXISTS "idx_winevarietal_wine" ON "WineVarietal" (wineMasterId)`);
+  // Append-only. No UI path ever updates or deletes a row here.
+  db.run(`CREATE TABLE IF NOT EXISTS "WineAuditLog" (
+    id TEXT PRIMARY KEY, wineMasterId TEXT NOT NULL, action TEXT NOT NULL,
+    fieldName TEXT, oldValue TEXT, newValue TEXT,
+    performedBy TEXT, performedAt TEXT NOT NULL
+  )`);
+  db.run(`CREATE INDEX IF NOT EXISTS "idx_wineaudit_wine" ON "WineAuditLog" (wineMasterId)`);
+  db.run(`CREATE TABLE IF NOT EXISTS "WineImportBatch" (
+    id TEXT PRIMARY KEY, fileName TEXT NOT NULL, totalRows INTEGER NOT NULL DEFAULT 0,
+    createdRows INTEGER NOT NULL DEFAULT 0, updatedRows INTEGER NOT NULL DEFAULT 0,
+    duplicateRows INTEGER NOT NULL DEFAULT 0, failedRows INTEGER NOT NULL DEFAULT 0,
+    skippedRows INTEGER NOT NULL DEFAULT 0, matchedRows INTEGER NOT NULL DEFAULT 0,
+    unmatchedRows INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'COMPLETED', uploadedBy TEXT, uploadedAt TEXT NOT NULL,
+    completedAt TEXT, rolledBackAt TEXT, rolledBackBy TEXT
+  )`);
+  db.run(`CREATE TABLE IF NOT EXISTS "WineImportError" (
+    id TEXT PRIMARY KEY, importBatchId TEXT NOT NULL, rowNumber INTEGER NOT NULL,
+    wineName TEXT, pluCode TEXT, barcode TEXT, error TEXT NOT NULL,
+    recommendation TEXT, createdAt TEXT NOT NULL
+  )`);
+  db.run(`CREATE INDEX IF NOT EXISTS "idx_wineimporterror_batch" ON "WineImportError" (importBatchId)`);
+  // One generic table for every wine reference list (PRODUCER, COUNTRY, REGION, APPELLATION,
+  // VARIETAL, WINE_TYPE, CATEGORY, SUB_CATEGORY, BOTTLE_SIZE, CLASSIFICATION). Chosen over ten
+  // near-identical tables so one CRUD route + one dedupe rule covers all of them. normalizedName is
+  // uniquely indexed per type, which is what blocks "Bouchard Père & Fils" vs "BOUCHARD PERE & FILS".
+  db.run(`CREATE TABLE IF NOT EXISTS "WineMasterData" (
+    id TEXT PRIMARY KEY, type TEXT NOT NULL, code TEXT, name TEXT NOT NULL,
+    normalizedName TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'Active',
+    createdAt TEXT NOT NULL, createdBy TEXT, updatedAt TEXT NOT NULL, updatedBy TEXT
+  )`);
+  db.run(`CREATE UNIQUE INDEX IF NOT EXISTS "idx_winemasterdata_type_norm" ON "WineMasterData" (type, normalizedName)`);
   fs.writeFileSync(dbPath, Buffer.from(db.export()));
   g.__sqljsDb = db;
   return db;
@@ -355,6 +464,21 @@ async function withWriteLock<T>(fn: (db: ReturnType<typeof getDb> extends Promis
   writeQueue = task.catch(() => {});
   return task as Promise<T>;
 }
+
+// Internal DB primitives re-exported for sibling module files (currently lib/wineDb.ts). They MUST
+// be imported from here rather than re-implemented: getDb owns the single shared init promise and
+// withWriteLock owns the single serialising write queue, so a module that opened its own handle
+// would race the main one and lose writes.
+export const _internal = {
+  getDb,
+  withWriteLock,
+  execAll: (db: unknown, sql: string, params: unknown[] = []) => execAll(db, sql, params),
+  execFirst: (db: unknown, sql: string, params: unknown[] = []) => execFirst(db, sql, params),
+  newId,
+  nowIso,
+  normBool,
+  normStr,
+};
 
 // ── Row utilities ────────────────────────────────────────────────────────────
 
@@ -396,6 +520,9 @@ function rowToDbUser(row: Record<string, unknown>): DbUser {
     outlet: String(row.outlet),
     active: normBool(row.active),
     createdAt: String(row.createdAt),
+    accountType: normStr(row.accountType),
+    businessUnit: normStr(row.businessUnit),
+    winePermissions: normStr(row.winePermissions),
   };
 }
 
@@ -408,6 +535,9 @@ function rowToDbUserPublic(row: Record<string, unknown>): DbUserPublic {
     outlet: String(row.outlet),
     active: normBool(row.active),
     createdAt: String(row.createdAt),
+    accountType: normStr(row.accountType),
+    businessUnit: normStr(row.businessUnit),
+    winePermissions: normStr(row.winePermissions),
   };
 }
 
@@ -417,7 +547,7 @@ export async function getUserByEmail(email: string): Promise<DbUser | null> {
   try {
     const db = await getDb();
     const row = execFirst(db,
-      'SELECT id, email, password, name, role, outlet, active, createdAt FROM "User" WHERE email = ? LIMIT 1',
+      'SELECT id, email, password, name, role, outlet, active, createdAt, accountType, businessUnit, winePermissions FROM "User" WHERE email = ? LIMIT 1',
       [email]);
     return row ? rowToDbUser(row) : null;
   } catch (err) {
@@ -430,7 +560,7 @@ export async function getUserById(id: string): Promise<DbUserPublic | null> {
   try {
     const db = await getDb();
     const row = execFirst(db,
-      'SELECT id, email, name, role, outlet, active, createdAt FROM "User" WHERE id = ? LIMIT 1',
+      'SELECT id, email, name, role, outlet, active, createdAt, accountType, businessUnit, winePermissions FROM "User" WHERE id = ? LIMIT 1',
       [id]);
     return row ? rowToDbUserPublic(row) : null;
   } catch (err) {
@@ -443,7 +573,7 @@ export async function getAllUsers(): Promise<DbUserPublic[]> {
   try {
     const db = await getDb();
     const rows = execAll(db,
-      'SELECT id, email, name, role, outlet, active, createdAt FROM "User" ORDER BY createdAt DESC');
+      'SELECT id, email, name, role, outlet, active, createdAt, accountType, businessUnit, winePermissions FROM "User" ORDER BY createdAt DESC');
     return rows.map(rowToDbUserPublic);
   } catch (err) {
     console.error('[db] getAllUsers failed:', err);
@@ -455,7 +585,7 @@ export async function findUserByEmailExcluding(email: string, excludeId: string)
   try {
     const db = await getDb();
     const row = execFirst(db,
-      'SELECT id, email, name, role, outlet, active, createdAt FROM "User" WHERE email = ? AND id != ? LIMIT 1',
+      'SELECT id, email, name, role, outlet, active, createdAt, accountType, businessUnit, winePermissions FROM "User" WHERE email = ? AND id != ? LIMIT 1',
       [email, excludeId]);
     return row ? rowToDbUserPublic(row) : null;
   } catch (err) {
@@ -466,14 +596,16 @@ export async function findUserByEmailExcluding(email: string, excludeId: string)
 
 export async function createUser(data: {
   email: string; password: string; name: string; role: string; outlet: string;
+  accountType?: string | null; businessUnit?: string | null; winePermissions?: string | null;
 }): Promise<DbUserPublic> {
   return withWriteLock((db) => {
     const id = newId();
     const now = nowIso();
     db.run(
-      'INSERT INTO "User" (id, email, password, name, role, outlet, active, createdAt) VALUES (?,?,?,?,?,?,1,?)',
-      [id, data.email, data.password, data.name, data.role, data.outlet, now]);
-    const row = execFirst(db, 'SELECT id, email, name, role, outlet, active, createdAt FROM "User" WHERE id = ?', [id]);
+      'INSERT INTO "User" (id, email, password, name, role, outlet, active, createdAt, accountType, businessUnit, winePermissions) VALUES (?,?,?,?,?,?,1,?,?,?,?)',
+      [id, data.email, data.password, data.name, data.role, data.outlet, now,
+        data.accountType ?? null, data.businessUnit ?? null, data.winePermissions ?? null]);
+    const row = execFirst(db, 'SELECT id, email, name, role, outlet, active, createdAt, accountType, businessUnit, winePermissions FROM "User" WHERE id = ?', [id]);
     if (!row) throw new Error('User creation failed');
     return rowToDbUserPublic(row);
   });
@@ -481,6 +613,7 @@ export async function createUser(data: {
 
 export async function updateUser(id: string, data: Partial<{
   email: string; password: string; name: string; role: string; outlet: string; active: boolean;
+  accountType: string | null; businessUnit: string | null; winePermissions: string | null;
 }>): Promise<DbUserPublic | null> {
   return withWriteLock((db) => {
     const sets: string[] = [];
@@ -491,11 +624,14 @@ export async function updateUser(id: string, data: Partial<{
     if (data.role !== undefined)     { sets.push('role = ?');     vals.push(data.role); }
     if (data.outlet !== undefined)   { sets.push('outlet = ?');   vals.push(data.outlet); }
     if (data.active !== undefined)   { sets.push('active = ?');   vals.push(data.active ? 1 : 0); }
+    if (data.accountType !== undefined)     { sets.push('accountType = ?');     vals.push(data.accountType); }
+    if (data.businessUnit !== undefined)    { sets.push('businessUnit = ?');    vals.push(data.businessUnit); }
+    if (data.winePermissions !== undefined) { sets.push('winePermissions = ?'); vals.push(data.winePermissions); }
     if (sets.length > 0) {
       vals.push(id);
       db.run(`UPDATE "User" SET ${sets.join(', ')} WHERE id = ?`, vals);
     }
-    const row = execFirst(db, 'SELECT id, email, name, role, outlet, active, createdAt FROM "User" WHERE id = ?', [id]);
+    const row = execFirst(db, 'SELECT id, email, name, role, outlet, active, createdAt, accountType, businessUnit, winePermissions FROM "User" WHERE id = ?', [id]);
     return row ? rowToDbUserPublic(row) : null;
   });
 }
@@ -549,6 +685,9 @@ function rowToPLURequest(row: Record<string, unknown>): DbPLURequest {
     adminNote: normStr(row.adminNote),
     exportedAt: normStr(row.exportedAt),
     exportBatchId: normStr(row.exportBatchId),
+    publishedToWineList: normBool(row.publishedToWineList),
+    publishedAt: normStr(row.publishedAt),
+    publishedBy: normStr(row.publishedBy),
   };
 }
 

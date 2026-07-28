@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/session';
 import { getUserById, findUserByEmailExcluding, updateUser, deleteUser } from '@/lib/db';
 import { updateUserSchema } from '@/lib/validations';
+import { WINE_PIC_ACCOUNT_TYPE, WINE_PIC_BUSINESS_UNIT } from '@/lib/winePermissions';
 import bcrypt from 'bcryptjs';
 
 export const dynamic = 'force-dynamic';
@@ -49,6 +50,15 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     const data: Parameters<typeof updateUser>[1] = { ...parsed.data };
     if (data.password) {
       data.password = await bcrypt.hash(data.password, 12);
+    }
+    // Promoting an account to Wine PIC also gives it the Wine Cork business unit (the branding label);
+    // demoting it clears the label so the account falls back to "[ROLE] · [OUTLET]".
+    if ('accountType' in parsed.data) {
+      if (parsed.data.accountType === WINE_PIC_ACCOUNT_TYPE) {
+        data.businessUnit = parsed.data.businessUnit ?? WINE_PIC_BUSINESS_UNIT;
+      } else if (parsed.data.accountType === null && parsed.data.businessUnit === undefined) {
+        data.businessUnit = null;
+      }
     }
 
     const user = await updateUser(params.id, data);
