@@ -143,8 +143,6 @@ Cashier fills item form
 | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Master Items**           | Browse/search the imported Quinos menu snapshot; upload CSV/XLSX; per-item detail; **Master All Item** XLSX report (all-item + per-outlet sheets).                                                                                                                                                                                           |
 | **SAP Master Items**       | Import & browse the SAP wine registry (item no / description / subgroup / barcode).                                                                                                                                                                                                                                                          |
-| **Barcode Lookup**         | Client-side 3-file XLSX auto-fill deriving NCK barcodes; master-comparison view.                                                                                                                                                                                                                                                             |
-| **Reconcile (Fisik Toko)** | Server-side physical-stock reconciliation: matches uploaded stock against masters via a 6-step cascade (barcode → SAP-7→NCK → XEVLA-6→bridge→SAP→NCK → prefix → fuzzy name → unmatched); persisted sessions; XLSX export. Uses `ReconcileSession`, `ReconcileRow`, `SapXevlaBridge` tables.                                                  |
 | **Data Quality**           | Dashboards for **duplicate analysis + SAP evidence**, price gaps, duplicate barcodes, and trial/placeholder items. Duplicate engine groups look-alike masters and classifies each group (**Likely Duplicate / SAP-Separated / Ambiguous / No SAP Evidence**) with lazy, paginated per-group SAP evidence. Read-only - never mutates masters. |
 | **Wiki / Glossary**        | Internal documentation and term/abbreviation reference (seeded defaults + editable).                                                                                                                                                                                                                                                         |
 
@@ -168,7 +166,6 @@ Cashier fills item form
 - `itemMatch.ts` - import-row → master matching cascade (barcode/name+cat/fuzzy).
 - `barcode.ts` - NCK barcode derivation.
 - `dupAnalysis.ts` + `dupCache.ts` - duplicate grouping & SAP evidence (cached, lazy).
-- `reconcile.ts` - physical-stock reconciliation cascade.
 - `export.ts`, `masterReport.ts`, `priceLevels.ts`, `outlets.ts`, `categories.ts`, `configLoader.ts`.
 
 ---
@@ -183,7 +180,6 @@ Cashier fills item form
 | **DiscountRequest**                                  | POS discount-button requests.                                                                                      |
 | **MasterItem**                                       | Snapshot of the live Quinos menu (imported); includes `priceLevels`, `outlets`, `active`.                          |
 | **SapMasterItem**                                    | SAP wine registry (item no / description / subgroup / barcode).                                                    |
-| **ReconcileSession / ReconcileRow / SapXevlaBridge** | Physical-stock reconciliation state + permanent SAP↔XEVLA bridge.                                                  |
 | **OutletConfig / PrinterConfig / CategoryConfig**    | Editable reference data driving forms, code generation, and printer routing.                                       |
 | **WikiArticle / GlossaryEntry**                      | Knowledge Base content.                                                                                            |
 
@@ -195,7 +191,7 @@ Cashier fills item form
 
 - **The POS is the boss:** codes, columns, price-level strings, and printer names all mirror Quinos exactly.
 - **No accidental double-imports:** export state is tracked; requests move PENDING → DONE.
-- **Central governance:** prefixes/departments enforce group-wide vs outlet-specific item scoping; Data Quality + Reconcile guard against duplicates and drift.
+- **Central governance:** prefixes/departments enforce group-wide vs outlet-specific item scoping; Data Quality guards against duplicates and drift.
 - **Wine is special:** SAP is its source of truth, barcodes are SAP-derived (NCK), and Cork-outlet wine additions get a Cost Control gate.
 - **Runs lean on shared hosting:** WASM SQLite, synchronous DB, so expensive analysis is cached, paginated, and lazy-loaded.
 - **Language:** UI is bilingual-leaning - Indonesian labels/reasons with English domain terms.

@@ -5,8 +5,8 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard, Download, Users, Plus, Layers, Menu, X,
-  BookOpen, Database, ScanBarcode, BookMarked, ChevronDown, ChevronRight, Tag, Settings, Search, Trash2,
-  AlertTriangle, ArrowLeftRight, FileSpreadsheet, BadgeDollarSign, ClipboardCheck,
+  BookOpen, Database, BookMarked, ChevronDown, ChevronRight, Tag, Settings, Search, Trash2,
+  AlertTriangle, FileSpreadsheet, BadgeDollarSign, ClipboardCheck,
   Wine, Send,
 } from 'lucide-react';
 import { useSession } from 'next-auth/react';
@@ -49,8 +49,6 @@ const KB_ITEMS = [
   { label: 'Master Items', href: '/admin/kb/items', icon: <Database size={14} /> },
   { label: 'Master Items SAP', href: '/admin/kb/sap-items', icon: <FileSpreadsheet size={14} /> },
   { label: 'Data Quality', href: '/admin/kb/quality', icon: <AlertTriangle size={14} /> },
-  { label: 'Rekonsiliasi', href: '/admin/kb/reconcile', icon: <ArrowLeftRight size={14} /> },
-  { label: 'Barcode Lookup', href: '/admin/kb/barcode', icon: <ScanBarcode size={14} /> },
   { label: 'Glossary', href: '/admin/kb/glossary', icon: <BookMarked size={14} /> },
 ];
 

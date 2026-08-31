@@ -2,8 +2,8 @@
 // item codes: take the digits-only of the code and suffix "11".
 // e.g. "3151476(NCK)" → "315147611". Only codes flagged "(NCK)" qualify.
 //
-// Lifted from app/admin/kb/barcode/page.tsx so the server-side dual-lookup
-// (lib match-batch route) and the client share one implementation.
+// Single shared implementation for every consumer: the barcode search route
+// (/api/plu/search-barcode), the cost-control derivation and the duplicate analysis.
 
 // True when the SAP code carries the "(NCK)" marker that means a barcode can be derived.
 export function isNckCode(code: string): boolean {
