@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireWinePermission } from '@/lib/wineApi';
 import { parseWineImportFile } from '@/lib/wineImportFile';
+import { rejectOversizedUpload } from '@/lib/upload';
 import {
   suggestColumnMapping,
   parseWineImportRow,
@@ -82,6 +83,8 @@ export async function POST(req: NextRequest) {
     if (!(file instanceof File)) {
       return NextResponse.json({ error: 'File belum dipilih.' }, { status: 400 });
     }
+    const tooBig = rejectOversizedUpload(file);
+    if (tooBig) return tooBig;
     const buffer = Buffer.from(await file.arrayBuffer());
     const sheetParam = form.get('sheet');
     const parsed = parseWineImportFile(buffer, typeof sheetParam === 'string' ? sheetParam : undefined);

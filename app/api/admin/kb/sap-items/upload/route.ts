@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/session';
 import { upsertSapMasterItems, type SapMasterItemUpsertInput } from '@/lib/db';
+import { rejectOversizedUpload, maxUploadMb } from '@/lib/upload';
 import * as XLSX from 'xlsx';
 
 export const dynamic = 'force-dynamic';
@@ -31,6 +32,8 @@ export async function POST(req: NextRequest) {
     if (!isCsv && !isXlsx) {
       return NextResponse.json({ error: 'Please upload a .xlsx or .csv file.' }, { status: 400 });
     }
+    const tooBig = rejectOversizedUpload(file, `File is too large. Maximum ${maxUploadMb()} MB.`);
+    if (tooBig) return tooBig;
 
     const arrayBuffer = await file.arrayBuffer();
     let rows: Record<string, string>[];

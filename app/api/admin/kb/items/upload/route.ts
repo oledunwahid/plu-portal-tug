@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/session';
 import { upsertMasterItems, type MasterItemUpsertInput } from '@/lib/db';
+import { rejectOversizedUpload, maxUploadMb } from '@/lib/upload';
 import * as XLSX from 'xlsx';
 
 export const dynamic = 'force-dynamic';
@@ -42,6 +43,8 @@ export async function POST(req: NextRequest) {
     if (!file.name.endsWith('.csv') && file.type !== 'text/csv') {
       return NextResponse.json({ error: 'Please upload a .csv file.' }, { status: 400 });
     }
+    const tooBig = rejectOversizedUpload(file, `File is too large. Maximum ${maxUploadMb()} MB.`);
+    if (tooBig) return tooBig;
 
     const arrayBuffer = await file.arrayBuffer();
     // Decode as UTF-8 text and strip BOM so XLSX sees clean text with an
@@ -62,14 +65,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'The uploaded file is empty or unreadable.' }, { status: 400 });
     }
 
-    // --- DIAGNOSTIC (remove after confirmed) ---
-    for (let di = 0; di < Math.min(3, rows.length); di++) {
-      const r = rows[di];
-      console.log(`[IMPORT DIAG] row ${di + 1} keys:`, JSON.stringify(Object.keys(r)));
-      console.log(`[IMPORT DIAG] row ${di + 1} Code=${JSON.stringify(r['Code'] ?? r['code'])} Name=${JSON.stringify(r['Name'] ?? r['name'])}`);
-    }
-    // --- END DIAGNOSTIC ---
-
     const validItems: MasterItemUpsertInput[] = [];
     let skipped = 0;
 
@@ -77,7 +72,6 @@ export async function POST(req: NextRequest) {
       const code = (row['Code'] ?? row['code'] ?? '').trim();
       const name = (row['Name'] ?? row['name'] ?? '').trim();
       if (!code || !name) {
-        console.log('[IMPORT DIAG] SKIP: code=', JSON.stringify(code), 'name=', JSON.stringify(name), 'keys:', JSON.stringify(Object.keys(row).slice(0, 4)));
         skipped++;
         continue;
       }

@@ -50,6 +50,8 @@ function LoginForm() {
       const result = await signIn('credentials', { email, password, redirect: false });
       if (result?.error === 'INACTIVE_ACCOUNT') {
         setError('Your account has been deactivated. Please contact your manager.');
+      } else if (result?.error === 'TOO_MANY_ATTEMPTS') {
+        setError('Too many sign-in attempts. Please wait 15 minutes and try again.');
       } else if (result?.error) {
         setError('Incorrect email or password. Please try again.');
       }
