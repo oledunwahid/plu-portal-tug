@@ -3,15 +3,16 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { CategoryCodeEntry, suggestPLUCode, assemblePLUCode, derivePrefixGroups, getCategoryCodeParts, prefixForOutlet } from '@/lib/pluCode';
 import { Combobox } from '@/components/ui/combobox';
 import { MultiSelect } from '@/components/ui/multi-select';
 import { toast } from 'sonner';
-import { Loader2, Plus, Trash2, Copy, AlertTriangle, Upload, X, Check, Download } from 'lucide-react';
+import { Loader2, Plus, Trash2, Copy, AlertTriangle, Upload, X, Check, Download, PlusCircle } from 'lucide-react';
 import { SuccessModal } from '@/components/SuccessModal';
 import { PLUCodeSearch } from '@/components/PLUCodeSearch';
 import type { PLUSearchResult } from '@/components/PLUCodeSearch';
-import type { RowMatch, MatchCandidate, BarcodeMismatch, PriceLevelsWarning } from '@/lib/itemMatch';
+import type { RowMatch, MatchCandidate, BarcodeMismatch, PriceLevelsWarning, MatchConfidence } from '@/lib/itemMatch';
 import { WineWarnings } from '@/components/WineWarnings';
 
 const REQUEST_TYPES = [
@@ -243,6 +244,29 @@ interface PriceMatchRow {
   match: RowMatch;
   resolvedCode: string; // current code (auto-filled for clean exact match; chosen/typed otherwise)
   confirmed: boolean;   // user explicitly accepted a review row
+  // Unmatched WINE only: the cashier chose to submit this row as a new item instead of
+  // hunting for an existing code. Never counts toward the price import.
+  createNew: boolean;
+}
+
+// Confidence is shown as a band, not a percentage: a Dice score of 0.82 is not 82% certainty,
+// and showing the number invites the cashier to read precision into it that is not there.
+const CONFIDENCE_UI: Record<MatchConfidence, { label: string; color: string; bg: string }> = {
+  high:   { label: 'Tinggi', color: '#2D4A2E', bg: 'rgba(61,90,62,0.12)' },
+  medium: { label: 'Sedang', color: '#8B6914', bg: 'rgba(184,134,11,0.14)' },
+  low:    { label: 'Rendah', color: '#8B3A2A', bg: 'rgba(122,46,31,0.10)' },
+};
+
+function ConfidenceChip({ confidence }: { confidence: MatchConfidence }) {
+  const c = CONFIDENCE_UI[confidence];
+  return (
+    <span style={{
+      padding: '0.1rem 0.4rem', borderRadius: '0.25rem', fontSize: '0.65rem', fontWeight: 700,
+      letterSpacing: '0.02em', background: c.bg, color: c.color, whiteSpace: 'nowrap',
+    }}>
+      {c.label}
+    </span>
+  );
 }
 
 function sanitizePrice(raw: string): string {
@@ -265,6 +289,7 @@ function buildPriceRow(rowNum: number, data: Record<string, string>, match: RowM
     // Mismatched exact matches keep the resolved code visible but still require confirmation.
     resolvedCode: cleanExact || (isExact && match.resolvedCode) ? (match.resolvedCode ?? '') : '',
     confirmed: false,
+    createNew: false,
   };
 }
 
@@ -365,6 +390,8 @@ export default function BatchNewPage() {
   const [priceImportModal, setPriceImportModal] = useState<{ open: boolean; rows: PriceMatchRow[] }>({ open: false, rows: [] });
   const [matching, setMatching] = useState(false);
   const [showRejected, setShowRejected] = useState(false);
+  // Guards the destructive half of the create-new path: switching request type clears the form.
+  const [confirmSwitchToNew, setConfirmSwitchToNew] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
 
   // Sequence management
@@ -796,6 +823,7 @@ export default function BatchNewPage() {
           const results: RowMatch[] = data.results ?? [];
           const priceRows = rows.map((r, i) => buildPriceRow(i + 1, r, results[i] ?? { type: 'none' }));
           setShowRejected(false);
+          setConfirmSwitchToNew(false);
           setPriceImportModal({ open: true, rows: priceRows });
         } catch {
           toast.error('Gagal mencocokkan data dengan master item. Coba lagi.');
@@ -823,6 +851,38 @@ export default function BatchNewPage() {
     setIsDragOver(false);
     const file = e.dataTransfer.files?.[0];
     if (file) handleFile(file);
+  }
+
+  /**
+   * Carry unmatched WINE rows into the NEW_ITEM flow with the cashier's own entry pre-filled.
+   *
+   * It does NOT create master items: MasterItem mirrors Quinos and is admin-owned, so the
+   * legitimate route for an item that does not exist yet is a NEW_ITEM request. This hands the
+   * rows to the existing NEW_ITEM import modal, which validates them exactly like a file upload.
+   *
+   * Switching request type clears the items table, which is why the caller confirms first.
+   */
+  function startCreateNewFromRejected(rowsToCreate: PriceMatchRow[]) {
+    if (rowsToCreate.length === 0) return;
+    const raw = rowsToCreate.map((r) => ({
+      Name: r.name,
+      Category: r.category,
+      Department: r.department,
+      Barcode: r.barcode,
+      // The price the cashier asked for becomes the new item's price - it is the only
+      // price they gave us, and leaving it blank would fail NEW_ITEM validation.
+      Price: r.price,
+    }));
+
+    setRequestType('NEW_ITEM');
+    setItems([makeDefaultRow()]);
+    setApplyHighlight(false);
+    setPriceImportModal({ open: false, rows: [] });
+    setConfirmSwitchToNew(false);
+
+    const validated = validateImportRows(raw, 'NEW_ITEM', configCategories);
+    setImportModal({ open: true, rows: validated });
+    toast.info(`${rowsToCreate.length} wine dipindahkan ke permintaan New Item. Lengkapi outlet dan printer sebelum submit.`);
   }
 
   function updatePriceRow(rowNum: number, patch: Partial<PriceMatchRow>) {
@@ -1052,6 +1112,13 @@ export default function BatchNewPage() {
         const readyCount = rows.filter(priceRowReady).length;
         const fmtRp = (n: number) => n.toLocaleString('id-ID');
 
+        // The two rejections are different problems and get different remedies:
+        // wine was searched by name and genuinely does not exist yet, so it can be created;
+        // non-wine was never name-searched (code-only rule) and just needs its PLU code.
+        const rejectedWine = rejected.filter((r) => r.match.isWine);
+        const rejectedNonWine = rejected.filter((r) => !r.match.isWine);
+        const createNewRows = rejectedWine.filter((r) => r.createNew);
+
         const badge = (ready: boolean) => ready ? (
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.2rem', padding: '0.15rem 0.5rem', borderRadius: '0.25rem', fontSize: '0.67rem', fontWeight: 600, background: 'rgba(61,90,62,0.1)', color: '#2D4A2E', border: '1px solid rgba(61,90,62,0.25)', whiteSpace: 'nowrap' }}>
             <Check size={9} /> SIAP
@@ -1135,6 +1202,7 @@ export default function BatchNewPage() {
                           <span style={{ color: 'var(--text-primary)' }}>{m.master?.name}</span>
                           <span style={{ color: 'var(--text-secondary)' }}>({m.master?.category})</span>
                           {m.master?.price != null && <span style={{ color: 'var(--text-secondary)' }}>· harga lama Rp {fmtRp(m.master.price)}</span>}
+                          {m.confidence && <ConfidenceChip confidence={m.confidence} />}
                         </div>
                       )}
 
@@ -1181,6 +1249,13 @@ export default function BatchNewPage() {
                           <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginBottom: '0.35rem' }}>
                             {m.type === 'fuzzy' ? 'Tidak ada kecocokan persis. Pilih kandidat atau masukkan kode manual:' : 'Lebih dari satu master cocok. Pilih kandidat atau masukkan kode manual:'}
                           </div>
+                          {/* Only the fuzzy pass produces sub-'high' bands, and only for wine. Naming the
+                              weakest band explicitly stops a 'Rendah' suggestion reading as an endorsement. */}
+                          {m.type === 'fuzzy' && (m.candidates ?? []).every((c) => c.confidence !== 'high') && (
+                            <div style={{ fontSize: '0.7rem', color: '#8B6914', marginBottom: '0.35rem' }}>
+                              Kecocokan lemah - periksa nama dengan teliti sebelum menerima, atau buat item baru di bagian bawah.
+                            </div>
+                          )}
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
                             {(m.candidates ?? []).map((c: MatchCandidate) => {
                               const selected = r.confirmed && r.resolvedCode === c.code;
@@ -1198,7 +1273,11 @@ export default function BatchNewPage() {
                                   <span style={{ fontSize: '0.76rem', color: 'var(--text-primary)' }}>{c.name}</span>
                                   <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>({c.category})</span>
                                   {c.price != null && <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>· Rp {fmtRp(c.price)}</span>}
-                                  {m.type === 'fuzzy' && <span style={{ marginLeft: 'auto', fontSize: '0.68rem', fontWeight: 600, color: '#8B6914' }}>{Math.round(c.score * 100)}%</span>}
+                                  {m.type === 'fuzzy' && (
+                                    <span style={{ marginLeft: 'auto' }}>
+                                      <ConfidenceChip confidence={c.confidence} />
+                                    </span>
+                                  )}
                                 </button>
                               );
                             })}
@@ -1247,6 +1326,69 @@ export default function BatchNewPage() {
                         <p style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', margin: '0 0 0.5rem' }}>
                           Baris ini tidak diimport. Tangani secara manual sebagai permintaan item baru bila perlu.
                         </p>
+
+                        {/* WINE, no match: searched by barcode and by name, genuinely not in master.
+                            The remedy is a new-item request, so offer that directly. */}
+                        {rejectedWine.length > 0 && (
+                          <div style={{ marginBottom: '0.6rem', border: '1px solid rgba(184,134,11,0.3)', borderRadius: '0.3rem', padding: '0.5rem 0.625rem', background: 'rgba(184,134,11,0.04)' }}>
+                            <div style={{ fontSize: '0.74rem', fontWeight: 600, color: '#8B6914', marginBottom: '0.35rem' }}>
+                              Wine tidak ditemukan ({rejectedWine.length}) - bisa dibuat sebagai item baru
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                              {rejectedWine.map((r) => (
+                                <label key={r.rowNum} style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', fontSize: '0.74rem', cursor: 'pointer' }}>
+                                  <input
+                                    type="checkbox"
+                                    checked={r.createNew}
+                                    onChange={(e) => updatePriceRow(r.rowNum, { createNew: e.target.checked })}
+                                    style={{ cursor: 'pointer', accentColor: 'var(--bg-dark)' }}
+                                  />
+                                  <span style={{ color: 'var(--text-primary)' }}>{r.name || 'tanpa nama'}</span>
+                                  {r.category && <span style={{ color: 'var(--text-secondary)' }}>· {r.category}</span>}
+                                  {r.barcode && <span style={{ fontFamily: 'monospace', color: 'var(--text-secondary)', fontSize: '0.7rem' }}>· {r.barcode}</span>}
+                                </label>
+                              ))}
+                            </div>
+                            {createNewRows.length > 0 && (
+                              <div style={{ marginTop: '0.5rem', borderTop: '1px solid rgba(184,134,11,0.25)', paddingTop: '0.5rem' }}>
+                                {!confirmSwitchToNew ? (
+                                  <button type="button" onClick={() => setConfirmSwitchToNew(true)}
+                                    style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', padding: '0.35rem 0.7rem', background: 'var(--bg-dark)', color: 'var(--accent-gold)', border: 'none', borderRadius: '0.3rem', fontSize: '0.74rem', fontWeight: 600, cursor: 'pointer' }}>
+                                    <PlusCircle size={12} /> Buat {createNewRows.length} item baru
+                                  </button>
+                                ) : (
+                                  <div style={{ fontSize: '0.72rem', color: 'var(--text-primary)' }}>
+                                    {/* Switching type resets the form, so this is asked before anything is lost. */}
+                                    Beralih ke <strong>New Item</strong> akan mengosongkan baris harga yang sedang dikerjakan. Lanjutkan?
+                                    <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.4rem' }}>
+                                      <button type="button" onClick={() => startCreateNewFromRejected(createNewRows)}
+                                        style={{ padding: '0.3rem 0.7rem', background: 'var(--bg-dark)', color: 'var(--accent-gold)', border: 'none', borderRadius: '0.3rem', fontSize: '0.73rem', fontWeight: 600, cursor: 'pointer' }}>
+                                        Ya, buat item baru
+                                      </button>
+                                      <button type="button" onClick={() => setConfirmSwitchToNew(false)}
+                                        style={{ padding: '0.3rem 0.7rem', background: 'transparent', border: '1px solid var(--border)', borderRadius: '0.3rem', fontSize: '0.73rem', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+                                        Batal
+                                      </button>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Non-wine: never name-searched, so "not found" means the PLU code is missing
+                            or wrong - not that the item does not exist. Say exactly that. */}
+                        {rejectedNonWine.length > 0 && (
+                          <div style={{ marginBottom: '0.6rem', fontSize: '0.73rem', color: '#7A2E1F', display: 'flex', alignItems: 'flex-start', gap: '0.4rem' }}>
+                            <AlertTriangle size={12} style={{ flexShrink: 0, marginTop: '0.15rem' }} />
+                            <span>
+                              {rejectedNonWine.length} baris non-wine tanpa kode PLU yang cocok. Di luar WINE, item hanya
+                              dicocokkan lewat <strong>kode PLU</strong> - lengkapi kolom Code, atau cari kodenya di{' '}
+                              <Link href="/cashier/items" style={{ color: '#8B6914', textDecoration: 'underline' }}>Cari Item</Link>.
+                            </span>
+                          </div>
+                        )}
                         <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '0.5rem' }}>
                           <button type="button"
                             onClick={() => {
@@ -1292,6 +1434,7 @@ export default function BatchNewPage() {
                 <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
                   {readyCount} dari {rows.length} baris siap diimport
                   {rejected.length > 0 && <span style={{ color: '#7A2E1F' }}> · {rejected.length} ditolak</span>}
+                  {createNewRows.length > 0 && <span style={{ color: '#8B6914' }}> · {createNewRows.length} akan dibuat sebagai item baru</span>}
                 </span>
                 <div style={{ display: 'flex', gap: '0.5rem' }}>
                   <button onClick={() => setPriceImportModal({ open: false, rows: [] })}

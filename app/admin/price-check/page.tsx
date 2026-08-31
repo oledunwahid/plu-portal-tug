@@ -302,7 +302,13 @@ export default function PriceCheckPage() {
                   {noMatch && (
                     <div style={{ marginTop: '0.4rem', fontSize: '0.72rem', color: '#7A2E1F' }}>
                       Tidak ditemukan di master Quinos
-                      {r.code ? <> - kode <span style={{ fontFamily: 'monospace' }}>{r.code}</span> tidak terdaftar.</> : ' - isi kolom Code agar bisa dicocokkan secara pasti.'}
+                      {r.code
+                        ? <> - kode <span style={{ fontFamily: 'monospace' }}>{r.code}</span> tidak terdaftar.</>
+                        : m.rejectReason === 'no-code'
+                          // Non-wine is matched by PLU code only, so "not found" here means the code
+                          // is missing - the row was never searched by name at all.
+                          ? ' - di luar WINE item hanya dicocokkan lewat kode PLU. Lengkapi kolom Code.'
+                          : ' - isi kolom Code agar bisa dicocokkan secara pasti.'}
                     </div>
                   )}
                   {!noMatch && oldPrice != null && newPrice != null && oldPrice === newPrice && (

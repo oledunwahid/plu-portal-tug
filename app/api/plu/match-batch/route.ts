@@ -73,12 +73,25 @@ export async function POST(request: NextRequest) {
     // Only now - and only if something is still unresolved - do we pay to load
     // the full active registry (all outlet groups), consistent with the manual
     // PLU code search box.
-    if (unresolved.length) {
+    //
+    // Non-wine rows resolve by exact Code only (see CODE_ONLY_OUTSIDE_WINE in lib/itemMatch),
+    // so an unresolved non-wine row is already decided and needs no registry at all. Loading
+    // it just to reject them would be the expensive half of the request for no result - a
+    // file of nothing but code-less non-wine rows now costs one batched query.
+    const needsRegistry = unresolved.filter((i) => isWineDepartment(inputs[i].department));
+    const decidedWithoutRegistry = unresolved.filter((i) => !isWineDepartment(inputs[i].department));
+
+    if (needsRegistry.length) {
       const masters = await getMasterItems({ active: true, limit: 100000 });
       const refs: MasterRef[] = masters.map(toRef);
       for (const r of refs) if (!masterByCode.has(r.code)) masterByCode.set(r.code, r);
-      const sub = matchImportRows(unresolved.map((i) => inputs[i]), refs);
-      unresolved.forEach((idx, k) => { results[idx] = sub[k]; });
+      const sub = matchImportRows(needsRegistry.map((i) => inputs[i]), refs);
+      needsRegistry.forEach((idx, k) => { results[idx] = sub[k]; });
+    }
+    if (decidedWithoutRegistry.length) {
+      // Same verdict matchImportRows would return for these rows, without the registry load.
+      const sub = matchImportRows(decidedWithoutRegistry.map((i) => inputs[i]), []);
+      decidedWithoutRegistry.forEach((idx, k) => { results[idx] = sub[k]; });
     }
 
     // Wine-only advisory pass: barcode integrity (SAP cross-check) + active
