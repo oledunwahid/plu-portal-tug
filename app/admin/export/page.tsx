@@ -279,6 +279,7 @@ function ExportPageContent() {
   const [previewMode, setPreviewMode] = useState(false);
   const [previewMap, setPreviewMap] = useState<Map<string, PreviewRow>>(new Map());
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [downloadingPriceLevels, setDownloadingPriceLevels] = useState(false);
 
   const activeTab = TABS.find((t) => t.type === activeType)!;
   const columns = COLUMNS[activeType];
@@ -503,6 +504,60 @@ function ExportPageContent() {
   }
 
   const selectedActionableCount = requests.filter((r) => selectedIds.has(r.id) && isAdminActionable(r.status)).length;
+
+  // ── Price-levels side-export ────────────────────────────────────────────────
+  // Separate from the 19-column file: this is the long-form ItemCode/SalesType/Outlets/Price
+  // sheet the admin edits in Excel and re-imports, and it only exists for batch rows (the
+  // endpoint is scoped to one RequestBatch).
+  const batchIdsInScope = (() => {
+    if (sourceFilter !== 'BATCH') return [];
+    const scope = selectedIds.size > 0
+      ? requests.filter((r) => selectedIds.has(r.id))
+      : requests;
+    return Array.from(new Set(scope.map((r) => r.id.split(':')[0]).filter(Boolean)));
+  })();
+
+  // Only knowable once the preview has loaded, since PriceLevels is a computed export column
+  // rather than a field on the request row. Before then the button stays available and the
+  // endpoint's 404 explains that the batch carries none.
+  const previewLoadedForScope = previewMap.size > 0;
+  const previewHasPriceLevels = Array.from(previewMap.values())
+    .some((r) => String(r.PriceLevels ?? '').trim() !== '');
+  const canExportPriceLevels = batchIdsInScope.length === 1
+    && (!previewLoadedForScope || previewHasPriceLevels);
+
+  async function downloadPriceLevels() {
+    const batchId = batchIdsInScope[0];
+    if (!batchId) return;
+    setDownloadingPriceLevels(true);
+    try {
+      const res = await fetch(`/api/admin/requests/batch/${encodeURIComponent(batchId)}/export-price-levels`);
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error ?? 'Download failed');
+      }
+      const blob = await res.blob();
+      const disposition = res.headers.get('Content-Disposition') ?? '';
+      const filename = disposition.match(/filename="([^"]+)"/)?.[1] ?? 'price-levels.xlsx';
+
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+
+      // Deliberately does NOT touch export status: this sheet is a working file for editing
+      // price levels, not the Quinos import, so it must not advance PENDING to EXPORTED.
+      toast.success('Price levels XLSX downloaded.');
+    } catch (err: any) {
+      toast.error(err.message ?? 'Failed to download price levels');
+    } finally {
+      setDownloadingPriceLevels(false);
+    }
+  }
 
   async function handleDownload(format: 'XLSX' | 'CSV') {
     const toDownload = selectedIds.size > 0 ? Array.from(selectedIds) : requests.map((r) => r.id);
@@ -855,6 +910,19 @@ function ExportPageContent() {
               >
                 <Check size={13} />
                 Tandai Selesai ({selectedActionableCount})
+              </button>
+            )}
+            {canExportPriceLevels && (
+              <button
+                onClick={downloadPriceLevels}
+                disabled={downloadingPriceLevels}
+                title="Download this batch's price levels as an editable sheet (ItemCode / SalesType / Outlets / Price)"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '0.375rem', padding: '0.35rem 0.75rem', background: 'transparent', border: '1px solid var(--border)', borderRadius: '4px', fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-secondary)', cursor: downloadingPriceLevels ? 'not-allowed' : 'pointer', opacity: downloadingPriceLevels ? 0.6 : 1 }}
+              >
+                {downloadingPriceLevels
+                  ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} />
+                  : <Download size={13} />}
+                Export Price Levels
               </button>
             )}
             <span style={{ marginLeft: 'auto', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
