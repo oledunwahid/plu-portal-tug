@@ -28,3 +28,11 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 .next/
+
+plu-production-deploy
+plu-production-deploy.pub
+plu-production-deploy.old
+plu-production-deploy.pub.old
+cpanel_known_hosts
+deploy-bundle/
+
